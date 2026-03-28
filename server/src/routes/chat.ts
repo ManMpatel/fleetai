@@ -35,7 +35,7 @@ router.post('/', async (req: Request, res: Response) => {
     // ── Gemini 1.5 Flash ──
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       generationConfig: {
         temperature: 0.3,   // low temp → factual, not creative
         maxOutputTokens: 1024,

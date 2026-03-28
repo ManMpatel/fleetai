@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import axios from 'axios'
-import type { Vehicle, Notification, ChatMessage, FleetStats } from '../types'
+import type { Vehicle, Notification, ChatMessage, FleetStats, Renter } from '../types'
 
 interface FleetStore {
   // Theme
@@ -32,6 +32,17 @@ interface FleetStore {
   // Stats
   stats: FleetStats | null
   computeStats: () => void
+
+  // Renters
+  renters: Renter[]
+  rentersLoading: boolean
+  fetchRenters: () => Promise<void>
+  getRenter: (phone: string) => Promise<Renter | null>
+  updateRenter: (phone: string, data: Partial<Renter>) => Promise<void>
+  activateDebit: (phone: string, weeklyAmount: number) => Promise<void>
+  pauseDebit: (phone: string) => Promise<void>
+  resumeDebit: (phone: string) => Promise<void>
+
 }
 
 export const useStore = create<FleetStore>((set, get) => ({
@@ -166,6 +177,64 @@ export const useStore = create<FleetStore>((set, get) => ({
       ),
     }
     set({ stats })
+  },
+  // ── Renters ──
+  renters: [],
+  rentersLoading: false,
+
+  fetchRenters: async () => {
+    set({ rentersLoading: true })
+    try {
+      const { data } = await axios.get<Renter[]>('/api/renters')
+      set({ renters: data, rentersLoading: false })
+    } catch {
+      set({ rentersLoading: false })
+    }
+  },
+
+  getRenter: async (phone) => {
+    try {
+      const { data } = await axios.get<Renter>(`/api/renters/${encodeURIComponent(phone)}`)
+      return data
+    } catch {
+      return null
+    }
+  },
+
+  updateRenter: async (phone, data) => {
+    try {
+      await axios.put(`/api/renters/${encodeURIComponent(phone)}`, data)
+      get().fetchRenters()
+    } catch (err) {
+      console.error('Failed to update renter', err)
+    }
+  },
+
+  activateDebit: async (phone, weeklyAmount) => {
+    try {
+      await axios.post(`/api/renters/${encodeURIComponent(phone)}/activate`, { weeklyAmount })
+      get().fetchRenters()
+    } catch (err) {
+      console.error('Failed to activate debit', err)
+    }
+  },
+
+  pauseDebit: async (phone) => {
+    try {
+      await axios.post(`/api/renters/${encodeURIComponent(phone)}/pause`)
+      get().fetchRenters()
+    } catch (err) {
+      console.error('Failed to pause debit', err)
+    }
+  },
+
+  resumeDebit: async (phone) => {
+    try {
+      await axios.post(`/api/renters/${encodeURIComponent(phone)}/resume`)
+      get().fetchRenters()
+    } catch (err) {
+      console.error('Failed to resume debit', err)
+    }
   },
 }))
 

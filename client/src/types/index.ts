@@ -3,24 +3,6 @@ export type VehicleStatus = 'available' | 'rented' | 'service'
 export type FineType = 'fine' | 'toll'
 export type NotificationType = 'fine' | 'toll' | 'rego' | 'whatsapp' | 'info'
 
-export interface Renter {
-  _id: string
-  name: string
-  phone: string
-  email: string
-  licenceNumber: string
-  currentVehicle?: string | Vehicle
-  rentalHistory: RentalRecord[]
-  createdAt: string
-  updatedAt: string
-}
-
-export interface RentalRecord {
-  vehicle: string | Vehicle
-  startDate: string
-  endDate?: string
-}
-
 export interface Fine {
   _id: string
   vehicle: string | Vehicle
@@ -51,6 +33,55 @@ export interface Vehicle {
   fines: Fine[]
   tolls: Fine[]
   notes?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PayWayInfo {
+  customerId?: string
+  status: 'active' | 'paused' | 'cancelled' | 'not_setup'
+  weeklyAmount?: number
+  startDate?: string
+  nextDebitDate?: string
+}
+
+export interface RentalRecord {
+  vehicle: string
+  plate: string
+  startDate: string
+  endDate?: string
+  weeklyRate?: number
+  totalWeeks?: number
+  totalAmount?: number
+}
+
+export interface Renter {
+  _id: string
+  name: string
+  phone: string
+  email: string
+  dateOfBirth?: string
+  licenceNumber?: string
+  licencePhotoUrl?: string
+  vehicleType?: 'scooter' | 'car'
+  address?: {
+    street?: string
+    city?: string
+    state?: string
+    postcode?: string
+    country?: string
+  }
+  bankName?: string
+  accountHolderName?: string
+  bsbNumber?: string
+  accountNumber?: string
+  emergencyContactName?: string
+  emergencyContactPhone?: string
+  currentVehicle?: Vehicle | null
+  rentStartDate?: string
+  weeklyRate?: number
+  payway?: PayWayInfo
+  rentalHistory: RentalRecord[]
   createdAt: string
   updatedAt: string
 }

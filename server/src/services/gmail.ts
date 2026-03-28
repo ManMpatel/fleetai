@@ -24,6 +24,7 @@ const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: str
 import Fine from '../models/Fine'
 import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
+import Renter from '../models/Renter'
 
 // ── OAuth2 client ──────────────────────────────────────────
 function createOAuth2Client() {
@@ -185,7 +186,7 @@ async function analyzeFineDocument(
   emailId: string
 ): Promise<void> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const instruction = `Analyze this document and determine if it is an Australian traffic fine, toll notice, parking infringement, or penalty notice.
 
@@ -278,13 +279,45 @@ Return ONLY valid JSON, no markdown, no explanation.`
   }
   await vehicle.save()
 
+  // ── Find who was riding at fine date ──────────────────
+  const fineDate = parsed.date ? new Date(parsed.date) : new Date()
+  let riderInfo = ''
+
+  try {
+    // Check current renter first
+    const currentRenter = await Renter.findOne({ currentVehicle: vehicle._id })
+    if (currentRenter && currentRenter.rentStartDate && currentRenter.rentStartDate <= fineDate) {
+      riderInfo = `Likely rider: ${currentRenter.name} (${currentRenter.phone})`
+    } else {
+      // Search rental history
+      const historicalRenter = await Renter.findOne({
+        'rentalHistory': {
+          $elemMatch: {
+            vehicle: vehicle._id,
+            startDate: { $lte: fineDate },
+            $or: [
+              { endDate: { $gte: fineDate } },
+              { endDate: null },
+              { endDate: { $exists: false } },
+            ],
+          },
+        },
+      })
+      if (historicalRenter) {
+        riderInfo = `Likely rider: ${historicalRenter.name} (${historicalRenter.phone})`
+      }
+    }
+  } catch (err) {
+    console.warn('Could not find rider for fine:', err)
+  }
+
   await Notification.create({
     type: parsed.type ?? 'fine',
     title: `New ${parsed.type === 'toll' ? 'toll' : 'fine'} — ${vehicle.plate}`,
-    description: `$${Number(parsed.amount).toFixed(2)} — ${parsed.description}. Detected from email.`,
+    description: `$${Number(parsed.amount).toFixed(2)} — ${parsed.description}. Detected from email.${riderInfo ? ` ${riderInfo}.` : ''}`,
     plate: vehicle.plate,
     actionRequired: true,
   })
 
-  console.log(`✅ Created ${parsed.type} $${parsed.amount} for ${vehicle.plate} (from email)`)
+  console.log(`✅ Created ${parsed.type} $${parsed.amount} for ${vehicle.plate} (from email)${riderInfo ? ` | ${riderInfo}` : ''}`)
 }

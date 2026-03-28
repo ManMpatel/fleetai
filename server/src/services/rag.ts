@@ -1,5 +1,7 @@
 import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
+import Renter from '../models/Renter'
+
 
 // ─────────────────────────────────────────────────────────
 // buildFleetContext — assembles a text snapshot of the entire
@@ -8,11 +10,24 @@ import Notification from '../models/Notification'
 export async function buildFleetContext(): Promise<string> {
   const now = new Date()
   const in30 = new Date(now.getTime() + 30 * 86400000)
+  
 
   const vehicles = await Vehicle.find()
     .populate('currentRenter', 'name phone email')
     .populate('fines')
     .populate('tolls')
+
+  const renters = await Renter.find()
+    .populate('currentVehicle', 'plate')
+
+  const renterLines = renters.map((r) => {
+    let line = `RENTER|${r.phone}|${r.name}|${r.email || ''}`
+    if (r.currentVehicle) line += `|vehicle:${(r.currentVehicle as any).plate}`
+    if (r.rentStartDate) line += `|since:${r.rentStartDate.toLocaleDateString('en-AU')}`
+    if (r.weeklyRate) line += `|rate:$${r.weeklyRate}/wk`
+    if (r.payway?.status) line += `|debit:${r.payway.status}`
+    return line
+  })
 
   const notifications = await Notification.find({ read: false })
     .sort({ date: -1 })
@@ -68,6 +83,7 @@ export async function buildFleetContext(): Promise<string> {
   return `=== FLEETAI DATABASE SNAPSHOT — ${now.toLocaleDateString('en-AU')} ===
 STATS|total:${stats.total}|available:${stats.available}|rented:${stats.rented}|service:${stats.service}|scooters:${stats.scooters}|cars:${stats.cars}|expiredRego:${stats.expiredRego}|regoDueSoon:${stats.dueSoonRego}|unpaidFines:${stats.unpaidFines}|unpaidTolls:${stats.unpaidTolls}
 ${vehicleLines.join('\n')}
+${renterLines.join('\n')}
 ${alertLines.length > 0 ? alertLines.join('\n') : 'ALERTS|none'}`
 }
 
@@ -132,3 +148,4 @@ async function checkDate(
     actionRequired: true,
   })
 }
+

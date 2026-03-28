@@ -28,14 +28,119 @@ async function seed() {
 
   // ── Renters ──────────────────────────────────────────────
   const renters = await Renter.insertMany([
-    { name: 'Liam Chen', phone: '0412 345 678', email: 'liam.chen@gmail.com', licenceNumber: 'NSW123456' },
-    { name: 'Priya Sharma', phone: '0423 456 789', email: 'priya.s@hotmail.com', licenceNumber: 'NSW234567' },
-    { name: 'Jake Morrison', phone: '0434 567 890', email: 'jake.morrison@outlook.com', licenceNumber: 'NSW345678' },
-    { name: 'Sofia Nguyen', phone: '0445 678 901', email: 'sofia.nguyen@gmail.com', licenceNumber: 'NSW456789' },
-    { name: 'Marcus Webb', phone: '0456 789 012', email: 'marcus.webb@gmail.com', licenceNumber: 'NSW567890' },
-    { name: 'Aisha Patel', phone: '0467 890 123', email: 'aisha.patel@yahoo.com', licenceNumber: 'NSW678901' },
-    { name: 'Tom O\'Brien', phone: '0478 901 234', email: 'tom.obrien@gmail.com', licenceNumber: 'NSW789012' },
-  ])
+  {
+    name: 'Liam Chen',
+    phone: '0412345678',
+    email: 'liam.chen@gmail.com',
+    licenceNumber: 'NSW123456',
+    vehicleType: 'scooter',
+    weeklyRate: 150,
+    address: { street: '12 George St', city: 'Sydney', state: 'NSW', postcode: '2000', country: 'Australia' },
+    bankName: 'CommBank',
+    accountHolderName: 'Liam Chen',
+    bsbNumber: '062000',
+    accountNumber: '12345678',
+    emergencyContactName: 'Wei Chen',
+    emergencyContactPhone: '0411111111',
+    payway: { status: 'active', weeklyAmount: 150, startDate: daysFromNow(-45) },
+  },
+  {
+    name: 'Priya Sharma',
+    phone: '0423456789',
+    email: 'priya.s@hotmail.com',
+    licenceNumber: 'NSW234567',
+    vehicleType: 'scooter',
+    weeklyRate: 150,
+    address: { street: '8 Pitt St', city: 'Parramatta', state: 'NSW', postcode: '2150', country: 'Australia' },
+    bankName: 'ANZ',
+    accountHolderName: 'Priya Sharma',
+    bsbNumber: '012003',
+    accountNumber: '87654321',
+    emergencyContactName: 'Raj Sharma',
+    emergencyContactPhone: '0422222222',
+    payway: { status: 'active', weeklyAmount: 150, startDate: daysFromNow(-15) },
+  },
+  {
+    name: 'Jake Morrison',
+    phone: '0434567890',
+    email: 'jake.morrison@outlook.com',
+    licenceNumber: 'NSW345678',
+    vehicleType: 'scooter',
+    weeklyRate: 150,
+    address: { street: '5 Harris St', city: 'Ultimo', state: 'NSW', postcode: '2007', country: 'Australia' },
+    bankName: 'Westpac',
+    accountHolderName: 'Jake Morrison',
+    bsbNumber: '032000',
+    accountNumber: '11223344',
+    emergencyContactName: 'Sarah Morrison',
+    emergencyContactPhone: '0433333333',
+    payway: { status: 'active', weeklyAmount: 150, startDate: daysFromNow(-21) },
+  },
+  {
+    name: 'Sofia Nguyen',
+    phone: '0445678901',
+    email: 'sofia.nguyen@gmail.com',
+    licenceNumber: 'NSW456789',
+    vehicleType: 'scooter',
+    weeklyRate: 150,
+    address: { street: '22 Crown St', city: 'Surry Hills', state: 'NSW', postcode: '2010', country: 'Australia' },
+    bankName: 'NAB',
+    accountHolderName: 'Sofia Nguyen',
+    bsbNumber: '082001',
+    accountNumber: '55667788',
+    emergencyContactName: 'Minh Nguyen',
+    emergencyContactPhone: '0444444444',
+    payway: { status: 'active', weeklyAmount: 150, startDate: daysFromNow(-26) },
+  },
+  {
+    name: 'Marcus Webb',
+    phone: '0456789012',
+    email: 'marcus.webb@gmail.com',
+    licenceNumber: 'NSW567890',
+    vehicleType: 'scooter',
+    weeklyRate: 150,
+    address: { street: '3 Church St', city: 'Newtown', state: 'NSW', postcode: '2042', country: 'Australia' },
+    bankName: 'CommBank',
+    accountHolderName: 'Marcus Webb',
+    bsbNumber: '062000',
+    accountNumber: '99887766',
+    emergencyContactName: 'Kate Webb',
+    emergencyContactPhone: '0455555555',
+    payway: { status: 'active', weeklyAmount: 150, startDate: daysFromNow(-55) },
+  },
+  {
+    name: 'Aisha Patel',
+    phone: '0467890123',
+    email: 'aisha.patel@yahoo.com',
+    licenceNumber: 'NSW678901',
+    vehicleType: 'scooter',
+    weeklyRate: 150,
+    address: { street: '15 Victoria Rd', city: 'Marrickville', state: 'NSW', postcode: '2204', country: 'Australia' },
+    bankName: 'ANZ',
+    accountHolderName: 'Aisha Patel',
+    bsbNumber: '012003',
+    accountNumber: '44556677',
+    emergencyContactName: 'Dev Patel',
+    emergencyContactPhone: '0466666666',
+    payway: { status: 'active', weeklyAmount: 150, startDate: daysFromNow(-15) },
+  },
+  {
+    name: 'Tom O\'Brien',
+    phone: '0478901234',
+    email: 'tom.obrien@gmail.com',
+    licenceNumber: 'NSW789012',
+    vehicleType: 'car',
+    weeklyRate: 350,
+    address: { street: '7 Miller St', city: 'North Sydney', state: 'NSW', postcode: '2060', country: 'Australia' },
+    bankName: 'Westpac',
+    accountHolderName: 'Tom O\'Brien',
+    bsbNumber: '032000',
+    accountNumber: '33221100',
+    emergencyContactName: 'Claire O\'Brien',
+    emergencyContactPhone: '0477777777',
+    payway: { status: 'active', weeklyAmount: 350, startDate: daysFromNow(-30) },
+  },
+])
   console.log(`👥 Created ${renters.length} renters`)
 
   // ── Scooters (12 Honda Duo) ──────────────────────────────
@@ -281,9 +386,13 @@ async function seed() {
 
     // Assign renter
     if (renterIdx !== null && renters[renterIdx]) {
-      vehicle.currentRenter = renters[renterIdx]._id as any
-      vehicle.rentStartDate = daysFromNow(-renterIdx * 7 - 5)
-    }
+    vehicle.currentRenter = renters[renterIdx]._id as any
+    vehicle.rentStartDate = daysFromNow(-renterIdx * 7 - 5)
+    // Link renter back to vehicle
+    renters[renterIdx].currentVehicle = vehicle._id as any
+    renters[renterIdx].rentStartDate = daysFromNow(-renterIdx * 7 - 5)
+    await renters[renterIdx].save()
+  }
 
     // Create fines
     if (fineData && fineData.length > 0) {
