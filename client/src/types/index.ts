@@ -59,17 +59,16 @@ export interface Renter {
   _id: string
   name: string
   phone: string
-  email: string
+  email?: string
   dateOfBirth?: string
   licenceNumber?: string
-  licencePhotoUrl?: string
   vehicleType?: 'scooter' | 'car'
+  status?: 'pending' | 'active' | 'inactive'  // ← add this
   address?: {
     street?: string
     city?: string
     state?: string
     postcode?: string
-    country?: string
   }
   bankName?: string
   accountHolderName?: string
@@ -77,13 +76,26 @@ export interface Renter {
   accountNumber?: string
   emergencyContactName?: string
   emergencyContactPhone?: string
-  currentVehicle?: Vehicle | null
-  rentStartDate?: string
+  licencePhotoUrl?: string
+  selfieUrl?: string
+  currentVehicle?: string | object
   weeklyRate?: number
-  payway?: PayWayInfo
-  rentalHistory: RentalRecord[]
-  createdAt: string
-  updatedAt: string
+  payway?: {
+    customerId?: string
+    status?: 'not_setup' | 'active' | 'paused' | 'cancelled'
+    weeklyAmount?: number
+    startDate?: string
+    nextDebitDate?: string
+  }
+  rentalHistory?: Array<{
+    vehicle?: string
+    plate?: string
+    startDate: string
+    endDate?: string
+    weeklyRate?: number
+    totalWeeks?: number
+    totalAmount?: number
+  }>
 }
 
 export interface Notification {
