@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useStore } from '../store/useStore'
+import { useAuth0 } from '@auth0/auth0-react'
 
 const navItems = [
   {
@@ -49,6 +50,7 @@ const navItems = [
 export default function Sidebar() {
   const { darkMode, toggleDarkMode, notifications } = useStore()
   const [collapsed, setCollapsed] = useState(false)
+  const { user, logout } = useAuth0()
   const unread = notifications.filter((n) => !n.read).length
 
   return (
@@ -175,16 +177,33 @@ export default function Sidebar() {
           </button>
 
           <div className={`flex items-center gap-3 px-2.5 py-2.5 rounded-lg ${collapsed ? 'justify-center' : ''}`}>
+          {user?.picture ? (
+            <img src={user.picture} className="w-7 h-7 rounded-full shrink-0 object-cover" />
+          ) : (
             <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold shrink-0">
-              O
+              {user?.name?.charAt(0) ?? 'U'}
             </div>
-            {!collapsed && (
-              <div className="flex-1 min-w-0">
-                <p className="text-sidebar-text-active text-xs font-medium truncate">Owner</p>
-                <p className="text-sidebar-text text-[11px] truncate">Sydney Fleet</p>
-              </div>
-            )}
-          </div>
+          )}
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sidebar-text-active text-xs font-medium truncate">{user?.name ?? 'Owner'}</p>
+              <p className="text-sidebar-text text-[11px] truncate">{user?.email ?? 'Sydney Fleet'}</p>
+            </div>
+          )}
+          {!collapsed && (
+            <button
+              onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+              title="Sign out"
+              className="p-1 rounded-md hover:bg-sidebar-active transition-colors text-sidebar-text hover:text-red shrink-0"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          )}
+        </div>
         </div>
       </aside>
     </>
