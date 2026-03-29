@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import axios from 'axios'
 import type { Vehicle, Notification, ChatMessage, FleetStats, Renter } from '../types'
 
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+
 interface FleetStore {
   // Theme
   darkMode: boolean
