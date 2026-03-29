@@ -21,7 +21,14 @@ const PORT = process.env.PORT || 5000
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fleetai'
 
 // ── Middleware ──────────────────────────────────────────────
-app.use(cors())
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://fleetai-tau.vercel.app',
+    'https://fleetai-git-main-manmpatels-projects.vercel.app'
+  ],
+  credentials: true
+}))
 // Raw body needed for Twilio signature validation
 app.use('/api/whatsapp', express.raw({ type: 'application/x-www-form-urlencoded' }), (req, _res, next) => {
   if (Buffer.isBuffer(req.body)) {
