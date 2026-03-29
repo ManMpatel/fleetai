@@ -577,10 +577,10 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                 )}
               </div>
 
-              {renter.rentalHistory?.length > 0 && (
+              {(renter.rentalHistory?.length ?? 0) > 0 && (
                 <div className="bg-surface border border-border rounded-xl p-4">
                   <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Rental History</h3>
-                  {renter.rentalHistory.map((r, i) => (
+                  {(renter.rentalHistory ?? []).map((r, i) => (
                     <div key={i} className="flex justify-between py-1.5 border-b border-border last:border-0 text-sm">
                       <div>
                         <span className="font-mono font-semibold text-accent">{r.plate}</span>
@@ -629,8 +629,8 @@ export default function RentersPage() {
     }
   }, [renters])
 
-  const activeRenters = renters.filter(r => r.status !== 'pending')
-  const pendingRenters = renters.filter(r => r.status === 'pending')
+  const activeRenters = renters.filter(r => (r as any).status !== 'pending')
+  const pendingRenters = renters.filter(r => (r as any).status === 'pending')
   const filtered = activeRenters.filter(r =>
     !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.phone.includes(search)
   )
