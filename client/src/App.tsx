@@ -13,11 +13,16 @@ export default function App() {
         {/* Public onboarding form — no sidebar */}
         <Route path="/onboard/:phone" element={<OnboardPage />} />
 
-        {/* Main app with sidebar */}
+        {/* Main app */}
         <Route path="/*" element={
-          <div className="flex min-h-screen bg-bg">
-            <Sidebar />
-            <main className="flex-1 flex flex-col min-w-0">
+          <div className="flex h-screen overflow-hidden bg-bg">
+            {/* Sidebar — fixed height, never scrolls */}
+            <div className="h-screen sticky top-0 shrink-0">
+              <Sidebar />
+            </div>
+
+            {/* Main content — scrolls independently */}
+            <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
               <Routes>
                 <Route path="/" element={<FleetPage />} />
                 <Route path="/renters" element={<RentersPage />} />

@@ -110,7 +110,9 @@ router.get('/:phone/history', async (req: Request, res: Response) => {
 router.post('/:phone/activate', async (req: Request, res: Response) => {
   try {
     const phone = decodeURIComponent(req.params.phone)
-    const { weeklyAmount } = req.body as { weeklyAmount: number }
+    const { weeklyAmount, intervalDays = 7 } = req.body as { 
+      weeklyAmount: number; intervalDays?: number 
+    }
 
     if (!weeklyAmount || weeklyAmount <= 0) {
       return res.status(400).json({ error: 'weeklyAmount is required' })
@@ -119,30 +121,32 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     const renter = await Renter.findOne({ phone })
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
-    // Create PayWay customer
     const created = await createPayWayCustomer({
       phone: renter.phone,
       name: renter.name,
       email: renter.email,
+      bsbNumber: renter.bsbNumber,
+      accountNumber: renter.accountNumber,
+      accountHolderName: renter.accountHolderName,
     })
 
     if (!created.success) {
       return res.status(500).json({ error: 'Failed to create PayWay customer' })
     }
 
-    // Setup weekly debit from rental start date
-    const startDate = renter.rentStartDate || new Date()
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() + intervalDays)
+
     await setupWeeklyDebit(created.customerId!, weeklyAmount, startDate)
 
-    // Update renter in MongoDB
-    const nextDebit = new Date(startDate)
-    nextDebit.setDate(nextDebit.getDate() + 7)
+    const nextDebit = new Date()
+    nextDebit.setDate(nextDebit.getDate() + intervalDays)
 
     renter.payway = {
       customerId: created.customerId,
       status: 'active',
       weeklyAmount,
-      startDate,
+      startDate: new Date(),
       nextDebitDate: nextDebit,
     }
     await renter.save()
@@ -150,7 +154,7 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     await Notification.create({
       type: 'info',
       title: `Auto-debit activated — ${renter.name}`,
-      description: `Weekly debit of $${weeklyAmount} activated for ${renter.name} (${phone})`,
+      description: `$${weeklyAmount} every ${intervalDays} day${intervalDays !== 1 ? 's' : ''} for ${renter.name}`,
       actionRequired: false,
     })
 
@@ -159,6 +163,8 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+
 
 // ── POST /api/renters/:phone/pause — pause auto-debit ─────
 router.post('/:phone/pause', async (req: Request, res: Response) => {
@@ -170,7 +176,7 @@ router.post('/:phone/pause', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No PayWay customer found' })
     }
 
-    await pauseDebit(renter.payway.customerId)
+    await pauseDebit(renter.payway.customerId, renter.payway.weeklyAmount || 10)
     renter.payway.status = 'paused'
     await renter.save()
 
@@ -311,5 +317,38 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
     })
   }
 })
+// ── POST /api/renters/:phone/approve — owner approves pending renter
+router.post('/:phone/approve', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const renter = await Renter.findOneAndUpdate(
+      { phone },
+      { $set: { status: 'active' } },
+      { new: true }
+    )
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
+    await Notification.create({
+      type: 'info',
+      title: `New renter approved — ${renter.name}`,
+      description: `${renter.name} (${phone}) has been approved and activated.`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true, renter })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── DELETE /api/renters/:phone/reject — owner rejects pending renter
+router.delete('/:phone/reject', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    await Renter.findOneAndDelete({ phone })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
 export default router

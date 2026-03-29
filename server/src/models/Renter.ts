@@ -8,7 +8,9 @@ export interface IRenter extends Document {
   dateOfBirth?: string
   licenceNumber: string
   licencePhotoUrl?: string
+  selfieUrl?: string
   vehicleType?: 'scooter' | 'car'
+  status?: 'pending' | 'active' | 'inactive'
 
   // Address
   address?: {
@@ -73,7 +75,9 @@ const RenterSchema = new Schema<IRenter>(
     dateOfBirth: { type: String },
     licenceNumber: { type: String },
     licencePhotoUrl: { type: String },
+    selfieUrl: { type: String },
     vehicleType: { type: String, enum: ['scooter', 'car'] },
+    status: { type: String, enum: ['pending', 'active', 'inactive'], default: 'pending' },
 
     address: {
       street: { type: String },
