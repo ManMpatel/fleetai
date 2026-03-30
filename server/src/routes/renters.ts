@@ -3,6 +3,7 @@ import Renter from '../models/Renter'
 import Vehicle from '../models/Vehicle'
 import Fine from '../models/Fine'
 import Notification from '../models/Notification'
+import { encrypt, decrypt } from '../services/encryption'
 import {
   createPayWayCustomer,
   setupWeeklyDebit,
@@ -19,7 +20,16 @@ router.get('/', async (_req: Request, res: Response) => {
     const renters = await Renter.find()
       .populate('currentVehicle', 'plate model type')
       .sort({ name: 1 })
-    res.json(renters)
+    
+    const decrypted = renters.map(r => {
+      const obj = r.toObject() as any
+      if (obj.bsbNumber) obj.bsbNumber = decrypt(obj.bsbNumber)
+      if (obj.accountNumber) obj.accountNumber = decrypt(obj.accountNumber)
+      if (obj.accountHolderName) obj.accountHolderName = decrypt(obj.accountHolderName)
+      return obj
+    })
+    
+    res.json(decrypted)
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch renters' })
   }
@@ -32,7 +42,13 @@ router.get('/:phone', async (req: Request, res: Response) => {
     const renter = await Renter.findOne({ phone })
       .populate('currentVehicle', 'plate model type status')
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
-    res.json(renter)
+    
+    const obj = renter.toObject() as any
+    if (obj.bsbNumber) obj.bsbNumber = decrypt(obj.bsbNumber)
+    if (obj.accountNumber) obj.accountNumber = decrypt(obj.accountNumber)
+    if (obj.accountHolderName) obj.accountHolderName = decrypt(obj.accountHolderName)
+    
+    res.json(obj)
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch renter' })
   }
@@ -56,13 +72,27 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:phone', async (req: Request, res: Response) => {
   try {
     const phone = decodeURIComponent(req.params.phone)
+    const body = { ...req.body }
+
+    // Encrypt bank details before saving
+    if (body.bsbNumber) body.bsbNumber = encrypt(body.bsbNumber)
+    if (body.accountNumber) body.accountNumber = encrypt(body.accountNumber)
+    if (body.accountHolderName) body.accountHolderName = encrypt(body.accountHolderName)
+
     const renter = await Renter.findOneAndUpdate(
       { phone },
-      { $set: req.body },
+      { $set: body },
       { new: true, runValidators: true }
     ).populate('currentVehicle', 'plate model type status')
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
-    res.json(renter)
+    
+    // Decrypt before sending back to client
+    const renterObj = renter.toObject() as any
+    if (renterObj.bsbNumber) renterObj.bsbNumber = decrypt(renterObj.bsbNumber)
+    if (renterObj.accountNumber) renterObj.accountNumber = decrypt(renterObj.accountNumber)
+    if (renterObj.accountHolderName) renterObj.accountHolderName = decrypt(renterObj.accountHolderName)
+    
+    res.json(renterObj)
   } catch (err: any) {
     res.status(400).json({ error: err.message })
   }
