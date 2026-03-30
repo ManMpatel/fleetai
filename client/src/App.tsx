@@ -64,6 +64,18 @@ function LoginPage() {
 
 export default function App() {
   const { isLoading, isAuthenticated } = useAuth0()
+
+  // ✅ Always allow onboard page — no auth needed
+  if (window.location.pathname.startsWith('/onboard')) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/onboard/:phone" element={<OnboardPage />} />
+        </Routes>
+      </BrowserRouter>
+    )
+  }
+
   if (isLoading) return (
     <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: '#3b82f6', fontSize: 14 }}>Loading...</div>
@@ -71,23 +83,16 @@ export default function App() {
   )
 
   if (!isAuthenticated) return <LoginPage />
+
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public onboarding form — no sidebar */}
-        <Route path="/onboard/:phone" element={<OnboardPage />} />
-
         <Route path="/admin" element={<AdminPage />} />
-
-        {/* Main app */}
         <Route path="/*" element={
           <div className="flex h-screen overflow-hidden bg-bg">
-            {/* Sidebar — fixed height, never scrolls */}
             <div className="h-screen sticky top-0 shrink-0">
               <Sidebar />
             </div>
-
-            {/* Main content — scrolls independently */}
             <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
               <Routes>
                 <Route path="/" element={<FleetPage />} />
