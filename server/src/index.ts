@@ -13,6 +13,8 @@ import whatsappRouter from './services/whatsapp'
 import renterRoutes from './routes/renters'
 import { checkExpiringDates } from './services/rag'
 import { checkGmailForFines } from './services/gmail'
+import adminRoutes from './routes/admin'
+
 
 dotenv.config()
 
@@ -49,6 +51,7 @@ app.use('/api/chat', chatRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/whatsapp', whatsappRouter)
 app.use('/api/renters', renterRoutes)
+app.use('/api/admin', adminRoutes)
 
 // Health check
 app.get('/api/health', (_req, res) => {

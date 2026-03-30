@@ -6,6 +6,8 @@ import ChatPage from './pages/ChatPage'
 import RentersPage from './pages/RentersPage'
 import OnboardPage from './pages/OnboardPage'
 import { useAuth0 } from '@auth0/auth0-react'
+import AdminPage from './pages/AdminPage'
+
 
 function LoginPage() {
   const { loginWithRedirect } = useAuth0()
@@ -74,6 +76,8 @@ export default function App() {
       <Routes>
         {/* Public onboarding form — no sidebar */}
         <Route path="/onboard/:phone" element={<OnboardPage />} />
+
+        <Route path="/admin" element={<AdminPage />} />
 
         {/* Main app */}
         <Route path="/*" element={
