@@ -298,7 +298,7 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
       ? cleanPhone 
       : `whatsapp:+61${cleanPhone.replace(/^0/, '')}`
 
-    const appUrl = process.env.APP_URL || 'http://localhost:3000'
+    const appUrl = process.env.APP_URL || 'https://fleetai-tau.vercel.app'
     const link = `${appUrl}/onboard/${encodeURIComponent(cleanPhone)}`
 
     const twilio = require('twilio')(sid, token)
