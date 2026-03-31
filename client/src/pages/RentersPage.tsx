@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '../store/useStore'
 import type { Renter } from '../types'
 import axios from 'axios'
+import { useAuth0 } from '@auth0/auth0-react'
 
 const statusColors = {
   active: 'bg-green-bg text-green',
@@ -386,16 +387,16 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                   {renter.licencePhotoUrl && (
                     <div className="flex-1">
                       <p className="text-xs text-text-muted mb-2">Driver's Licence</p>
-                      <img src={`http://localhost:5000${renter.licencePhotoUrl}`} alt="Licence"
-                        onClick={() => window.open(`http://localhost:5000${renter.licencePhotoUrl}`, '_blank')}
+                      <img src={`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`} alt="Licence"
+                        onClick={() => window.open(`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`, '_blank')}
                         className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
                     </div>
                   )}
                   {(renter as any).selfieUrl && (
                     <div className="flex-1">
                       <p className="text-xs text-text-muted mb-2">Selfie with Licence</p>
-                      <img src={`http://localhost:5000${(renter as any).selfieUrl}`} alt="Selfie"
-                        onClick={() => window.open(`http://localhost:5000${(renter as any).selfieUrl}`, '_blank')}
+                      <img src={`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`} alt="Selfie"
+                        onClick={() => window.open(`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`, '_blank')}
                         className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
                     </div>
                   )}
@@ -604,6 +605,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
 // ── Main Page ───────────────────────────────────────────────
 export default function RentersPage() {
   const { renters, rentersLoading, fetchRenters } = useStore()
+  const { user } = useAuth0()
   const [selected, setSelected] = useState<Renter | null>(null)
   const [search, setSearch] = useState('')
   const [sendingLink, setSendingLink] = useState(false)
@@ -642,7 +644,7 @@ export default function RentersPage() {
       await axios.post('/api/renters/send-onboarding', { phone: newPhone.trim() })
       setToast({ message: `✅ Link sent to ${newPhone.trim()}`, type: 'success' })
     } catch {
-      const link = `${window.location.origin}/onboard/${encodeURIComponent(newPhone.trim())}`
+      const link = `${window.location.origin}/onboard/${encodeURIComponent(newPhone.trim())}?owner=${encodeURIComponent(user?.email || '')}`
       await navigator.clipboard.writeText(link).catch(() => {})
       setToast({ message: '📋 Link copied to clipboard', type: 'success' })
     } finally { setSendingLink(false); setNewPhone(''); setShowNewRenter(false) }
@@ -675,8 +677,8 @@ export default function RentersPage() {
                     </div>
                   </div>
                   <div className="flex gap-2 mb-3">
-                    {renter.licencePhotoUrl && <img src={`http://localhost:5000${renter.licencePhotoUrl}`} alt="Licence" className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer" onClick={() => window.open(`http://localhost:5000${renter.licencePhotoUrl}`, '_blank')} />}
-                    {(renter as any).selfieUrl && <img src={`http://localhost:5000${(renter as any).selfieUrl}`} alt="Selfie" className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer" onClick={() => window.open(`http://localhost:5000${(renter as any).selfieUrl}`, '_blank')} />}
+                    {renter.licencePhotoUrl && <img src={`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`} alt="Licence" className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer" onClick={() => window.open(`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`, '_blank')} />}
+                    {(renter as any).selfieUrl && <img src={`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`} alt="Selfie" className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer" onClick={() => window.open(`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`, '_blank')} />}
                   </div>
                   <div className="text-xs text-text-secondary space-y-1 mb-3">
                     {renter.licenceNumber && <p>Licence: {renter.licenceNumber}</p>}

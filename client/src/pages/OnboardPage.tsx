@@ -4,6 +4,7 @@ import axios from 'axios'
 
 export default function OnboardPage() {
   const { phone } = useParams<{ phone: string }>()
+  const ownerEmail = new URLSearchParams(window.location.search).get('owner') || ''
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -79,6 +80,7 @@ export default function OnboardPage() {
       await axios.post('/api/renters', {
         name: `${form.firstName} ${form.lastName}`,
         phone: decodeURIComponent(phone || ''),
+        ownerId: ownerEmail,
         email: form.email,
         dateOfBirth: form.dateOfBirth,
         licenceNumber: form.licenceNumber,
