@@ -1,13 +1,15 @@
 import { Router, Request, Response } from 'express'
 import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
+import { requireOwner } from '../middleware/ownerAuth'
 
 const router = Router()
 
-// GET /api/fleet — all vehicles
-router.get('/', async (_req: Request, res: Response) => {
+router.use(requireOwner)
+
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const vehicles = await Vehicle.find()
+    const vehicles = await Vehicle.find({ ownerId: req.ownerEmail })
       .populate('currentRenter', 'name phone email')
       .populate('fines')
       .populate('tolls')
@@ -18,10 +20,12 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 })
 
-// GET /api/fleet/:plate — single vehicle
 router.get('/:plate', async (req: Request, res: Response) => {
   try {
-    const vehicle = await Vehicle.findOne({ plate: req.params.plate.toUpperCase() })
+    const vehicle = await Vehicle.findOne({
+      plate: req.params.plate.toUpperCase(),
+      ownerId: req.ownerEmail
+    })
       .populate('currentRenter', 'name phone email licenceNumber')
       .populate('fines')
       .populate('tolls')
@@ -32,10 +36,9 @@ router.get('/:plate', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/fleet — create vehicle
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const vehicle = new Vehicle(req.body)
+    const vehicle = new Vehicle({ ...req.body, ownerId: req.ownerEmail })
     await vehicle.save()
     res.status(201).json(vehicle)
   } catch (err: any) {
@@ -46,11 +49,10 @@ router.post('/', async (req: Request, res: Response) => {
   }
 })
 
-// PUT /api/fleet/:plate — update vehicle
 router.put('/:plate', async (req: Request, res: Response) => {
   try {
     const vehicle = await Vehicle.findOneAndUpdate(
-      { plate: req.params.plate.toUpperCase() },
+      { plate: req.params.plate.toUpperCase(), ownerId: req.ownerEmail },
       { $set: req.body },
       { new: true, runValidators: true }
     )
@@ -60,12 +62,12 @@ router.put('/:plate', async (req: Request, res: Response) => {
 
     if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' })
 
-    // Auto-create rego notification if expiry changed and is within 30 days
     if (req.body.regoExpiry) {
       const expiry = new Date(req.body.regoExpiry)
       const daysLeft = Math.ceil((expiry.getTime() - Date.now()) / 86400000)
       if (daysLeft <= 30 && daysLeft > 0) {
         await Notification.create({
+          ownerId: req.ownerEmail,
           type: 'rego',
           title: `Rego expiring soon — ${vehicle.plate}`,
           description: `Registration expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} on ${expiry.toLocaleDateString('en-AU')}`,
@@ -81,10 +83,12 @@ router.put('/:plate', async (req: Request, res: Response) => {
   }
 })
 
-// DELETE /api/fleet/:plate — remove vehicle
 router.delete('/:plate', async (req: Request, res: Response) => {
   try {
-    const vehicle = await Vehicle.findOneAndDelete({ plate: req.params.plate.toUpperCase() })
+    const vehicle = await Vehicle.findOneAndDelete({
+      plate: req.params.plate.toUpperCase(),
+      ownerId: req.ownerEmail
+    })
     if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' })
     res.json({ message: 'Vehicle deleted', plate: vehicle.plate })
   } catch (err) {

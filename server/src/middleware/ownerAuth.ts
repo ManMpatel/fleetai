@@ -1,0 +1,61 @@
+import { Request, Response, NextFunction } from 'express'
+import Owner from '../models/Owner'
+
+declare global {
+  namespace Express {
+    interface Request {
+      ownerEmail?: string
+    }
+  }
+}
+
+export async function requireOwner(req: Request, res: Response, next: NextFunction) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+
+    const owner = await Owner.findOne({ email })
+    if (!owner)                    return res.status(403).json({ error: 'Owner not found',    code: 'NOT_REGISTERED' })
+    if (owner.status === 'pending')  return res.status(403).json({ error: 'Approval pending',  code: 'PENDING' })
+    if (owner.status === 'rejected') return res.status(403).json({ error: 'Access rejected',   code: 'REJECTED' })
+
+    req.ownerEmail = email
+    next()
+  } catch (err) {
+    res.status(500).json({ error: 'Auth check failed' })
+  }
+}
+
+export async function registerOwner(req: Request, res: Response) {
+  try {
+    const { email, name, picture, auth0Id } = req.body
+    if (!email) return res.status(400).json({ error: 'Email required' })
+
+    let owner = await Owner.findOne({ email })
+    if (!owner) {
+      owner = await Owner.create({ email, name, picture, auth0Id, status: 'pending' })
+    } else {
+      owner.name    = name    || owner.name
+      owner.picture = picture || owner.picture
+      await owner.save()
+    }
+
+    res.json({ status: owner.status, email: owner.email })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export async function getOwnerStatus(req: Request, res: Response) {
+  try {
+    const email = req.query.email as string
+    if (!email) return res.status(400).json({ error: 'Email required' })
+
+    const owner = await Owner.findOne({ email })
+    if (!owner) return res.json({ status: 'not_registered' })
+
+    res.json({ status: owner.status })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get status' })
+  }
+}

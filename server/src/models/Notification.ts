@@ -10,6 +10,7 @@ export interface INotification extends Document {
   read: boolean
   date: Date
   actionRequired: boolean
+  ownerId?: string
 }
 
 const NotificationSchema = new Schema<INotification>(
@@ -20,6 +21,7 @@ const NotificationSchema = new Schema<INotification>(
     plate: { type: String },
     read: { type: Boolean, default: false },
     date: { type: Date, default: Date.now },
+    ownerId: { type: String, index: true },
     actionRequired: { type: Boolean, default: false },
   },
   { timestamps: true }

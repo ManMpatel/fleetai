@@ -39,6 +39,7 @@ const VehicleSchema = new Schema(
     lastService: { type: Date },
     fines: [{ type: Schema.Types.ObjectId, ref: 'Fine' }],
     tolls: [{ type: Schema.Types.ObjectId, ref: 'Fine' }],
+    ownerId: { type: String, required: true, index: true },
     notes: { type: String },
   },
   { timestamps: true }

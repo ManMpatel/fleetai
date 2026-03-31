@@ -1,19 +1,19 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import axios from 'axios'
 import Sidebar from './components/Sidebar'
 import FleetPage from './pages/FleetPage'
 import NotificationsPage from './pages/NotificationsPage'
 import ChatPage from './pages/ChatPage'
 import RentersPage from './pages/RentersPage'
 import OnboardPage from './pages/OnboardPage'
-import { useAuth0 } from '@auth0/auth0-react'
 import AdminPage from './pages/AdminPage'
-
+import { useAuth0 } from '@auth0/auth0-react'
 
 function LoginPage() {
   const { loginWithRedirect } = useAuth0()
   return (
     <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', fontFamily: 'DM Sans, sans-serif' }}>
-      {/* Left side */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '60px 64px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 48 }}>
           <div style={{ width: 36, height: 36, background: '#3b82f6', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -23,13 +23,13 @@ function LoginPage() {
         </div>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: 100, padding: '4px 12px', fontSize: 12, color: '#93c5fd', marginBottom: 20, width: 'fit-content' }}>
           <div style={{ width: 6, height: 6, background: '#3b82f6', borderRadius: '50%' }}></div>
-          Sydney Fleet Management
+          Fleet Management Platform
         </div>
         <h1 style={{ fontSize: 38, fontWeight: 600, color: '#f9fafb', lineHeight: 1.15, letterSpacing: '-1px', marginBottom: 16 }}>
           Manage your fleet<br />with <span style={{ color: '#3b82f6' }}>intelligence</span>
         </h1>
         <p style={{ fontSize: 15, color: '#6b7280', lineHeight: 1.6, maxWidth: 360, marginBottom: 40 }}>
-          Real-time tracking, automated payments, and AI-powered insights for your scooter fleet.
+          Real-time tracking, automated payments, and AI-powered insights for your fleet.
         </p>
         <div style={{ display: 'flex', gap: 32 }}>
           {[['100+', 'Vehicles tracked'], ['24/7', 'Monitoring'], ['Auto', 'PayWay billing']].map(([num, label]) => (
@@ -40,10 +40,8 @@ function LoginPage() {
           ))}
         </div>
       </div>
-
-      {/* Right side */}
       <div style={{ width: 420, background: '#111827', borderLeft: '1px solid #1f2937', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '60px 48px' }}>
-        <h2 style={{ fontSize: 22, fontWeight: 600, color: '#f9fafb', marginBottom: 6 }}>Welcome back</h2>
+        <h2 style={{ fontSize: 22, fontWeight: 600, color: '#f9fafb', marginBottom: 6 }}>Welcome</h2>
         <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 32 }}>Sign in to your FleetAI dashboard</p>
         <button
           onClick={() => loginWithRedirect()}
@@ -53,19 +51,79 @@ function LoginPage() {
           Continue with Google
         </button>
         <p style={{ fontSize: 11, color: '#4b5563', textAlign: 'center', lineHeight: 1.6 }}>
-          By signing in, you agree to our Terms of Service and Privacy Policy
+          By signing in, you agree to our Terms of Service
         </p>
       </div>
     </div>
   )
 }
 
+function PendingPage({ email, onLogout }: { email: string, onLogout: () => void }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Sans, sans-serif' }}>
+      <div style={{ textAlign: 'center', maxWidth: 440, padding: '0 24px' }}>
+        <div style={{ width: 64, height: 64, background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#eab308" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z"/></svg>
+        </div>
+        <h2 style={{ fontSize: 22, fontWeight: 600, color: '#f9fafb', marginBottom: 10 }}>Approval Pending</h2>
+        <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7, marginBottom: 8 }}>
+          Your account <strong style={{ color: '#9ca3af' }}>{email}</strong> has been registered.
+        </p>
+        <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7, marginBottom: 32 }}>
+          The FleetAI administrator will review and approve your access shortly.
+        </p>
+        <button onClick={onLogout} style={{ padding: '10px 28px', background: 'transparent', color: '#6b7280', border: '1px solid #374151', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+          Sign out
+        </button>
+      </div>
+    </div>
+  )
+}
 
+function RejectedPage({ onLogout }: { onLogout: () => void }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Sans, sans-serif' }}>
+      <div style={{ textAlign: 'center', maxWidth: 400, padding: '0 24px' }}>
+        <div style={{ width: 64, height: 64, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#ef4444" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+        </div>
+        <h2 style={{ fontSize: 22, fontWeight: 600, color: '#f9fafb', marginBottom: 10 }}>Access Denied</h2>
+        <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7, marginBottom: 32 }}>
+          Your access request was not approved. Please contact the FleetAI administrator.
+        </p>
+        <button onClick={onLogout} style={{ padding: '10px 28px', background: 'transparent', color: '#6b7280', border: '1px solid #374151', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+          Sign out
+        </button>
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
   const { isLoading, isAuthenticated, user, logout } = useAuth0()
+  const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected'>('checking')
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
-  // ✅ Always allow onboard page — no auth needed
+  const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.email) return
+    // Set axios header for ALL requests
+    axios.defaults.headers.common['x-owner-email'] = user.email
+    axios.defaults.baseURL = apiUrl
+    // Register or check status
+    axios.post('/api/auth/register', {
+      email:   user.email,
+      name:    user.name,
+      picture: user.picture,
+      auth0Id: user.sub
+    }).then(res => {
+      setOwnerStatus(res.data.status)
+    }).catch(() => {
+      setOwnerStatus('pending')
+    })
+  }, [isAuthenticated, user?.email])
+
   if (window.location.pathname.startsWith('/onboard')) {
     return (
       <BrowserRouter>
@@ -84,22 +142,14 @@ export default function App() {
 
   if (!isAuthenticated) return <LoginPage />
 
-  const ALLOWED_EMAIL = 'manpatel1144@gmail.com'
-  if (isAuthenticated && user?.email !== ALLOWED_EMAIL) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
-        <div style={{ color: '#ef4444', fontSize: 18, fontWeight: 600 }}>Access Denied</div>
-        <div style={{ color: '#6b7280', fontSize: 14 }}>You are not authorised to access FleetAI.</div>
-        <button
-          onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
-          style={{ marginTop: 8, padding: '10px 24px', background: '#1f2937', color: '#f9fafb', border: '1px solid #374151', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
-        >
-          Sign out
-        </button>
-      </div>
-    )
-  }
+  if (ownerStatus === 'checking') return (
+    <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ color: '#3b82f6', fontSize: 14 }}>Checking access...</div>
+    </div>
+  )
 
+  if (ownerStatus === 'pending')  return <PendingPage email={user?.email || ''} onLogout={handleLogout} />
+  if (ownerStatus === 'rejected') return <RejectedPage onLogout={handleLogout} />
 
   return (
     <BrowserRouter>
@@ -112,10 +162,10 @@ export default function App() {
             </div>
             <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
               <Routes>
-                <Route path="/" element={<FleetPage />} />
-                <Route path="/renters" element={<RentersPage />} />
+                <Route path="/"              element={<FleetPage />} />
+                <Route path="/renters"       element={<RentersPage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
-                <Route path="/chat" element={<ChatPage />} />
+                <Route path="/chat"          element={<ChatPage />} />
               </Routes>
             </main>
           </div>

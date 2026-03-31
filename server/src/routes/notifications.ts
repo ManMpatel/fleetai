@@ -1,12 +1,14 @@
 import { Router, Request, Response } from 'express'
 import Notification from '../models/Notification'
+import { requireOwner } from '../middleware/ownerAuth'
 
 const router = Router()
 
-// GET /api/notifications
+router.use(requireOwner)
+
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const filter: Record<string, unknown> = {}
+    const filter: Record<string, unknown> = { ownerId: req.ownerEmail }
     if (req.query.type) filter.type = req.query.type
     if (req.query.read !== undefined) filter.read = req.query.read === 'true'
 
@@ -17,10 +19,9 @@ router.get('/', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/notifications
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const notification = new Notification(req.body)
+    const notification = new Notification({ ...req.body, ownerId: req.ownerEmail })
     await notification.save()
     res.status(201).json(notification)
   } catch (err: any) {
@@ -28,21 +29,22 @@ router.post('/', async (req: Request, res: Response) => {
   }
 })
 
-// PUT /api/notifications/read-all — must come BEFORE /:id
-router.put('/read-all', async (_req: Request, res: Response) => {
+router.put('/read-all', async (req: Request, res: Response) => {
   try {
-    await Notification.updateMany({ read: false }, { $set: { read: true } })
+    await Notification.updateMany(
+      { ownerId: req.ownerEmail, read: false },
+      { $set: { read: true } }
+    )
     res.json({ message: 'All notifications marked as read' })
   } catch (err) {
     res.status(500).json({ error: 'Failed to mark all as read' })
   }
 })
 
-// PUT /api/notifications/:id — mark single as read
 router.put('/:id', async (req: Request, res: Response) => {
   try {
-    const notification = await Notification.findByIdAndUpdate(
-      req.params.id,
+    const notification = await Notification.findOneAndUpdate(
+      { _id: req.params.id, ownerId: req.ownerEmail },
       { $set: { read: true } },
       { new: true }
     )

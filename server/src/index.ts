@@ -14,6 +14,7 @@ import renterRoutes from './routes/renters'
 import { checkExpiringDates } from './services/rag'
 import { checkGmailForFines } from './services/gmail'
 import adminRoutes from './routes/admin'
+import { registerOwner, getOwnerStatus } from './middleware/ownerAuth'
 
 
 dotenv.config()
@@ -52,6 +53,8 @@ app.use('/api/upload', uploadRoutes)
 app.use('/api/whatsapp', whatsappRouter)
 app.use('/api/renters', renterRoutes)
 app.use('/api/admin', adminRoutes)
+app.post('/api/auth/register', registerOwner)
+app.get('/api/auth/status', getOwnerStatus)
 
 // Health check
 app.get('/api/health', (_req, res) => {
