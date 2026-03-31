@@ -14,6 +14,15 @@ interface Auth0User {
   blocked: boolean
 }
 
+interface Owner {
+  _id: string
+  email: string
+  name: string
+  picture?: string
+  status: 'pending' | 'approved' | 'rejected'
+  createdAt: string
+}
+
 interface LogEntry {
   _id: string
   type: string
@@ -31,6 +40,7 @@ export default function AdminPage() {
   const [health, setHealth] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [blocking, setBlocking] = useState<string | null>(null)
+  const [owners, setOwners] = useState<Owner[]>([])
 
   if (user?.email !== ADMIN_EMAIL) {
     return (
@@ -46,14 +56,16 @@ export default function AdminPage() {
 
   const fetchData = async () => {
     try {
-      const [usersRes, logsRes, healthRes] = await Promise.all([
+      const [usersRes, logsRes, healthRes, ownersRes] = await Promise.all([
         axios.get('/api/admin/users'),
         axios.get('/api/admin/logs'),
         axios.get('/api/health'),
-      ])
-      setUsers(usersRes.data.users || [])
-      setLogs(logsRes.data || [])
-      setHealth(healthRes.data)
+        axios.get('/api/admin/owners'),
+        ])
+        setUsers(usersRes.data.users || [])
+        setLogs(logsRes.data || [])
+        setHealth(healthRes.data)
+        setOwners(ownersRes.data || [])
     } finally {
       setLoading(false)
     }
@@ -136,7 +148,91 @@ export default function AdminPage() {
           ))}
         </div>
       </div>
-
+        
+        {/* Owner Requests */}
+        <div className="bg-surface border border-border rounded-xl mb-4 overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-text-primary">Owner access requests</h2>
+            <span className="text-xs text-text-muted">
+            {owners.filter(o => o.status === 'pending').length} pending
+            </span>
+        </div>
+        {owners.length === 0 ? (
+            <div className="p-8 text-center text-text-muted text-sm">No owner requests yet</div>
+        ) : (
+            <table className="w-full text-sm">
+            <thead>
+                <tr className="border-b border-border">
+                {['Owner', 'Email', 'Requested', 'Status', 'Actions'].map(h => (
+                    <th key={h} className="px-4 py-2.5 text-left text-xs text-text-muted font-medium">{h}</th>
+                ))}
+                </tr>
+            </thead>
+            <tbody>
+                {owners.map(o => (
+                <tr key={o._id} className="border-b border-border last:border-0 hover:bg-surface2">
+                    <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                        {o.picture && <img src={o.picture} className="w-7 h-7 rounded-full" />}
+                        <span className="font-medium text-text-primary">{o.name || 'Unknown'}</span>
+                    </div>
+                    </td>
+                    <td className="px-4 py-3 text-text-muted text-xs">{o.email}</td>
+                    <td className="px-4 py-3 text-text-muted text-xs">
+                    {new Date(o.createdAt).toLocaleDateString('en-AU', {
+                        day: 'numeric', month: 'short', year: 'numeric'
+                    })}
+                    </td>
+                    <td className="px-4 py-3">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                        o.status === 'approved' ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400' :
+                        o.status === 'rejected' ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400' :
+                        'bg-yellow-50 text-yellow-600 dark:bg-yellow-900/20 dark:text-yellow-400'
+                    }`}>
+                        {o.status}
+                    </span>
+                    </td>
+                    <td className="px-4 py-3 flex gap-2">
+                    {o.status !== 'approved' && (
+                        <button
+                        onClick={async () => {
+                            await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/approve`)
+                            setOwners(prev => prev.map(x => x._id === o._id ? { ...x, status: 'approved' } : x))
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-green-300 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
+                        >
+                        Approve
+                        </button>
+                    )}
+                    {o.status !== 'rejected' && o.email !== ADMIN_EMAIL && (
+                        <button
+                        onClick={async () => {
+                            await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/reject`)
+                            setOwners(prev => prev.map(x => x._id === o._id ? { ...x, status: 'rejected' } : x))
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        >
+                        Reject
+                        </button>
+                    )}
+                    {o.status === 'approved' && o.email !== ADMIN_EMAIL && (
+                        <button
+                        onClick={async () => {
+                            await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/revoke`)
+                            setOwners(prev => prev.map(x => x._id === o._id ? { ...x, status: 'pending' } : x))
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-yellow-300 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+                        >
+                        Revoke
+                        </button>
+                    )}
+                    </td>
+                </tr>
+                ))}
+            </tbody>
+            </table>
+        )}
+        </div>
       {/* Users table */}
       <div className="bg-surface border border-border rounded-xl mb-4 overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
