@@ -79,7 +79,11 @@ export default function AdminPage() {
   setLoading(false)
 }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { 
+    fetchData()
+    const interval = setInterval(fetchData, 10000)
+    return () => clearInterval(interval)
+    }, [])
 
   const toggleBlock = async (userId: string, currentlyBlocked: boolean) => {
     setBlocking(userId)
