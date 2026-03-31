@@ -56,11 +56,12 @@ export default function AdminPage() {
 
   const fetchData = async () => {
     try {
-      const [usersRes, logsRes, healthRes, ownersRes] = await Promise.all([
-        axios.get('/api/admin/users'),
-        axios.get('/api/admin/logs'),
+        const headers = { 'x-owner-email': user?.email || '' }
+        const [usersRes, logsRes, healthRes, ownersRes] = await Promise.all([
+        axios.get('/api/admin/users', { headers }),
+        axios.get('/api/admin/logs', { headers }),
         axios.get('/api/health'),
-        axios.get('/api/admin/owners'),
+        axios.get('/api/admin/owners', { headers }),
         ])
         setUsers(usersRes.data.users || [])
         setLogs(logsRes.data || [])
