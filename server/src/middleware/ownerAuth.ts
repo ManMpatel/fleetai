@@ -32,9 +32,12 @@ export async function registerOwner(req: Request, res: Response) {
     if (!email) return res.status(400).json({ error: 'Email required' })
 
     let owner = await Owner.findOne({ email })
+    const SUPER_ADMIN = 'manpatel1144@gmail.com'
     if (!owner) {
-      owner = await Owner.create({ email, name, picture, auth0Id, status: 'pending' })
-    } else {
+    owner = await Owner.create({ 
+        email, name, picture, auth0Id, 
+        status: email === SUPER_ADMIN ? 'approved' : 'pending' 
+    }) } else {
       owner.name    = name    || owner.name
       owner.picture = picture || owner.picture
       await owner.save()
