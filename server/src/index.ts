@@ -71,7 +71,7 @@ app.get('/api/health', (_req, res) => {
 
 // ── MongoDB + server start ──────────────────────────────────
 mongoose
-  .connect(MONGO_URI)
+  .connect(MONGO_URI, { dbName: 'fleetai' })
   .then(() => {
     console.log('✅ MongoDB connected')
 
