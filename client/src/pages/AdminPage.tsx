@@ -55,22 +55,29 @@ export default function AdminPage() {
   }
 
   const fetchData = async () => {
-    try {
-        const headers = { 'x-owner-email': user?.email || '' }
-        const [usersRes, logsRes, healthRes, ownersRes] = await Promise.all([
-        axios.get('/api/admin/users', { headers }),
-        axios.get('/api/admin/logs', { headers }),
-        axios.get('/api/health'),
-        axios.get('/api/admin/owners', { headers }),
-        ])
-        setUsers(usersRes.data.users || [])
-        setLogs(logsRes.data || [])
-        setHealth(healthRes.data)
-        setOwners(ownersRes.data || [])
-    } finally {
-      setLoading(false)
-    }
-  }
+  const headers = { 'x-owner-email': user?.email || '' }
+  try {
+    const ownersRes = await axios.get('/api/admin/owners', { headers })
+    setOwners(ownersRes.data || [])
+  } catch (e) { console.error('owners error', e) }
+
+  try {
+    const healthRes = await axios.get('/api/health')
+    setHealth(healthRes.data)
+  } catch (e) { console.error('health error', e) }
+
+  try {
+    const usersRes = await axios.get('/api/admin/users', { headers })
+    setUsers(usersRes.data.users || [])
+  } catch (e) { console.error('users error', e) }
+
+  try {
+    const logsRes = await axios.get('/api/admin/logs', { headers })
+    setLogs(logsRes.data || [])
+  } catch (e) { console.error('logs error', e) }
+
+  setLoading(false)
+}
 
   useEffect(() => { fetchData() }, [])
 
