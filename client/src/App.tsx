@@ -63,7 +63,7 @@ function LoginPage() {
 
 
 export default function App() {
-  const { isLoading, isAuthenticated } = useAuth0()
+  const { isLoading, isAuthenticated, user, logout } = useAuth0()
 
   // ✅ Always allow onboard page — no auth needed
   if (window.location.pathname.startsWith('/onboard')) {
@@ -83,6 +83,23 @@ export default function App() {
   )
 
   if (!isAuthenticated) return <LoginPage />
+
+  const ALLOWED_EMAIL = 'manpatel1144@gmail.com'
+  if (isAuthenticated && user?.email !== ALLOWED_EMAIL) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
+        <div style={{ color: '#ef4444', fontSize: 18, fontWeight: 600 }}>Access Denied</div>
+        <div style={{ color: '#6b7280', fontSize: 14 }}>You are not authorised to access FleetAI.</div>
+        <button
+          onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+          style={{ marginTop: 8, padding: '10px 24px', background: '#1f2937', color: '#f9fafb', border: '1px solid #374151', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
+        >
+          Sign out
+        </button>
+      </div>
+    )
+  }
+
 
   return (
     <BrowserRouter>
