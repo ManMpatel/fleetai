@@ -87,6 +87,10 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   const [actionLoading, setActionLoading] = useState(false)
   const [payments, setPayments] = useState<any[]>([])
   const [paymentsLoading, setPaymentsLoading] = useState(false)
+  const [serviceRecords, setServiceRecords] = useState<any[]>([])
+  const [serviceLoading, setServiceLoading] = useState(false)
+  const [showAddService, setShowAddService] = useState(false)
+  const [serviceForm, setServiceForm] = useState({ serviceType: 'general', description: '', cost: '', notes: '' })
   const [confirm, setConfirm] = useState<{ show: boolean; action: string | null }>({ show: false, action: null })
   const [weeklyAmount, setWeeklyAmount] = useState(renter.payway?.weeklyAmount?.toString() || '')
   const [selectedSchedule, setSelectedSchedule] = useState(7)
@@ -133,14 +137,49 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   }, [renter._id])
 
   useEffect(() => {
-    if (tab === 'payments' && renter.payway?.customerId && renter.payway?.status === 'active') {
-      setPaymentsLoading(true)
-      axios.get(`/api/renters/${encodeURIComponent(renter.phone)}/payments`)
-        .then(res => setPayments(res.data.payments || []))
-        .catch(() => setPayments([]))
-        .finally(() => setPaymentsLoading(false))
+    if (tab === 'payments') {
+      if (renter.payway?.customerId && renter.payway?.status === 'active') {
+        setPaymentsLoading(true)
+        axios.get(`/api/renters/${encodeURIComponent(renter.phone)}/payments`)
+          .then(res => setPayments(res.data.payments || []))
+          .catch(() => setPayments([]))
+          .finally(() => setPaymentsLoading(false))
+      }
+      // Fetch service records for current vehicle
+      if ((renter.currentVehicle as any)?.plate) {
+        setServiceLoading(true)
+        axios.get(`/api/service-records?plate=${(renter.currentVehicle as any).plate}`)
+          .then(res => setServiceRecords(res.data || []))
+          .catch(() => setServiceRecords([]))
+          .finally(() => setServiceLoading(false))
+      }
     }
   }, [tab])
+
+  async function handleAddService() {
+    if (!serviceForm.description || !(renter.currentVehicle as any)?.plate) return
+    try {
+      await axios.post('/api/service-records', {
+        plate: (renter.currentVehicle as any).plate,
+        vehicleType: renter.vehicleType,
+        vehicleCategory: 'rental',
+        serviceType: serviceForm.serviceType,
+        description: serviceForm.description,
+        cost: serviceForm.cost ? parseFloat(serviceForm.cost) : undefined,
+        notes: serviceForm.notes,
+        customerName: renter.name,
+        customerPhone: renter.phone,
+      })
+      setServiceForm({ serviceType: 'general', description: '', cost: '', notes: '' })
+      setShowAddService(false)
+      // Refresh
+      const res = await axios.get(`/api/service-records?plate=${(renter.currentVehicle as any).plate}`)
+      setServiceRecords(res.data || [])
+      onToast('✅ Service record added', 'success')
+    } catch {
+      onToast('Failed to add service record', 'warning')
+    }
+  }
 
   const paywayStatus = renter.payway?.status || 'not_setup'
   const days = selectedSchedule === 0 ? parseInt(customDays) || 7 : selectedSchedule
@@ -577,6 +616,64 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                   </div>
                 )}
               </div>
+
+              {/* Service History */}
+              {(renter.currentVehicle as any)?.plate && (
+                <div className="bg-surface border border-border rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                      Service History — <span className="text-accent font-mono">{(renter.currentVehicle as any).plate}</span>
+                    </h3>
+                    <button onClick={() => setShowAddService(!showAddService)} className="text-xs text-accent hover:underline">+ Add</button>
+                  </div>
+
+                  {showAddService && (
+                    <div className="bg-surface2 border border-border rounded-lg p-3 mb-3 space-y-2">
+                      <select value={serviceForm.serviceType} onChange={e => setServiceForm(f => ({ ...f, serviceType: e.target.value }))}
+                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary">
+                        <option value="oil_change">Oil Change</option>
+                        <option value="tyres">Tyres</option>
+                        <option value="brakes">Brakes</option>
+                        <option value="general">General</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <input placeholder="Description *" value={serviceForm.description} onChange={e => setServiceForm(f => ({ ...f, description: e.target.value }))}
+                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted" />
+                      <input placeholder="Cost ($)" type="number" value={serviceForm.cost} onChange={e => setServiceForm(f => ({ ...f, cost: e.target.value }))}
+                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted" />
+                      <input placeholder="Notes (optional)" value={serviceForm.notes} onChange={e => setServiceForm(f => ({ ...f, notes: e.target.value }))}
+                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted" />
+                      <div className="flex gap-2">
+                        <button onClick={handleAddService} className="flex-1 py-2 bg-accent text-white rounded-lg text-xs font-medium">Save</button>
+                        <button onClick={() => setShowAddService(false)} className="flex-1 py-2 bg-surface border border-border rounded-lg text-xs text-text-muted">Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {serviceLoading ? (
+                    <p className="text-sm text-text-muted text-center py-3">Loading...</p>
+                  ) : serviceRecords.length === 0 ? (
+                    <p className="text-sm text-text-muted text-center py-3">No service records yet</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {serviceRecords.map((s, i) => (
+                        <div key={i} className="border border-border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-text-primary capitalize">{s.serviceType.replace('_', ' ')}</span>
+                            <div className="flex items-center gap-2">
+                              {s.cost && <span className="text-xs font-semibold text-green">${s.cost}</span>}
+                              <span className="text-xs text-text-muted">{new Date(s.date).toLocaleDateString('en-AU')}</span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-text-secondary">{s.description}</p>
+                          {s.notes && <p className="text-xs text-text-muted mt-1">{s.notes}</p>}
+                          {s.employeeName && <p className="text-xs text-text-muted mt-1">By: {s.employeeName}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {(renter.rentalHistory?.length ?? 0) > 0 && (
                 <div className="bg-surface border border-border rounded-xl p-4">
