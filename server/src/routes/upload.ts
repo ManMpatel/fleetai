@@ -1,29 +1,31 @@
 import { Router, Request, Response } from 'express'
 import multer from 'multer'
+import multerS3 from 'multer-s3'
+import { S3Client } from '@aws-sdk/client-s3'
 import path from 'path'
-import fs from 'fs'
 import Fine from '../models/Fine'
 import Notification from '../models/Notification'
 
 const router = Router()
 
-// Ensure uploads dir exists
-const uploadsDir = path.join(__dirname, '../../uploads')
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true })
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
-    cb(null, `${unique}${path.extname(file.originalname)}`)
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || 'ap-southeast-2',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   },
 })
 
 const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  storage: multerS3({
+    s3,
+    bucket: process.env.AWS_BUCKET_NAME || 'fleetai-uploads',
+    key: (_req, file, cb) => {
+      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+      cb(null, `uploads/${unique}${path.extname(file.originalname)}`)
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['.pdf', '.jpg', '.jpeg', '.png']
     const ext = path.extname(file.originalname).toLowerCase()
@@ -35,13 +37,13 @@ const upload = multer({
   },
 })
 
-// POST /api/upload/fine — upload fine document
+// POST /api/upload/fine
 router.post('/fine', upload.single('file'), async (req: Request, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
 
     const { vehicleId, amount, description, date, type } = req.body
-    const pdfUrl = `/uploads/${req.file.filename}`
+    const pdfUrl = (req.file as any).location
 
     const fine = new Fine({
       vehicle: vehicleId,
@@ -54,7 +56,6 @@ router.post('/fine', upload.single('file'), async (req: Request, res: Response) 
     })
     await fine.save()
 
-    // Create notification
     await Notification.create({
       type: type === 'toll' ? 'toll' : 'fine',
       title: `New ${type || 'fine'} uploaded`,
@@ -68,11 +69,11 @@ router.post('/fine', upload.single('file'), async (req: Request, res: Response) 
   }
 })
 
-// POST /api/upload/document — general document upload
+// POST /api/upload/document
 router.post('/document', upload.single('file'), async (req: Request, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
-    const fileUrl = `/uploads/${req.file.filename}`
+    const fileUrl = (req.file as any).location
     res.status(201).json({ url: fileUrl, filename: req.file.originalname })
   } catch (err: any) {
     res.status(400).json({ error: err.message })
