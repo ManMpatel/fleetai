@@ -38,13 +38,28 @@ router.get('/:plate', async (req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const vehicle = new Vehicle({ ...req.body, ownerId: req.ownerEmail })
+    const plate = req.body.plate?.toUpperCase()
+    if (!plate) return res.status(400).json({ error: 'Plate is required' })
+
+    // Check if plate already exists — if so, just update rego expiry
+    const existing = await Vehicle.findOne({ plate, ownerId: req.ownerEmail })
+    if (existing) {
+      const updated = await Vehicle.findOneAndUpdate(
+        { plate, ownerId: req.ownerEmail },
+        { $set: {
+          regoExpiry: req.body.regoExpiry,
+          ...(req.body.model && { model: req.body.model }),
+          ...(req.body.year && { year: req.body.year }),
+        }},
+        { new: true }
+      )
+      return res.status(200).json({ ...updated?.toObject(), _updated: true })
+    }
+
+    const vehicle = new Vehicle({ ...req.body, plate, ownerId: req.ownerEmail })
     await vehicle.save()
     res.status(201).json(vehicle)
   } catch (err: any) {
-    if (err.code === 11000) {
-      return res.status(409).json({ error: 'Plate already exists' })
-    }
     res.status(400).json({ error: err.message })
   }
 })

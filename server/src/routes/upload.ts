@@ -118,4 +118,48 @@ If a field is not visible or unclear, leave it as empty string.`
   }
 })
 
+// POST /api/upload/read-rego-bulk — process multiple rego PDFs
+router.post('/read-rego-bulk', async (req: Request, res: Response) => {
+  try {
+    const { files } = req.body as { files: { name: string; base64: string; mimeType: string }[] }
+    if (!files?.length) return res.status(400).json({ error: 'No files provided' })
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+
+    const prompt = `You are reading an Australian vehicle registration certificate. Extract these fields and return ONLY a valid JSON object, no markdown:
+{
+  "plate": "plate number e.g. ABC123",
+  "make": "vehicle make e.g. Toyota",
+  "model": "vehicle model e.g. RAV4",
+  "year": "4 digit year",
+  "regoExpiry": "YYYY-MM-DD format",
+  "vin": "VIN/chassis number",
+  "confident": true or false
+}`
+
+    const results = []
+    for (const file of files) {
+      try {
+        const result = await model.generateContent([
+          { inlineData: { data: file.base64, mimeType: file.mimeType || 'application/pdf' } },
+          prompt
+        ])
+        const text = result.response.text().trim()
+        const clean = text.replace(/```json|```/g, '').trim()
+        const data = JSON.parse(clean)
+        results.push({ filename: file.name, status: data.confident === false ? 'unclear' : 'ok', data })
+      } catch {
+        results.push({ filename: file.name, status: 'error', data: null })
+      }
+      await new Promise(r => setTimeout(r, 4100))
+    }
+
+    res.json({ results })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router

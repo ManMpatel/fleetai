@@ -9,6 +9,7 @@ import RentersPage from './pages/RentersPage'
 import OnboardPage from './pages/OnboardPage'
 import AdminPage from './pages/AdminPage'
 import SearchPage from './pages/SearchPage'
+import RegoImportPage from './pages/RegoImportPage'
 import { useAuth0 } from '@auth0/auth0-react'
 
 function LoginPage() {
@@ -180,6 +181,7 @@ export default function App() {
                 <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/search" element={<SearchPage />} />
+                <Route path="/rego-import" element={<RegoImportPage />} />
               </Routes>
             </main>
           </div>
