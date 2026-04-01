@@ -13,14 +13,38 @@ import whatsappRouter from './services/whatsapp'
 import renterRoutes from './routes/renters'
 import { checkExpiringDates } from './services/rag'
 import { runMongoBackup } from './services/backup'
+import { requireAuth, requireAdmin } from './middleware/auth'
 import { checkGmailForFines } from './services/gmail'
 import adminRoutes from './routes/admin'
 import { registerOwner, getOwnerStatus } from './middleware/ownerAuth'
-
+import rateLimit from 'express-rate-limit'
 
 dotenv.config()
 
 const app = express()
+
+// ── Rate limiting ───────────────────────────────────────────
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  message: { error: 'Too many requests, please try again later' }
+})
+
+const onboardLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { error: 'Too many submissions, please try again later' }
+})
+
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20,
+  message: { error: 'Too many messages, please slow down' }
+})
+
+app.use('/api/', generalLimiter)
+app.use('/api/renters', onboardLimiter)
+app.use('/api/chat', chatLimiter)
 const PORT = process.env.PORT || 5000
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fleetai'
 
@@ -47,13 +71,14 @@ app.use(express.urlencoded({ extended: true }))
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 
 // ── Routes ──────────────────────────────────────────────────
-app.use('/api/fleet', fleetRoutes)
-app.use('/api/notifications', notificationRoutes)
-app.use('/api/chat', chatRoutes)
-app.use('/api/upload', uploadRoutes)
+app.use('/api/fleet', requireAuth, fleetRoutes)
+app.use('/api/notifications', requireAuth, notificationRoutes)
+app.use('/api/chat', requireAuth, chatRoutes)
+app.use('/api/upload/fine', requireAuth, uploadRoutes)
+app.use('/api/upload/document', uploadRoutes)
 app.use('/api/whatsapp', whatsappRouter)
-app.use('/api/renters', renterRoutes)
-app.use('/api/admin', adminRoutes)
+app.use('/api/renters', requireAuth, renterRoutes)
+app.use('/api/admin', requireAuth, requireAdmin, adminRoutes)
 app.post('/api/auth/register', registerOwner)
 app.get('/api/auth/status', getOwnerStatus)
 

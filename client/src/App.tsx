@@ -100,7 +100,7 @@ function RejectedPage({ onLogout }: { onLogout: () => void }) {
 }
 
 export default function App() {
-  const { isLoading, isAuthenticated, user, logout } = useAuth0()
+  const { isLoading, isAuthenticated, user, logout, getAccessTokenSilently } = useAuth0()  
   const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected'>('checking')
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
@@ -123,6 +123,18 @@ export default function App() {
       setOwnerStatus('pending')
     })
   }, [isAuthenticated, user?.email])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const interceptor = axios.interceptors.request.use(async (config) => {
+      try {
+        const token = await getAccessTokenSilently()
+        config.headers.Authorization = `Bearer ${token}`
+      } catch {}
+      return config
+    })
+    return () => axios.interceptors.request.eject(interceptor)
+  }, [isAuthenticated, getAccessTokenSilently])
 
   if (window.location.pathname.startsWith('/onboard')) {
     return (

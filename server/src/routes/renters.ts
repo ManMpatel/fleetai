@@ -101,10 +101,24 @@ router.get('/:phone', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/renters
+// ── POST /api/renters — create renter (public — onboard form) ─────────────────────
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const renter = new Renter({ ...req.body, ownerId: req.ownerEmail })
+    const body = { ...req.body }
+
+    // Whitelist allowed fields — strip anything unexpected
+    const allowed = ['name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'vehicleType',
+      'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
+      'emergencyContactName', 'emergencyContactPhone', 'licencePhotoUrl', 'selfieUrl',
+      'ownerId', 'status']
+    Object.keys(body).forEach(k => { if (!allowed.includes(k)) delete body[k] })
+
+    // Encrypt bank details
+    if (body.bsbNumber) body.bsbNumber = encrypt(body.bsbNumber)
+    if (body.accountNumber) body.accountNumber = encrypt(body.accountNumber)
+    if (body.accountHolderName) body.accountHolderName = encrypt(body.accountHolderName)
+
+    const renter = new Renter(body)
     await renter.save()
     res.status(201).json(renter)
   } catch (err: any) {
