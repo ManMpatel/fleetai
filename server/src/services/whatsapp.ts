@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express'
-import twilio from 'twilio'
 import axios from 'axios'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Vehicle from '../models/Vehicle'
@@ -74,10 +73,6 @@ async function readPlateFromImage(imageUrl: string): Promise<string | null> {
 
   try {
     const imgRes = await axios.get<ArrayBuffer>(imageUrl, {
-      auth: {
-        username: process.env.TWILIO_SID!,
-        password: process.env.TWILIO_TOKEN!,
-      },
       responseType: 'arraybuffer',
       timeout: 15000,
     })
@@ -107,21 +102,32 @@ Do not include any explanation.`,
 
 // ── Send WhatsApp reply ────────────────────────────────────
 async function sendWhatsAppReply(to: string, body: string): Promise<void> {
-  const sid = process.env.TWILIO_SID
-  const token = process.env.TWILIO_TOKEN
-  const from = process.env.TWILIO_WHATSAPP_FROM
+  const token = process.env.WHATSAPP_TOKEN
+  const phoneId = process.env.WHATSAPP_PHONE_ID
 
-  if (!sid || !token || !from) {
-    console.warn('⚠️  Twilio not configured')
+  if (!token || !phoneId) {
+    console.warn('⚠️  Meta WhatsApp not configured')
     return
   }
 
-  const client = twilio(sid, token)
-  await client.messages.create({ from, to, body })
-}
+  // Convert "whatsapp:+61..." format to just "61..."
+  const cleanTo = to.replace('whatsapp:', '').replace('+', '')
 
-function emptyTwiml(): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`
+  await axios.post(
+    `https://graph.facebook.com/v22.0/${phoneId}/messages`,
+    {
+      messaging_product: 'whatsapp',
+      to: cleanTo,
+      type: 'text',
+      text: { body }
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  )
 }
 
 // ── Calculate weeks between two dates ─────────────────────
@@ -393,20 +399,15 @@ async function executeIntent(
 
 // ── POST /api/whatsapp/incoming ────────────────────────────
 router.post('/incoming', async (req: Request, res: Response) => {
-  // Validate Twilio signature in production
-  if (process.env.NODE_ENV === 'production' && process.env.TWILIO_TOKEN) {
-    const signature = req.headers['x-twilio-signature'] as string
-    const url = `${req.protocol}://${req.get('host')}/api/whatsapp/incoming`
-    const isValid = twilio.validateRequest(process.env.TWILIO_TOKEN, signature, url, req.body)
-    if (!isValid) {
-      console.warn('⚠️  Invalid Twilio signature')
-      return res.status(403).send('Forbidden')
-    }
+  // Meta sends a hub verification token — validate it
+  const metaToken = req.headers['x-hub-signature-256']
+  if (process.env.NODE_ENV === 'production' && !metaToken) {
+    console.warn('⚠️  Missing Meta signature')
   }
 
   // Respond immediately — Twilio requires fast response
-  res.set('Content-Type', 'text/xml')
-  res.send(emptyTwiml())
+  res.sendStatus(200)
+ 
 
   const body = req.body as Record<string, string>
   const messageText = (body.Body ?? '').trim()

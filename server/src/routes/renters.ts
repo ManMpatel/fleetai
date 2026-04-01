@@ -5,6 +5,7 @@ import Fine from '../models/Fine'
 import Notification from '../models/Notification'
 import { encrypt, decrypt } from '../services/encryption'
 import { requireOwner } from '../middleware/ownerAuth'
+import axios from 'axios'
 import {
   createPayWayCustomer,
   setupWeeklyDebit,
@@ -21,29 +22,35 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
     const { phone, ownerEmail } = req.body as { phone: string; ownerEmail?: string }
     if (!phone) return res.status(400).json({ error: 'phone is required' })
 
-    const sid   = process.env.TWILIO_SID
-    const token = process.env.TWILIO_TOKEN
-    const from  = process.env.TWILIO_WHATSAPP_FROM
+    const waToken = process.env.WHATSAPP_TOKEN
+    const phoneId = process.env.WHATSAPP_PHONE_ID
 
-    if (!sid || !token || !from) {
-      return res.status(503).json({ success: false, error: 'Twilio not configured' })
+    if (!waToken || !phoneId) {
+      return res.status(503).json({ success: false, error: 'WhatsApp not configured' })
     }
 
-    const cleanPhone  = phone.replace(/\s+/g, '')
-    const whatsappTo  = cleanPhone.startsWith('whatsapp:')
-      ? cleanPhone
-      : `whatsapp:+61${cleanPhone.replace(/^0/, '')}`
+    const cleanPhone = phone.replace(/\s+/g, '')
+    const formattedPhone = cleanPhone.replace(/^0/, '61')
 
     const appUrl = process.env.APP_URL || 'https://fleetai-tau.vercel.app'
     const ownerParam = ownerEmail ? `?owner=${encodeURIComponent(ownerEmail)}` : ''
-    const link   = `${appUrl}/onboard/${encodeURIComponent(cleanPhone)}${ownerParam}`
+    const link = `${appUrl}/onboard/${encodeURIComponent(cleanPhone)}${ownerParam}`
 
-    const twilio = require('twilio')(sid, token)
-    await twilio.messages.create({
-      from,
-      to: whatsappTo,
-      body: `Hi! 👋 Please fill in your rental details using this link:\n\n${link}\n\nThis takes about 2 minutes. You'll need your licence and bank details ready.`
-    })
+    await axios.post(
+      `https://graph.facebook.com/v22.0/${phoneId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: formattedPhone,
+        type: 'text',
+        text: { body: `Hi! 👋 Please fill in your rental details using this link:\n\n${link}\n\nThis takes about 2 minutes. You'll need your licence and bank details ready.` }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${waToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    )
 
     res.json({ success: true })
   } catch (err: any) {
