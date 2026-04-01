@@ -8,6 +8,7 @@ import ChatPage from './pages/ChatPage'
 import RentersPage from './pages/RentersPage'
 import OnboardPage from './pages/OnboardPage'
 import AdminPage from './pages/AdminPage'
+import SearchPage from './pages/SearchPage'
 import { useAuth0 } from '@auth0/auth0-react'
 
 function LoginPage() {
@@ -177,7 +178,8 @@ export default function App() {
                 <Route path="/"              element={<FleetPage />} />
                 <Route path="/renters"       element={<RentersPage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
-                <Route path="/chat"          element={<ChatPage />} />
+                <Route path="/chat" element={<ChatPage />} />
+                <Route path="/search" element={<SearchPage />} />
               </Routes>
             </main>
           </div>

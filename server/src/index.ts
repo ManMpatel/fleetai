@@ -16,6 +16,7 @@ import { runMongoBackup } from './services/backup'
 import { requireAuth, requireAdmin } from './middleware/auth'
 import { checkGmailForFines } from './services/gmail'
 import adminRoutes from './routes/admin'
+import searchRoutes from './routes/search'
 import { registerOwner, getOwnerStatus } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
 
@@ -79,7 +80,7 @@ app.use('/api/upload/document', uploadRoutes)
 app.use('/api/whatsapp', whatsappRouter)
 app.use('/api/renters', requireAuth, renterRoutes)
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes)
-app.post('/api/auth/register', registerOwner)
+app.use('/api/search', requireAuth, searchRoutes)app.post('/api/auth/register', registerOwner)
 app.get('/api/auth/status', getOwnerStatus)
 
 // Health check
