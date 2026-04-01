@@ -283,6 +283,104 @@ router.get('/:phone/payments', async (req: Request, res: Response) => {
   }
 })
 
+// GET /api/renters/:phone/verify
+router.get('/:phone/verify', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+
+    const checks: { label: string; status: 'pass' | 'fail' | 'warn'; detail: string }[] = []
+
+    // Phone format
+    const phoneClean = phone.replace(/\s/g, '')
+    checks.push(phoneClean.match(/^04\d{8}$/)
+      ? { label: 'Phone number', status: 'pass', detail: 'Valid Australian mobile' }
+      : { label: 'Phone number', status: 'warn', detail: 'Not a standard AU mobile format' })
+
+    // Email
+    if (renter.email) {
+      checks.push(renter.email.includes('@')
+        ? { label: 'Email', status: 'pass', detail: renter.email }
+        : { label: 'Email', status: 'fail', detail: 'Invalid email format' })
+    } else {
+      checks.push({ label: 'Email', status: 'warn', detail: 'Not provided' })
+    }
+
+    // Age 18+
+    if (renter.dateOfBirth) {
+      const dob = new Date(renter.dateOfBirth)
+      const age = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000))
+      checks.push(age >= 18
+        ? { label: 'Age check', status: 'pass', detail: `${age} years old — over 18` }
+        : { label: 'Age check', status: 'fail', detail: `${age} years old — under 18` })
+    } else {
+      checks.push({ label: 'Age check', status: 'warn', detail: 'Date of birth not provided' })
+    }
+
+    // Licence number unique
+    if (renter.licenceNumber) {
+      const dupLicence = await Renter.findOne({
+        licenceNumber: renter.licenceNumber,
+        _id: { $ne: renter._id },
+        ownerId: req.ownerEmail
+      })
+      checks.push(dupLicence
+        ? { label: 'Licence number', status: 'fail', detail: `Already used by another renter` }
+        : { label: 'Licence number', status: 'pass', detail: `${renter.licenceNumber} — unique` })
+    } else {
+      checks.push({ label: 'Licence number', status: 'warn', detail: 'Not provided' })
+    }
+
+    // Licence photo uploaded
+    checks.push(renter.licencePhotoUrl
+      ? { label: 'Licence photo', status: 'pass', detail: 'Uploaded' }
+      : { label: 'Licence photo', status: 'fail', detail: 'Not uploaded' })
+
+    // Selfie uploaded
+    checks.push((renter as any).selfieUrl
+      ? { label: 'Selfie photo', status: 'pass', detail: 'Uploaded' }
+      : { label: 'Selfie photo', status: 'fail', detail: 'Not uploaded' })
+
+    // BSB format
+    if (renter.bsbNumber) {
+      const bsb = decrypt(renter.bsbNumber)
+      checks.push(bsb.match(/^\d{3}-?\d{3}$/)
+        ? { label: 'BSB number', status: 'pass', detail: 'Valid format' }
+        : { label: 'BSB number', status: 'warn', detail: 'Unusual format — verify manually' })
+    } else {
+      checks.push({ label: 'BSB number', status: 'warn', detail: 'Not provided' })
+    }
+
+    // Account number format
+    if (renter.accountNumber) {
+      const acc = decrypt(renter.accountNumber)
+      checks.push(acc.match(/^\d{6,10}$/)
+        ? { label: 'Account number', status: 'pass', detail: 'Valid format' }
+        : { label: 'Account number', status: 'warn', detail: 'Unusual format — verify manually' })
+    } else {
+      checks.push({ label: 'Account number', status: 'warn', detail: 'Not provided' })
+    }
+
+    // Plate in fleet
+    if ((renter as any).currentVehicle || renter.vehicleType) {
+      const Vehicle = (await import('../models/Vehicle')).default
+      const plate = renter.licenceNumber // placeholder — plate comes from form
+      // Check if any unassigned vehicle exists for this owner
+      const available = await Vehicle.findOne({ ownerId: req.ownerEmail, status: 'available' })
+      checks.push(available
+        ? { label: 'Fleet vehicles', status: 'pass', detail: 'Available vehicles exist for assignment' }
+        : { label: 'Fleet vehicles', status: 'warn', detail: 'No available vehicles — assign manually' })
+    }
+
+    const fails = checks.filter(c => c.status === 'fail').length
+    const warns = checks.filter(c => c.status === 'warn').length
+    res.json({ checks, fails, warns })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/renters/:phone/approve
 router.post('/:phone/approve', async (req: Request, res: Response) => {
   try {

@@ -710,6 +710,20 @@ export default function RentersPage() {
   const [showNewRenter, setShowNewRenter] = useState(false)
   const [showPending, setShowPending] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null)
+  const [verifyData, setVerifyData] = useState<Record<string, any>>({})
+  const [verifyLoading, setVerifyLoading] = useState<Record<string, boolean>>({})
+
+  async function loadVerification(phone: string) {
+    setVerifyLoading(p => ({ ...p, [phone]: true }))
+    try {
+      const { data } = await axios.get(`/api/renters/${encodeURIComponent(phone)}/verify`)
+      setVerifyData(p => ({ ...p, [phone]: data }))
+    } catch {
+      setVerifyData(p => ({ ...p, [phone]: { error: true } }))
+    } finally {
+      setVerifyLoading(p => ({ ...p, [phone]: false }))
+    }
+  }
 
   useEffect(() => { fetchRenters() }, [fetchRenters])
 
@@ -765,39 +779,85 @@ export default function RentersPage() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {pendingRenters.map(renter => (
-                <div key={renter._id} className="bg-surface2 border border-border rounded-xl p-4">
-                  <div className="flex justify-between mb-2">
-                    <div>
-                      <p className="font-semibold text-text-primary">{renter.name}</p>
-                      <p className="text-text-muted text-xs">{renter.phone} · {renter.email}</p>
+             {pendingRenters.map(renter => {
+                const verify = verifyData[renter.phone]
+                const vLoading = verifyLoading[renter.phone]
+                return (
+                  <div key={renter._id} className="bg-surface2 border border-border rounded-xl p-4">
+                    {/* Header */}
+                    <div className="flex justify-between mb-3">
+                      <div>
+                        <p className="font-semibold text-text-primary">{renter.name}</p>
+                        <p className="text-text-muted text-xs">{renter.phone} · {renter.email || 'no email'}</p>
+                      </div>
+                      <span className="text-[10px] bg-amber-bg text-amber px-2 py-0.5 rounded-full font-medium h-fit">Pending</span>
+                    </div>
+
+                    {/* Photos */}
+                    <div className="flex gap-2 mb-3">
+                      {renter.licencePhotoUrl && (
+                        <img src={`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`} alt="Licence"
+                          className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80"
+                          onClick={() => window.open(`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`, '_blank')} />
+                      )}
+                      {(renter as any).selfieUrl && (
+                        <img src={`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`} alt="Selfie"
+                          className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80"
+                          onClick={() => window.open(`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`, '_blank')} />
+                      )}
+                    </div>
+
+                    {/* Verification checklist */}
+                    {!verify && !vLoading && (
+                      <button onClick={() => loadVerification(renter.phone)}
+                        className="w-full py-2 mb-3 text-xs border border-border rounded-lg text-text-muted hover:text-text-primary hover:border-accent transition-colors">
+                        Run verification checks
+                      </button>
+                    )}
+
+                    {vLoading && (
+                      <div className="text-xs text-text-muted text-center py-2 mb-3">Running checks...</div>
+                    )}
+
+                    {verify && !verify.error && (
+                      <div className="mb-3 space-y-1">
+                        {verify.fails > 0 && (
+                          <div className="text-xs bg-red-bg text-red px-3 py-1.5 rounded-lg mb-2 font-medium">
+                            {verify.fails} issue{verify.fails > 1 ? 's' : ''} found — review carefully
+                          </div>
+                        )}
+                        {verify.checks?.map((c: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-border last:border-0">
+                            <span className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold
+                              ${c.status === 'pass' ? 'bg-green-bg text-green' :
+                                c.status === 'fail' ? 'bg-red-bg text-red' : 'bg-amber-bg text-amber'}`}>
+                              {c.status === 'pass' ? '✓' : c.status === 'fail' ? '✗' : '!'}
+                            </span>
+                            <span className="text-text-secondary font-medium">{c.label}</span>
+                            <span className="text-text-muted ml-auto text-right">{c.detail}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                        await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/approve`)
+                        setToast({ message: `✅ ${renter.name} approved!`, type: 'success' })
+                        fetchRenters()
+                      }} className="flex-1 bg-green text-white text-xs font-medium py-2 rounded-lg">✓ Approve</button>
+                      <button onClick={async () => {
+                        if (window.confirm(`Reject ${renter.name}?`)) {
+                          await axios.delete(`/api/renters/${encodeURIComponent(renter.phone)}/reject`)
+                          setToast({ message: `${renter.name} rejected`, type: 'warning' })
+                          fetchRenters()
+                        }
+                      }} className="flex-1 bg-red-bg text-red text-xs font-medium py-2 rounded-lg border border-red/20">✕ Reject</button>
                     </div>
                   </div>
-                  <div className="flex gap-2 mb-3">
-                    {renter.licencePhotoUrl && <img src={`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`} alt="Licence" className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer" onClick={() => window.open(`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`, '_blank')} />}
-                    {(renter as any).selfieUrl && <img src={`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`} alt="Selfie" className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer" onClick={() => window.open(`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`, '_blank')} />}
-                  </div>
-                  <div className="text-xs text-text-secondary space-y-1 mb-3">
-                    {renter.licenceNumber && <p>Licence: {renter.licenceNumber}</p>}
-                    {renter.address?.city && <p>{renter.address.city}, {renter.address.state}</p>}
-                    {renter.bsbNumber && <p>BSB: {renter.bsbNumber} | ****{renter.accountNumber?.slice(-3)}</p>}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={async () => {
-                      await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/approve`)
-                      setToast({ message: `✅ ${renter.name} approved!`, type: 'success' })
-                      fetchRenters()
-                    }} className="flex-1 bg-green text-white text-xs font-medium py-2 rounded-lg">✓ Approve</button>
-                    <button onClick={async () => {
-                      if (window.confirm(`Reject ${renter.name}?`)) {
-                        await axios.delete(`/api/renters/${encodeURIComponent(renter.phone)}/reject`)
-                        setToast({ message: `${renter.name} rejected`, type: 'warning' })
-                        fetchRenters()
-                      }
-                    }} className="flex-1 bg-red-bg text-red text-xs font-medium py-2 rounded-lg border border-red/20">✕ Reject</button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </>

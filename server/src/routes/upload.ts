@@ -80,4 +80,42 @@ router.post('/document', upload.single('file'), async (req: Request, res: Respon
   }
 })
 
+// POST /api/upload/read-licence — extract data from licence photo using Gemini
+router.post('/read-licence', async (req: Request, res: Response) => {
+  try {
+    const { imageBase64, mimeType } = req.body
+    if (!imageBase64) return res.status(400).json({ error: 'No image provided' })
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+
+    const prompt = `You are reading an Australian driver's licence. Extract the following fields and return ONLY a valid JSON object with no extra text or markdown:
+{
+  "firstName": "",
+  "lastName": "",
+  "dateOfBirth": "YYYY-MM-DD format",
+  "licenceNumber": "",
+  "addressLine1": "",
+  "city": "",
+  "state": "e.g. NSW",
+  "postcode": ""
+}
+If a field is not visible or unclear, leave it as empty string.`
+
+    const result = await model.generateContent([
+      { inlineData: { data: imageBase64, mimeType: mimeType || 'image/jpeg' } },
+      prompt
+    ])
+
+    const text = result.response.text().trim()
+    const clean = text.replace(/```json|```/g, '').trim()
+    const data = JSON.parse(clean)
+    res.json(data)
+  } catch (err: any) {
+    console.error('Licence read error:', err)
+    res.status(500).json({ error: 'Could not read licence' })
+  }
+})
+
 export default router
