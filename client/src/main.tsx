@@ -13,7 +13,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       domain="fleetai.au.auth0.com"
       clientId="hEdjJkTAMPQu9ZftTStkr94Mey9a5Ht2"
       authorizationParams={{
-        redirect_uri: window.location.origin
+        redirect_uri: window.location.origin,
+        audience: 'https://fleetai-production.up.railway.app'
       }}
     >
       <App />

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import { auth } from 'express-oauth2-jwt-bearer'
 
 export const requireAuth = auth({
-  audience: `https://${process.env.AUTH0_DOMAIN}/api/v2/`,
+  audience: 'https://fleetai-production.up.railway.app',
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}/`,
   tokenSigningAlg: 'RS256',
 })

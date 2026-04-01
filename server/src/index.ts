@@ -23,7 +23,8 @@ import rateLimit from 'express-rate-limit'
 
 dotenv.config()
 
-const app = express()
+const app = express();
+app.set('trust proxy', 1);
 
 // ── Rate limiting ───────────────────────────────────────────
 const generalLimiter = rateLimit({
