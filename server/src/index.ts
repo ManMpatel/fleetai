@@ -12,6 +12,7 @@ import uploadRoutes from './routes/upload'
 import whatsappRouter from './services/whatsapp'
 import renterRoutes from './routes/renters'
 import { checkExpiringDates } from './services/rag'
+import { runMongoBackup } from './services/backup'
 import { checkGmailForFines } from './services/gmail'
 import adminRoutes from './routes/admin'
 import { registerOwner, getOwnerStatus } from './middleware/ownerAuth'
@@ -89,10 +90,16 @@ mongoose
     })
 
     // Rego/Pink slip expiry check — daily at 8am Sydney time
-    cron.schedule('0 8 * * *', async () => {
-      console.log('⏰ Running daily expiry check...')
-      await checkExpiringDates()
-    })
+    cron.schedule('0 8 * * *', () => {
+    console.log('⏰ Running daily expiry check...')
+    checkExpiringDates()
+  })
+
+  // Daily backup at 2am Sydney time
+  cron.schedule('0 2 * * *', () => {
+    console.log('🗄️ Running daily MongoDB backup...')
+    runMongoBackup()
+  })
 
     // Run expiry check once on startup too
     checkExpiringDates().catch(console.error)
