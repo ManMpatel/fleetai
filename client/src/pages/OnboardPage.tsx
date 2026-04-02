@@ -60,7 +60,7 @@ export default function OnboardPage() {
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)
-    const res = await axios.post('/api/upload/document', formData)
+    const res = await axios.post('/api/upload/document/document', formData)
     return res.data.url
   }
 
