@@ -46,7 +46,7 @@ const chatLimiter = rateLimit({
 })
 
 app.use('/api/', generalLimiter)
-app.use('/api/renters', onboardLimiter)
+app.post('/api/renters', onboardLimiter)
 app.use('/api/chat', chatLimiter)
 const PORT = process.env.PORT || 5000
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fleetai'
