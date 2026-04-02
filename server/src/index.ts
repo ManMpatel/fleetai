@@ -56,7 +56,9 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'https://fleetai-tau.vercel.app',
-    'https://fleetai-git-main-manmpatels-projects.vercel.app'
+    'https://fleetai-git-main-manmpatels-projects.vercel.app',
+    'https://fleetai.co.in',
+    'https://www.fleetai.co.in'
   ],
   credentials: true
 }))
