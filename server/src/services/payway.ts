@@ -171,9 +171,8 @@ export async function pauseDebit(
     const farFuture = new Date()
     farFuture.setFullYear(farFuture.getFullYear() + 1)
     farFuture.setDate(farFuture.getDate() - 1)
-    const formattedDate = farFuture.toLocaleDateString('en-AU', {
-      day: '2-digit', month: 'short', year: 'numeric'
-    })
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const formattedDate = `${String(farFuture.getDate()).padStart(2,'0')} ${MONTHS[farFuture.getMonth()]} ${farFuture.getFullYear()}`
 
     const params = new URLSearchParams({
       frequency: 'weekly',
@@ -208,9 +207,8 @@ export async function resumeDebit(
   try {
     const nextDate = new Date()
     nextDate.setDate(nextDate.getDate() + 7)
-    const formattedDate = nextDate.toLocaleDateString('en-AU', {
-      day: '2-digit', month: 'short', year: 'numeric'
-    })
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const formattedDate = `${String(nextDate.getDate()).padStart(2,'0')} ${MONTHS[nextDate.getMonth()]} ${nextDate.getFullYear()}`
 
     const params = new URLSearchParams({
       frequency: 'weekly',
