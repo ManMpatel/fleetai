@@ -18,6 +18,7 @@ import { checkGmailForFines } from './services/gmail'
 import adminRoutes from './routes/admin'
 import searchRoutes from './routes/search'
 import serviceRecordRoutes from './routes/serviceRecords'
+import employeeRoutes from './routes/employees'
 import { registerOwner, getOwnerStatus } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
 
@@ -85,6 +86,7 @@ app.use('/api/renters', requireAuth, renterRoutes)
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes)
 app.use('/api/search', requireAuth, searchRoutes)
 app.use('/api/service-records', requireAuth, serviceRecordRoutes)
+app.use('/api/employees', employeeRoutes)
 app.post('/api/auth/register', registerOwner)
 app.get('/api/auth/status', getOwnerStatus)
 
