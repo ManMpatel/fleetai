@@ -14,6 +14,7 @@ export default function OnboardPage() {
   const [selfiePreview, setSelfiePreview] = useState('')
 
   const [form, setForm] = useState({
+    mobileNumber: decodeURIComponent(phone || ''),
     firstName: '',
     lastName: '',
     dateOfBirth: '',
@@ -60,7 +61,7 @@ export default function OnboardPage() {
   async function uploadFile(file: File): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)
-    const res = await axios.post('/api/upload/document/document', formData)
+    const res = await axios.post('/api/upload/document', formData)
     return res.data.url
   }
 
@@ -79,7 +80,7 @@ export default function OnboardPage() {
 
       await axios.post('/api/renters', {
         name: `${form.firstName} ${form.lastName}`,
-        phone: decodeURIComponent(phone || ''),
+        phone: phone ? decodeURIComponent(phone) : form.mobileNumber,
         ownerId: ownerEmail,
         email: form.email,
         dateOfBirth: form.dateOfBirth,
@@ -152,7 +153,7 @@ export default function OnboardPage() {
               <Field label="Last Name *" name="lastName" value={form.lastName} onChange={handleChange} required />
             </div>
             <Field label="Date of Birth *" name="dateOfBirth" type="date" value={form.dateOfBirth} onChange={handleChange} required />
-            <Field label="Mobile Number" name="phone" value={decodeURIComponent(phone || '')} onChange={() => {}} disabled />
+            <Field label="Mobile Number *" name="mobileNumber" value={form.mobileNumber} onChange={handleChange} required={!phone} disabled={!!phone} />
             <Field label="Email ID *" name="email" type="email" value={form.email} onChange={handleChange} required />
             <div>
               <label className="block text-xs text-gray-500 mb-1.5">Vehicle Type *</label>

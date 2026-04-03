@@ -143,6 +143,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/onboard/:phone" element={<OnboardPage />} />
+          <Route path="/onboard" element={<OnboardPage />} />
         </Routes>
       </BrowserRouter>
     )
