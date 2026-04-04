@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useStore } from '../store/useStore'
 import { useAuth0 } from '@auth0/auth0-react'
-import QuickLinks from './QuickLinks'
+
 
 const navItems = [
   {
@@ -64,6 +64,18 @@ const navItems = [
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
         <polyline points="17 8 12 3 7 8"/>
         <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+    ),
+  },
+  {
+    to: '/staff',
+    label: 'Staff',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5 shrink-0">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
       </svg>
     ),
   },
@@ -168,13 +180,6 @@ export default function Sidebar() {
             </NavLink>
           ))}
         </nav>
-
-        {/* Quick Links */}
-        {!collapsed && (
-          <div className="px-2 pb-2">
-            <QuickLinks />
-          </div>
-        )}
 
         {/* Footer */}
         <div className="px-2 py-3 border-t border-sidebar-border space-y-0.5">

@@ -1,10 +1,130 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useStore } from '../store/useStore'
+import { useAuth0 } from '@auth0/auth0-react'
+import axios from 'axios'
 import StatCard from '../components/StatCard'
 import FilterBar from '../components/FilterBar'
 import FleetTable from '../components/FleetTable'
 import SlidePanel from '../components/SlidePanel'
 import type { VehicleStatus, VehicleType } from '../types'
+
+function ShareLinks() {
+  const { user } = useAuth0()
+  const [open, setOpen] = useState(false)
+  const [slug, setSlug] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+  const BASE = 'https://fleetai.co.in'
+
+  useEffect(() => {
+    if (!user?.email) return
+    axios.get(`${API}/api/auth/slug`, { headers: { 'x-owner-email': user.email } })
+      .then(r => { if (r.data.slug) setSlug(r.data.slug) })
+      .catch(() => {})
+  }, [user?.email])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  async function saveSlug() {
+    if (!slug.trim() || !user?.email) return
+    setSaving(true)
+    try {
+      await axios.post(`${API}/api/auth/slug`, { slug }, { headers: { 'x-owner-email': user.email } })
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+    } catch {}
+    setSaving(false)
+  }
+
+  function copyLink(type: string) {
+    const url = type === 'onboard'
+      ? `${BASE}/onboard/${slug}`
+      : type === 'tablet'
+      ? `${BASE}/tablet/${slug}`
+      : BASE
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(type); setTimeout(() => setCopied(null), 2000)
+    })
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-3 py-2 bg-surface2 border border-border rounded-lg text-sm text-text-secondary hover:text-text-primary hover:border-accent transition-colors"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+        Share Links
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-11 w-80 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-4">
+          {/* Slug setup */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">Your short name</p>
+            <div className="flex gap-2">
+              <div className="flex-1 flex items-center bg-surface2 border border-border rounded-lg overflow-hidden px-3">
+                <span className="text-text-muted text-xs whitespace-nowrap">fleetai.co.in/</span>
+                <input
+                  value={slug}
+                  onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  placeholder="your-name"
+                  className="flex-1 bg-transparent text-text-primary text-sm py-2 focus:outline-none min-w-0"
+                />
+              </div>
+              <button
+                onClick={saveSlug}
+                disabled={saving}
+                className="px-3 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 whitespace-nowrap"
+              >
+                {saved ? '✓' : saving ? '...' : 'Save'}
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-border" />
+
+          {/* Links */}
+          {[
+            { type: 'onboard', label: 'Onboard form', sub: 'Send to renters', icon: '👤' },
+            { type: 'tablet',  label: 'Tablet page',  sub: 'Give to employees', icon: '📱' },
+          ].map(link => (
+            <div key={link.type} className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="text-lg">{link.icon}</span>
+                <div>
+                  <p className="text-sm font-medium text-text-primary">{link.label}</p>
+                  <p className="text-xs text-text-muted">{link.sub}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => copyLink(link.type)}
+                disabled={!slug}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface2 border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {copied === link.type ? '✓ Copied' : 'Copy'}
+              </button>
+            </div>
+          ))}
+          {!slug && (
+            <p className="text-xs text-amber text-center">Set your short name above to enable copy</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function FleetPage() {
   const { vehicles, fleetLoading, fetchVehicles, selectedVehicle, stats } = useStore()
@@ -31,9 +151,12 @@ export default function FleetPage() {
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-bg">
       {/* Page header */}
-      <div className="px-6 py-5 border-b border-border bg-surface">
-        <h1 className="text-xl font-bold text-text-primary">Fleet Overview</h1>
-        <p className="text-text-muted text-sm mt-0.5">Sydney scooters and cars</p>
+      <div className="px-6 py-5 border-b border-border bg-surface flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-text-primary">Fleet Overview</h1>
+          <p className="text-text-muted text-sm mt-0.5">Sydney scooters and cars</p>
+        </div>
+        <ShareLinks />
       </div>
 
       <div className="flex-1 px-6 py-6 space-y-6">
