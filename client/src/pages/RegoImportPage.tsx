@@ -3,7 +3,6 @@ import axios from 'axios'
 import { useAuth0 } from '@auth0/auth0-react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 type RegoStatus = 'in_stock' | 'stolen' | 'sold'
@@ -15,7 +14,7 @@ interface RegoVehicle {
   regoExpiry: string
   notes?: string
   regoStatus: RegoStatus
-  model?: string
+  regoPhotoBase64?: string
 }
 
 interface ConfirmData {
@@ -23,7 +22,7 @@ interface ConfirmData {
   year: string
   regoExpiry: string
   notes: string
-  photoUrl: string
+  photoBase64: string
 }
 
 function daysUntil(dateStr: string) {
@@ -37,10 +36,29 @@ function formatExpiry(dateStr: string) {
 
 function expiryColor(dateStr: string) {
   const days = daysUntil(dateStr)
-  if (days < 0) return { dot: '#EF4444', text: '#B91C1C', label: `Expired ${Math.abs(days)}d ago` }
-  if (days <= 7) return { dot: '#F59E0B', text: '#B45309', label: `${days}d left` }
+  if (days < 0)   return { dot: '#EF4444', text: '#B91C1C', label: `Expired ${Math.abs(days)}d ago` }
+  if (days <= 7)  return { dot: '#F59E0B', text: '#B45309', label: `${days}d left` }
   if (days <= 14) return { dot: '#F59E0B', text: '#B45309', label: formatExpiry(dateStr) }
   return { dot: '#22C55E', text: '#15803D', label: formatExpiry(dateStr) }
+}
+
+// ── Compress image using canvas ─────────────────────────────
+async function compressImage(file: File, maxWidth = 1200, quality = 0.72): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.round(img.width  * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1]
+      URL.revokeObjectURL(url)
+      resolve(base64)
+    }
+    img.src = url
+  })
 }
 
 export default function RegoImportPage() {
@@ -56,14 +74,10 @@ export default function RegoImportPage() {
   const [toast, setToast] = useState('')
   const [editVehicle, setEditVehicle] = useState<RegoVehicle | null>(null)
   const [editYear, setEditYear] = useState('')
-  const [photosMap, setPhotosMap] = useState<Record<string, string>>({})
-
-  // Edit popup state
-  const [editExpiry, setEditExpiry] = useState('')
+  const [photoModal, setPhotoModal] = useState<string | null>(null)
 
   function showToast(msg: string) {
-    setToast(msg)
-    setTimeout(() => setToast(''), 3000)
+    setToast(msg); setTimeout(() => setToast(''), 3000)
   }
 
   async function fetchVehicles() {
@@ -72,13 +86,12 @@ export default function RegoImportPage() {
         headers: { 'x-owner-email': user?.email || '' }
       })
       setVehicles(data)
-    } catch { }
+    } catch {}
     setLoading(false)
   }
 
   useEffect(() => { fetchVehicles() }, [user?.email])
 
-  // Group by month
   function groupByMonth(list: RegoVehicle[]) {
     const groups: Record<string, RegoVehicle[]> = {}
     list
@@ -102,29 +115,23 @@ export default function RegoImportPage() {
     if (!file) return
     setScanning(true)
 
-    // Create local URL for display
-    const localUrl = URL.createObjectURL(file)
-
-    // Convert to base64 for Gemini
-    const base64 = await new Promise<string>(resolve => {
-      const reader = new FileReader()
-      reader.onload = ev => resolve((ev.target?.result as string).split(',')[1])
-      reader.readAsDataURL(file)
-    })
-
     try {
+      // Compress first
+      const compressed = await compressImage(file)
+
+      // Send compressed to Gemini
       const { data } = await axios.post(`${API}/api/upload/read-rego-bulk`, {
-        files: [{ name: file.name, base64, mimeType: file.type || 'image/jpeg' }]
-      }, { headers: { 'x-owner-email': user?.email || '' } })
+        files: [{ name: file.name, base64: compressed, mimeType: 'image/jpeg' }]
+      })
 
       const result = data.results?.[0]
-      if (result?.data) {
+      if (result?.data?.plate) {
         setConfirm({
           plate: result.data.plate || '',
-          year: result.data.year || '',
+          year:  result.data.year  || '',
           regoExpiry: result.data.regoExpiry || '',
           notes: '',
-          photoUrl: localUrl,
+          photoBase64: compressed,
         })
       } else {
         showToast('❌ Could not read rego — try a clearer photo')
@@ -143,7 +150,7 @@ export default function RegoImportPage() {
     }
     setSaving(true)
     try {
-      const { data } = await axios.post(`${API}/api/fleet`, {
+      await axios.post(`${API}/api/fleet`, {
         plate: confirm.plate.toUpperCase(),
         model: 'Unknown',
         year: parseInt(confirm.year) || new Date().getFullYear(),
@@ -151,12 +158,8 @@ export default function RegoImportPage() {
         regoExpiry: confirm.regoExpiry,
         notes: confirm.notes,
         regoStatus: 'in_stock',
+        regoPhotoBase64: confirm.photoBase64,
       }, { headers: { 'x-owner-email': user?.email || '' } })
-
-      // Store photo in memory
-      if (confirm.photoUrl) {
-        setPhotosMap(p => ({ ...p, [confirm!.plate.toUpperCase()]: confirm!.photoUrl }))
-      }
 
       showToast(`✅ ${confirm.plate.toUpperCase()} saved`)
       setConfirm(null)
@@ -178,20 +181,18 @@ export default function RegoImportPage() {
   }
 
   async function saveEdit() {
-    if (!editVehicle || !editExpiry) return
+    if (!editVehicle || !editYear) return
     setSaving(true)
     try {
-      // Just update the year part of the expiry date
       const current = new Date(editVehicle.regoExpiry)
       current.setFullYear(parseInt(editYear))
       const newExpiry = current.toISOString().split('T')[0]
-
       await axios.put(`${API}/api/fleet/${editVehicle.plate}`,
         { regoExpiry: newExpiry },
         { headers: { 'x-owner-email': user?.email || '' } }
       )
       setVehicles(prev => prev.map(v => v._id === editVehicle._id ? { ...v, regoExpiry: newExpiry } : v))
-      showToast(`✅ ${editVehicle.plate} expiry updated`)
+      showToast(`✅ ${editVehicle.plate} updated`)
       setEditVehicle(null)
     } catch { showToast('❌ Failed to update') }
     setSaving(false)
@@ -203,11 +204,12 @@ export default function RegoImportPage() {
     { key: 'sold',     label: 'Sold' },
   ]
 
-  const filtered = vehicles.filter(v => (v.regoStatus || 'in_stock') === activeTab)
-  const grouped = groupByMonth(filtered)
+  const filtered  = vehicles.filter(v => (v.regoStatus || 'in_stock') === activeTab)
+  const grouped   = groupByMonth(filtered)
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-bg">
+
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-lg">{toast}</div>
       )}
@@ -216,7 +218,7 @@ export default function RegoImportPage() {
       <div className="px-6 py-5 border-b border-border bg-surface flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-text-primary">Rego management</h1>
-          <p className="text-text-muted text-sm mt-0.5">Scan a rego photo — Gemini extracts details automatically</p>
+          <p className="text-text-muted text-sm mt-0.5">Scan a rego photo — Gemini extracts details, photo stored in database</p>
         </div>
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -229,7 +231,7 @@ export default function RegoImportPage() {
           </svg>
           {scanning ? 'Scanning...' : 'Scan rego photo'}
         </button>
-        <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handlePhotoUpload} />
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
       </div>
 
       {/* Tabs */}
@@ -237,19 +239,15 @@ export default function RegoImportPage() {
         {tabList.map(t => {
           const count = vehicles.filter(v => (v.regoStatus || 'in_stock') === t.key).length
           return (
-            <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key)}
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
               className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                activeTab === t.key
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-text-muted hover:text-text-primary'
+                activeTab === t.key ? 'border-accent text-accent' : 'border-transparent text-text-muted hover:text-text-primary'
               }`}
             >
               {t.label}
-              <span className={`text-xs px-2 py-0.5 rounded-full ${
-                activeTab === t.key ? 'bg-accent-bg text-accent' : 'bg-surface2 text-text-muted'
-              }`}>{count}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === t.key ? 'bg-accent-bg text-accent' : 'bg-surface2 text-text-muted'}`}>
+                {count}
+              </span>
             </button>
           )
         })}
@@ -260,9 +258,7 @@ export default function RegoImportPage() {
         {loading ? (
           <p className="text-text-muted text-sm text-center py-12">Loading...</p>
         ) : Object.keys(grouped).length === 0 ? (
-          <div className="text-center py-20 text-text-muted text-sm">
-            No vehicles in this category yet
-          </div>
+          <div className="text-center py-20 text-text-muted text-sm">No vehicles in this category yet</div>
         ) : (
           Object.entries(grouped).map(([key, list]) => {
             const [yr, mo] = key.split('-')
@@ -270,9 +266,7 @@ export default function RegoImportPage() {
             const isCollapsed = collapsed[key]
             return (
               <div key={key} className="bg-surface border border-border rounded-xl overflow-hidden">
-                {/* Month header */}
-                <button
-                  onClick={() => toggleCollapse(key)}
+                <button onClick={() => toggleCollapse(key)}
                   className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-surface2 transition-colors"
                 >
                   <div className="flex items-center gap-3">
@@ -287,7 +281,6 @@ export default function RegoImportPage() {
                   </svg>
                 </button>
 
-                {/* Table */}
                 {!isCollapsed && (
                   <table className="w-full text-sm border-t border-border">
                     <thead>
@@ -300,13 +293,10 @@ export default function RegoImportPage() {
                     <tbody className="divide-y divide-border">
                       {list.map(v => {
                         const col = expiryColor(v.regoExpiry)
-                        const photo = photosMap[v.plate]
                         return (
                           <tr key={v._id} className="hover:bg-surface2 transition-colors">
                             <td className="px-4 py-3">
-                              <span className="font-mono text-xs bg-surface2 border border-border px-2 py-1 rounded font-medium text-text-primary">
-                                {v.plate}
-                              </span>
+                              <span className="font-mono text-xs bg-surface2 border border-border px-2 py-1 rounded font-medium text-text-primary">{v.plate}</span>
                             </td>
                             <td className="px-4 py-3 text-text-secondary">{v.year || '—'}</td>
                             <td className="px-4 py-3">
@@ -316,11 +306,13 @@ export default function RegoImportPage() {
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              {photo ? (
-                                <a href={photo} target="_blank" rel="noreferrer"
-                                  className="text-xs text-accent underline hover:no-underline">
+                              {v.regoPhotoBase64 ? (
+                                <button
+                                  onClick={() => setPhotoModal(v.regoPhotoBase64!)}
+                                  className="text-xs text-accent underline hover:no-underline"
+                                >
                                   View photo
-                                </a>
+                                </button>
                               ) : (
                                 <span className="text-xs text-text-muted italic">Not scanned</span>
                               )}
@@ -341,15 +333,9 @@ export default function RegoImportPage() {
                             </td>
                             <td className="px-4 py-3">
                               <button
-                                onClick={() => {
-                                  setEditVehicle(v)
-                                  setEditYear(String(new Date(v.regoExpiry).getFullYear()))
-                                  setEditExpiry(v.regoExpiry)
-                                }}
+                                onClick={() => { setEditVehicle(v); setEditYear(String(new Date(v.regoExpiry).getFullYear())) }}
                                 className="text-xs text-text-muted hover:text-text-primary border border-border rounded-lg px-3 py-1.5 hover:border-accent transition-colors"
-                              >
-                                Edit
-                              </button>
+                              >Edit</button>
                             </td>
                           </tr>
                         )
@@ -362,6 +348,20 @@ export default function RegoImportPage() {
           })
         )}
       </div>
+
+      {/* Photo viewer modal */}
+      {photoModal && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center px-4"
+          onClick={() => setPhotoModal(null)}>
+          <div className="max-w-2xl w-full" onClick={e => e.stopPropagation()}>
+            <img src={`data:image/jpeg;base64,${photoModal}`} className="w-full rounded-2xl" />
+            <button onClick={() => setPhotoModal(null)}
+              className="mt-3 w-full py-2.5 bg-white/10 text-white rounded-xl text-sm hover:bg-white/20">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Gemini Confirm Popup */}
       {confirm && (
@@ -376,8 +376,7 @@ export default function RegoImportPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Plate number</label>
-                <input
-                  value={confirm.plate}
+                <input value={confirm.plate}
                   onChange={e => setConfirm(p => p ? { ...p, plate: e.target.value.toUpperCase() } : p)}
                   className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
                 />
@@ -385,17 +384,14 @@ export default function RegoImportPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Year</label>
-                  <input
-                    value={confirm.year}
+                  <input value={confirm.year}
                     onChange={e => setConfirm(p => p ? { ...p, year: e.target.value } : p)}
                     className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                   />
                 </div>
                 <div>
                   <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Rego expiry</label>
-                  <input
-                    type="date"
-                    value={confirm.regoExpiry}
+                  <input type="date" value={confirm.regoExpiry}
                     onChange={e => setConfirm(p => p ? { ...p, regoExpiry: e.target.value } : p)}
                     className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                   />
@@ -403,13 +399,16 @@ export default function RegoImportPage() {
               </div>
               <div>
                 <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Notes (optional)</label>
-                <input
-                  value={confirm.notes}
+                <input value={confirm.notes}
                   onChange={e => setConfirm(p => p ? { ...p, notes: e.target.value } : p)}
                   placeholder="Add a note..."
                   className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
                 />
               </div>
+              {confirm.photoBase64 && (
+                <img src={`data:image/jpeg;base64,${confirm.photoBase64}`}
+                  className="w-full rounded-lg object-cover max-h-32" />
+              )}
             </div>
 
             <div className="flex gap-2 mt-5">
@@ -432,20 +431,16 @@ export default function RegoImportPage() {
           <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-xs p-6">
             <h2 className="text-base font-semibold text-text-primary mb-1">Edit rego expiry</h2>
             <p className="text-text-muted text-xs mb-5">
-              Plate <span className="font-mono font-medium text-text-primary">{editVehicle.plate}</span> — update the year after renewal.
+              Plate <span className="font-mono font-medium text-text-primary">{editVehicle.plate}</span> — update year after renewal.
             </p>
             <div>
               <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">New expiry year</label>
-              <input
-                type="number"
-                value={editYear}
+              <input type="number" value={editYear}
                 onChange={e => setEditYear(e.target.value)}
                 min="2024" max="2035"
                 className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
               />
-              <p className="text-xs text-text-muted mt-1.5">
-                Day and month stay the same — only year changes.
-              </p>
+              <p className="text-xs text-text-muted mt-1.5">Day and month stay the same — only year changes.</p>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={() => setEditVehicle(null)}

@@ -43,6 +43,7 @@ const VehicleSchema = new Schema(
     ownerId: { type: String, required: true, index: true },
     notes: { type: String },
     regoStatus: { type: String, enum: ['in_stock', 'stolen', 'sold'], default: 'in_stock' },
+    regoPhotoBase64: { type: String },
   },
   { timestamps: true }
 )
