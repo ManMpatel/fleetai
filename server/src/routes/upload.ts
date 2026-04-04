@@ -147,14 +147,17 @@ Important: Always set confident to true and always return your best guess even i
     for (const file of files) {
       try {
         const result = await model.generateContent([
-          { inlineData: { data: file.base64, mimeType: file.mimeType || 'application/pdf' } },
+          { inlineData: { data: file.base64, mimeType: file.mimeType || 'image/jpeg' } },
           prompt
         ])
         const text = result.response.text().trim()
+        console.log('🔍 Gemini raw response:', text)
         const clean = text.replace(/```json|```/g, '').trim()
         const data = JSON.parse(clean)
-        results.push({ filename: file.name, status: data.confident === false ? 'unclear' : 'ok', data })
-      } catch {
+        console.log('✅ Gemini parsed data:', JSON.stringify(data))
+        results.push({ filename: file.name, status: 'ok', data })
+      } catch (err: any) {
+        console.error('❌ Gemini rego error:', err.message)
         results.push({ filename: file.name, status: 'error', data: null })
       }
       await new Promise(r => setTimeout(r, 4100))
