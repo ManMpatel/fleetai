@@ -88,7 +88,7 @@ router.post('/read-licence', async (req: Request, res: Response) => {
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `You are reading an Australian driver's licence. Extract the following fields and return ONLY a valid JSON object with no extra text or markdown:
 {
@@ -126,7 +126,7 @@ router.post('/read-rego-bulk', async (req: Request, res: Response) => {
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `You are reading an Australian vehicle registration document or certificate. This may be a photo of a physical paper taken with a phone — it may be slightly blurry or at an angle. Do your best to extract what you can.
 
