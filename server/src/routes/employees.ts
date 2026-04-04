@@ -103,4 +103,40 @@ router.post('/clock', upload.single('selfie'), async (req: Request, res: Respons
   } catch (err: any) { res.status(400).json({ error: err.message }) }
 })
 
+// POST /api/employees/log-service — tablet logs a service record (PIN-gated, no JWT)
+router.post('/log-service', async (req: Request, res: Response) => {
+  try {
+    const {
+      pin, ownerId, plate, vehicleCategory, vehicleType,
+      customerName, customerPhone, serviceType, description, cost, notes
+    } = req.body
+
+    if (!pin || !ownerId) return res.status(400).json({ error: 'PIN and ownerId required' })
+
+    const employee = await Employee.findOne({ pin, ownerId })
+    if (!employee) return res.status(401).json({ error: 'Invalid PIN' })
+
+    // Dynamically import ServiceRecord to avoid circular deps
+    const ServiceRecord = (await import('../models/ServiceRecord')).default
+    const record = new ServiceRecord({
+      ownerId,
+      plate,
+      vehicleCategory,
+      vehicleType,
+      employeeName: employee.name,
+      customerName,
+      customerPhone,
+      serviceType,
+      description,
+      cost: cost ? Number(cost) : undefined,
+      notes,
+      date: new Date(),
+    })
+    await record.save()
+    res.status(201).json(record)
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
 export default router

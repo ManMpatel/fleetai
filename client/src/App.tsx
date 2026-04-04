@@ -11,6 +11,7 @@ import AdminPage from './pages/AdminPage'
 import SearchPage from './pages/SearchPage'
 import RegoImportPage from './pages/RegoImportPage'
 import { useAuth0 } from '@auth0/auth0-react'
+import TabletPage from './pages/TabletPage'
 
 function LoginPage() {
   const { loginWithRedirect } = useAuth0()
@@ -183,6 +184,7 @@ export default function App() {
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/rego-import" element={<RegoImportPage />} />
+                <Route path="/tablet/:slug" element={<TabletPage />} />
               </Routes>
             </main>
           </div>
