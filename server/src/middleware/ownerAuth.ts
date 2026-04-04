@@ -62,3 +62,55 @@ export async function getOwnerStatus(req: Request, res: Response) {
     res.status(500).json({ error: 'Failed to get status' })
   }
 }
+
+// GET /api/auth/slug — get owner's current slug
+export async function getOwnerSlug(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const owner = await Owner.findOne({ email })
+    if (!owner) return res.status(404).json({ error: 'Owner not found' })
+    res.json({ slug: owner.slug || null })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get slug' })
+  }
+}
+
+// POST /api/auth/slug — set owner's slug
+export async function setOwnerSlug(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const { slug } = req.body
+    if (!slug) return res.status(400).json({ error: 'Slug required' })
+
+    // Clean slug — lowercase, alphanumeric + hyphens only
+    const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30)
+
+    // Check not taken
+    const existing = await Owner.findOne({ slug: cleanSlug })
+    if (existing && existing.email !== email) {
+      return res.status(409).json({ error: 'This name is already taken' })
+    }
+
+    const owner = await Owner.findOneAndUpdate(
+      { email },
+      { slug: cleanSlug },
+      { new: true }
+    )
+    res.json({ slug: owner?.slug })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// GET /api/auth/resolve/:slug — resolve slug to owner email (public)
+export async function resolveSlug(req: Request, res: Response) {
+  try {
+    const owner = await Owner.findOne({ slug: req.params.slug })
+    if (!owner) return res.status(404).json({ error: 'Invalid link' })
+    res.json({ email: owner.email, name: owner.name })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to resolve slug' })
+  }
+}

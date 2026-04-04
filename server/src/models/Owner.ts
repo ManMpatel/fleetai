@@ -5,6 +5,7 @@ const ownerSchema = new mongoose.Schema({
   name:       { type: String },
   picture:    { type: String },
   auth0Id:    { type: String },
+  slug:       { type: String, unique: true, sparse: true },
   status:     { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   approvedAt: { type: Date },
   createdAt:  { type: Date, default: Date.now }

@@ -139,15 +139,15 @@ export default function App() {
   }, [isAuthenticated, getAccessTokenSilently])
 
   if (window.location.pathname.startsWith('/onboard')) {
-    return (
-      <BrowserRouter>
-        <Routes>
-          <Route path="/onboard/:phone" element={<OnboardPage />} />
-          <Route path="/onboard" element={<OnboardPage />} />
-        </Routes>
-      </BrowserRouter>
-    )
-  }
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/onboard/:phone" element={<OnboardPage />} />
+        <Route path="/onboard" element={<OnboardPage />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
 
   if (isLoading) return (
     <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -19,7 +19,7 @@ import adminRoutes from './routes/admin'
 import searchRoutes from './routes/search'
 import serviceRecordRoutes from './routes/serviceRecords'
 import employeeRoutes from './routes/employees'
-import { registerOwner, getOwnerStatus } from './middleware/ownerAuth'
+import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
 
 dotenv.config()
@@ -89,6 +89,9 @@ app.use('/api/service-records', requireAuth, serviceRecordRoutes)
 app.use('/api/employees', employeeRoutes)
 app.post('/api/auth/register', registerOwner)
 app.get('/api/auth/status', getOwnerStatus)
+app.get('/api/auth/slug', getOwnerSlug)
+app.post('/api/auth/slug', setOwnerSlug)
+app.get('/api/auth/resolve/:slug', resolveSlug)
 
 // Health check
 app.get('/api/health', (_req, res) => {
