@@ -1,277 +1,465 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
-import { useStore } from '../store/useStore'
+import { useAuth0 } from '@auth0/auth0-react'
 
-interface RegoResult {
-  filename: string
-  status: 'ok' | 'unclear' | 'error'
-  data: {
-    plate: string
-    make: string
-    model: string
-    year: string
-    regoExpiry: string
-    vin: string
-    confident: boolean
-  } | null
-  edited?: boolean
-  saved?: boolean
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+type RegoStatus = 'in_stock' | 'stolen' | 'sold'
+
+interface RegoVehicle {
+  _id: string
+  plate: string
+  year: number
+  regoExpiry: string
+  notes?: string
+  regoStatus: RegoStatus
+  model?: string
+}
+
+interface ConfirmData {
+  plate: string
+  year: string
+  regoExpiry: string
+  notes: string
+  photoUrl: string
+}
+
+function daysUntil(dateStr: string) {
+  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000)
+}
+
+function formatExpiry(dateStr: string) {
+  const d = new Date(dateStr)
+  return `${String(d.getDate()).padStart(2,'0')} ${MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`
+}
+
+function expiryColor(dateStr: string) {
+  const days = daysUntil(dateStr)
+  if (days < 0) return { dot: '#EF4444', text: '#B91C1C', label: `Expired ${Math.abs(days)}d ago` }
+  if (days <= 7) return { dot: '#F59E0B', text: '#B45309', label: `${days}d left` }
+  if (days <= 14) return { dot: '#F59E0B', text: '#B45309', label: formatExpiry(dateStr) }
+  return { dot: '#22C55E', text: '#15803D', label: formatExpiry(dateStr) }
 }
 
 export default function RegoImportPage() {
-  const { fetchVehicles } = useStore()
+  const { user } = useAuth0()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [results, setResults] = useState<RegoResult[]>([])
-  const [processing, setProcessing] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [saving, setSaving] = useState<Record<number, boolean>>({})
-  const [savedCount, setSavedCount] = useState(0)
+  const [vehicles, setVehicles] = useState<RegoVehicle[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<RegoStatus>('in_stock')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [confirm, setConfirm] = useState<ConfirmData | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
+  const [editVehicle, setEditVehicle] = useState<RegoVehicle | null>(null)
+  const [editYear, setEditYear] = useState('')
+  const [photosMap, setPhotosMap] = useState<Record<string, string>>({})
+
+  // Edit popup state
+  const [editExpiry, setEditExpiry] = useState('')
 
   function showToast(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(''), 3000)
   }
 
-  async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    setProcessing(true)
-    setProgress(0)
-    setResults([])
-    setSavedCount(0)
+  async function fetchVehicles() {
+    try {
+      const { data } = await axios.get(`${API}/api/fleet`, {
+        headers: { 'x-owner-email': user?.email || '' }
+      })
+      setVehicles(data)
+    } catch { }
+    setLoading(false)
+  }
 
-    // Process in batches of 10 to avoid request size limits
-    const batchSize = 10
-    const allResults: RegoResult[] = []
+  useEffect(() => { fetchVehicles() }, [user?.email])
 
-    for (let i = 0; i < files.length; i += batchSize) {
-      const batch = files.slice(i, i + batchSize)
+  // Group by month
+  function groupByMonth(list: RegoVehicle[]) {
+    const groups: Record<string, RegoVehicle[]> = {}
+    list
+      .filter(v => v.regoExpiry)
+      .sort((a, b) => new Date(a.regoExpiry).getTime() - new Date(b.regoExpiry).getTime())
+      .forEach(v => {
+        const d = new Date(v.regoExpiry)
+        const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
+        if (!groups[key]) groups[key] = []
+        groups[key].push(v)
+      })
+    return groups
+  }
 
-      const encoded = await Promise.all(batch.map(async file => {
-        const base64 = await new Promise<string>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = ev => {
-            const result = ev.target?.result as string
-            resolve(result.split(',')[1])
-          }
-          reader.readAsDataURL(file)
+  function toggleCollapse(key: string) {
+    setCollapsed(p => ({ ...p, [key]: !p[key] }))
+  }
+
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setScanning(true)
+
+    // Create local URL for display
+    const localUrl = URL.createObjectURL(file)
+
+    // Convert to base64 for Gemini
+    const base64 = await new Promise<string>(resolve => {
+      const reader = new FileReader()
+      reader.onload = ev => resolve((ev.target?.result as string).split(',')[1])
+      reader.readAsDataURL(file)
+    })
+
+    try {
+      const { data } = await axios.post(`${API}/api/upload/read-rego-bulk`, {
+        files: [{ name: file.name, base64, mimeType: file.type || 'image/jpeg' }]
+      }, { headers: { 'x-owner-email': user?.email || '' } })
+
+      const result = data.results?.[0]
+      if (result?.data) {
+        setConfirm({
+          plate: result.data.plate || '',
+          year: result.data.year || '',
+          regoExpiry: result.data.regoExpiry || '',
+          notes: '',
+          photoUrl: localUrl,
         })
-        return { name: file.name, base64, mimeType: file.type || 'application/pdf' }
-      }))
+      } else {
+        showToast('❌ Could not read rego — try a clearer photo')
+      }
+    } catch {
+      showToast('❌ Failed to scan photo')
+    }
 
-      try {
-        const { data } = await axios.post('/api/upload/read-rego-bulk', { files: encoded })
-        allResults.push(...data.results)
-      } catch {
-        batch.forEach(f => allResults.push({ filename: f.name, status: 'error', data: null }))
+    setScanning(false)
+    e.target.value = ''
+  }
+
+  async function confirmSave() {
+    if (!confirm?.plate || !confirm?.regoExpiry) {
+      showToast('❌ Plate and expiry are required'); return
+    }
+    setSaving(true)
+    try {
+      const { data } = await axios.post(`${API}/api/fleet`, {
+        plate: confirm.plate.toUpperCase(),
+        model: 'Unknown',
+        year: parseInt(confirm.year) || new Date().getFullYear(),
+        type: 'scooter',
+        regoExpiry: confirm.regoExpiry,
+        notes: confirm.notes,
+        regoStatus: 'in_stock',
+      }, { headers: { 'x-owner-email': user?.email || '' } })
+
+      // Store photo in memory
+      if (confirm.photoUrl) {
+        setPhotosMap(p => ({ ...p, [confirm!.plate.toUpperCase()]: confirm!.photoUrl }))
       }
 
-      setProgress(Math.round(((i + batch.length) / files.length) * 100))
-      setResults([...allResults])
-    }
-
-    setProcessing(false)
-  }
-
-  function updateResult(index: number, field: string, value: string) {
-    setResults(prev => prev.map((r, i) => i === index ? {
-      ...r,
-      edited: true,
-      data: r.data ? { ...r.data, [field]: value } : r.data
-    } : r))
-  }
-
-  async function saveVehicle(index: number) {
-    const r = results[index]
-    if (!r.data?.plate || !r.data?.regoExpiry) {
-      showToast('❌ Plate and rego expiry are required')
-      return
-    }
-    setSaving(p => ({ ...p, [index]: true }))
-    try {
-      const res = await axios.post('/api/fleet', {
-        plate: r.data.plate.toUpperCase(),
-        model: `${r.data.make} ${r.data.model}`.trim() || 'Unknown',
-        year: parseInt(r.data.year) || new Date().getFullYear(),
-        type: 'car',
-        status: 'available',
-        regoExpiry: r.data.regoExpiry,
-      })
-      const wasUpdated = res.data._updated
-      setResults(prev => prev.map((item, i) => i === index ? { ...item, saved: true, wasUpdated } : item))
-      setSavedCount(p => p + 1)
+      showToast(`✅ ${confirm.plate.toUpperCase()} saved`)
+      setConfirm(null)
       fetchVehicles()
-      showToast(`${wasUpdated ? '🔄' : '✅'} ${r.data.plate} ${wasUpdated ? 'rego expiry updated' : 'added to fleet'}`)
     } catch (err: any) {
       showToast(`❌ ${err.response?.data?.error || 'Failed to save'}`)
-    } finally {
-      setSaving(p => ({ ...p, [index]: false }))
     }
+    setSaving(false)
   }
 
-  async function saveAll() {
-    const toSave = results
-      .map((r, i) => ({ r, i }))
-      .filter(({ r }) => r.status === 'ok' && !r.saved && r.data?.plate && r.data?.regoExpiry)
-
-    for (const { i } of toSave) {
-      await saveVehicle(i)
-      await new Promise(res => setTimeout(res, 300))
-    }
+  async function updateStatus(vehicle: RegoVehicle, status: RegoStatus) {
+    try {
+      await axios.put(`${API}/api/fleet/${vehicle.plate}`,
+        { regoStatus: status },
+        { headers: { 'x-owner-email': user?.email || '' } }
+      )
+      setVehicles(prev => prev.map(v => v._id === vehicle._id ? { ...v, regoStatus: status } : v))
+    } catch { showToast('❌ Failed to update status') }
   }
 
-  const okCount = results.filter(r => r.status === 'ok').length
-  const unclearCount = results.filter(r => r.status === 'unclear').length
-  const errorCount = results.filter(r => r.status === 'error').length
+  async function saveEdit() {
+    if (!editVehicle || !editExpiry) return
+    setSaving(true)
+    try {
+      // Just update the year part of the expiry date
+      const current = new Date(editVehicle.regoExpiry)
+      current.setFullYear(parseInt(editYear))
+      const newExpiry = current.toISOString().split('T')[0]
+
+      await axios.put(`${API}/api/fleet/${editVehicle.plate}`,
+        { regoExpiry: newExpiry },
+        { headers: { 'x-owner-email': user?.email || '' } }
+      )
+      setVehicles(prev => prev.map(v => v._id === editVehicle._id ? { ...v, regoExpiry: newExpiry } : v))
+      showToast(`✅ ${editVehicle.plate} expiry updated`)
+      setEditVehicle(null)
+    } catch { showToast('❌ Failed to update') }
+    setSaving(false)
+  }
+
+  const tabList: { key: RegoStatus; label: string }[] = [
+    { key: 'in_stock', label: 'In stock' },
+    { key: 'stolen',   label: 'Stolen' },
+    { key: 'sold',     label: 'Sold' },
+  ]
+
+  const filtered = vehicles.filter(v => (v.regoStatus || 'in_stock') === activeTab)
+  const grouped = groupByMonth(filtered)
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-bg">
       {toast && (
-        <div className="fixed top-4 right-4 z-50 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-lg">
-          {toast}
-        </div>
+        <div className="fixed top-4 right-4 z-50 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-lg">{toast}</div>
       )}
 
       {/* Header */}
-      <div className="px-6 py-5 border-b border-border bg-surface">
-        <h1 className="text-xl font-bold text-text-primary">Rego bulk import</h1>
-        <p className="text-text-muted text-sm mt-0.5">Upload rego PDFs — Gemini reads each one automatically</p>
+      <div className="px-6 py-5 border-b border-border bg-surface flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-text-primary">Rego management</h1>
+          <p className="text-text-muted text-sm mt-0.5">Scan a rego photo — Gemini extracts details automatically</p>
+        </div>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={scanning}
+          className="flex items-center gap-2 px-4 py-2.5 bg-accent text-white rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          {scanning ? 'Scanning...' : 'Scan rego photo'}
+        </button>
+        <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handlePhotoUpload} />
       </div>
 
-      <div className="px-6 py-6 max-w-5xl w-full mx-auto space-y-6">
+      {/* Tabs */}
+      <div className="bg-surface border-b border-border flex px-6">
+        {tabList.map(t => {
+          const count = vehicles.filter(v => (v.regoStatus || 'in_stock') === t.key).length
+          return (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                activeTab === t.key
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-text-muted hover:text-text-primary'
+              }`}
+            >
+              {t.label}
+              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                activeTab === t.key ? 'bg-accent-bg text-accent' : 'bg-surface2 text-text-muted'
+              }`}>{count}</span>
+            </button>
+          )
+        })}
+      </div>
 
-        {/* Upload zone */}
-        {!processing && results.length === 0 && (
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-border rounded-xl p-12 text-center cursor-pointer hover:border-accent transition-colors"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-12 h-12 text-text-muted mx-auto mb-4">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            <p className="text-text-primary font-medium mb-1">Click to upload rego PDFs</p>
-            <p className="text-text-muted text-sm">Select all 300 at once — processed automatically</p>
-            <p className="text-text-muted text-xs mt-2">~4 seconds per file due to Gemini rate limits</p>
-            <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" multiple onChange={handleFiles} className="hidden" />
+      {/* Content */}
+      <div className="flex-1 px-6 py-6 space-y-4">
+        {loading ? (
+          <p className="text-text-muted text-sm text-center py-12">Loading...</p>
+        ) : Object.keys(grouped).length === 0 ? (
+          <div className="text-center py-20 text-text-muted text-sm">
+            No vehicles in this category yet
           </div>
-        )}
-
-        {/* Processing progress */}
-        {processing && (
-          <div className="bg-surface border border-border rounded-xl p-6">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium text-text-primary">Reading rego papers with Gemini...</p>
-              <span className="text-sm text-accent font-semibold">{progress}%</span>
-            </div>
-            <div className="w-full bg-surface2 rounded-full h-2 mb-3">
-              <div className="bg-accent h-2 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
-            </div>
-            <p className="text-xs text-text-muted">{results.length} processed so far — please keep this page open</p>
-          </div>
-        )}
-
-        {/* Summary bar */}
-        {results.length > 0 && (
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex gap-3">
-              <span className="text-xs bg-green-bg text-green px-3 py-1.5 rounded-full font-medium">{okCount} ready</span>
-              {unclearCount > 0 && <span className="text-xs bg-amber-bg text-amber px-3 py-1.5 rounded-full font-medium">{unclearCount} unclear</span>}
-              {errorCount > 0 && <span className="text-xs bg-red-bg text-red px-3 py-1.5 rounded-full font-medium">{errorCount} failed</span>}
-              {savedCount > 0 && <span className="text-xs bg-accent-bg text-accent px-3 py-1.5 rounded-full font-medium">{savedCount} saved</span>}
-            </div>
-            <div className="ml-auto flex gap-2">
-              <button onClick={() => { setResults([]); setSavedCount(0) }}
-                className="px-4 py-2 text-xs border border-border rounded-lg text-text-muted hover:text-text-primary">
-                Clear & start over
-              </button>
-              {okCount > 0 && (
-                <button onClick={saveAll}
-                  className="px-4 py-2 text-xs bg-accent text-white rounded-lg font-medium hover:bg-accent/90">
-                  Save all {okCount} to fleet
+        ) : (
+          Object.entries(grouped).map(([key, list]) => {
+            const [yr, mo] = key.split('-')
+            const monthLabel = `${MONTHS[parseInt(mo)]} ${yr}`
+            const isCollapsed = collapsed[key]
+            return (
+              <div key={key} className="bg-surface border border-border rounded-xl overflow-hidden">
+                {/* Month header */}
+                <button
+                  onClick={() => toggleCollapse(key)}
+                  className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-surface2 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-text-primary">{monthLabel}</span>
+                    <span className="text-xs bg-surface2 text-text-muted px-2.5 py-0.5 rounded-full">
+                      {list.length} vehicle{list.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+                    className={`w-4 h-4 text-text-muted transition-transform ${isCollapsed ? '-rotate-90' : ''}`}>
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
                 </button>
-              )}
-            </div>
-          </div>
-        )}
 
-        {/* Results table */}
-        {results.length > 0 && (
-          <div className="bg-surface border border-border rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-surface2 text-xs text-text-muted uppercase tracking-wide">
-                    <th className="text-left px-4 py-3">File</th>
-                    <th className="text-left px-4 py-3">Plate</th>
-                    <th className="text-left px-4 py-3">Make & model</th>
-                    <th className="text-left px-4 py-3">Year</th>
-                    <th className="text-left px-4 py-3">Rego expiry</th>
-                    <th className="text-left px-4 py-3">Status</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {results.map((r, i) => (
-                    <tr key={i} className={r.saved ? 'opacity-50' : ''}>
-                      <td className="px-4 py-3 text-xs text-text-muted max-w-[120px] truncate">{r.filename}</td>
-
-                      {r.status === 'error' || !r.data ? (
-                        <td colSpan={4} className="px-4 py-3 text-xs text-red">
-                          Could not read — upload manually
-                        </td>
-                      ) : (
-                        <>
-                          <td className="px-4 py-3">
-                            <input value={r.data.plate} onChange={e => updateResult(i, 'plate', e.target.value)}
-                              className="font-mono font-semibold text-accent bg-transparent border-b border-transparent hover:border-border focus:border-accent focus:outline-none w-24 uppercase" />
-                          </td>
-                          <td className="px-4 py-3">
-                            <input value={`${r.data.make} ${r.data.model}`}
-                              onChange={e => updateResult(i, 'make', e.target.value)}
-                              className="text-text-secondary bg-transparent border-b border-transparent hover:border-border focus:border-accent focus:outline-none w-36" />
-                          </td>
-                          <td className="px-4 py-3">
-                            <input value={r.data.year} onChange={e => updateResult(i, 'year', e.target.value)}
-                              className="text-text-secondary bg-transparent border-b border-transparent hover:border-border focus:border-accent focus:outline-none w-16" />
-                          </td>
-                          <td className="px-4 py-3">
-                            <input type="date" value={r.data.regoExpiry} onChange={e => updateResult(i, 'regoExpiry', e.target.value)}
-                              className="text-text-secondary bg-transparent border-b border-transparent hover:border-border focus:border-accent focus:outline-none" />
-                          </td>
-                        </>
-                      )}
-
-                      <td className="px-4 py-3">
-                        {r.saved ? (
-                          <span className="text-xs text-green font-medium">{(r as any).wasUpdated ? '🔄 Updated' : '✓ Added'}</span>
-                        ) : r.status === 'unclear' ? (
-                          <span className="text-xs bg-amber-bg text-amber px-2 py-0.5 rounded-full">Check fields</span>
-                        ) : r.status === 'error' ? (
-                          <span className="text-xs bg-red-bg text-red px-2 py-0.5 rounded-full">Failed</span>
-                        ) : (
-                          <span className="text-xs bg-green-bg text-green px-2 py-0.5 rounded-full">Ready</span>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        {!r.saved && r.data?.plate && (
-                          <button onClick={() => saveVehicle(i)} disabled={saving[i]}
-                            className="text-xs px-3 py-1.5 bg-accent text-white rounded-lg disabled:opacity-50">
-                            {saving[i] ? '...' : 'Save'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                {/* Table */}
+                {!isCollapsed && (
+                  <table className="w-full text-sm border-t border-border">
+                    <thead>
+                      <tr className="bg-surface2 border-b border-border">
+                        {['Plate','Year','Rego expiry','Rego photo','Notes','Status',''].map(h => (
+                          <th key={h} className="px-4 py-2.5 text-left text-xs text-text-muted font-medium uppercase tracking-wide">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {list.map(v => {
+                        const col = expiryColor(v.regoExpiry)
+                        const photo = photosMap[v.plate]
+                        return (
+                          <tr key={v._id} className="hover:bg-surface2 transition-colors">
+                            <td className="px-4 py-3">
+                              <span className="font-mono text-xs bg-surface2 border border-border px-2 py-1 rounded font-medium text-text-primary">
+                                {v.plate}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-text-secondary">{v.year || '—'}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: col.dot }} />
+                                <span className="text-xs font-medium" style={{ color: col.text }}>{col.label}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {photo ? (
+                                <a href={photo} target="_blank" rel="noreferrer"
+                                  className="text-xs text-accent underline hover:no-underline">
+                                  View photo
+                                </a>
+                              ) : (
+                                <span className="text-xs text-text-muted italic">Not scanned</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 max-w-[140px]">
+                              <span className="text-xs text-text-muted truncate block">{v.notes || '—'}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <select
+                                value={v.regoStatus || 'in_stock'}
+                                onChange={e => updateStatus(v, e.target.value as RegoStatus)}
+                                className="text-xs bg-surface border border-border rounded-lg px-2 py-1.5 text-text-primary focus:outline-none focus:border-accent"
+                              >
+                                <option value="in_stock">In stock</option>
+                                <option value="stolen">Stolen</option>
+                                <option value="sold">Sold</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() => {
+                                  setEditVehicle(v)
+                                  setEditYear(String(new Date(v.regoExpiry).getFullYear()))
+                                  setEditExpiry(v.regoExpiry)
+                                }}
+                                className="text-xs text-text-muted hover:text-text-primary border border-border rounded-lg px-3 py-1.5 hover:border-accent transition-colors"
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )
+          })
         )}
       </div>
+
+      {/* Gemini Confirm Popup */}
+      {confirm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4">
+          <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-base font-semibold text-text-primary">Confirm rego details</h2>
+              <span className="text-xs bg-accent-bg text-accent px-2 py-0.5 rounded-full">Gemini read</span>
+            </div>
+            <p className="text-text-muted text-xs mb-5">Check the details — edit anything wrong before saving.</p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Plate number</label>
+                <input
+                  value={confirm.plate}
+                  onChange={e => setConfirm(p => p ? { ...p, plate: e.target.value.toUpperCase() } : p)}
+                  className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Year</label>
+                  <input
+                    value={confirm.year}
+                    onChange={e => setConfirm(p => p ? { ...p, year: e.target.value } : p)}
+                    className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Rego expiry</label>
+                  <input
+                    type="date"
+                    value={confirm.regoExpiry}
+                    onChange={e => setConfirm(p => p ? { ...p, regoExpiry: e.target.value } : p)}
+                    className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Notes (optional)</label>
+                <input
+                  value={confirm.notes}
+                  onChange={e => setConfirm(p => p ? { ...p, notes: e.target.value } : p)}
+                  placeholder="Add a note..."
+                  className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setConfirm(null)}
+                className="flex-1 py-2.5 border border-border rounded-xl text-sm text-text-muted hover:text-text-primary transition-colors">
+                Cancel
+              </button>
+              <button onClick={confirmSave} disabled={saving}
+                className="flex-1 py-2.5 bg-accent text-white rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
+                {saving ? 'Saving...' : 'Save to dashboard'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Year Popup */}
+      {editVehicle && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4">
+          <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-xs p-6">
+            <h2 className="text-base font-semibold text-text-primary mb-1">Edit rego expiry</h2>
+            <p className="text-text-muted text-xs mb-5">
+              Plate <span className="font-mono font-medium text-text-primary">{editVehicle.plate}</span> — update the year after renewal.
+            </p>
+            <div>
+              <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">New expiry year</label>
+              <input
+                type="number"
+                value={editYear}
+                onChange={e => setEditYear(e.target.value)}
+                min="2024" max="2035"
+                className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+              />
+              <p className="text-xs text-text-muted mt-1.5">
+                Day and month stay the same — only year changes.
+              </p>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setEditVehicle(null)}
+                className="flex-1 py-2.5 border border-border rounded-xl text-sm text-text-muted hover:text-text-primary transition-colors">
+                Cancel
+              </button>
+              <button onClick={saveEdit} disabled={saving}
+                className="flex-1 py-2.5 bg-accent text-white rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

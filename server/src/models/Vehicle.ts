@@ -20,6 +20,7 @@ export interface IVehicle {
   lastService?: Date
   fines: mongoose.Types.ObjectId[]
   tolls: mongoose.Types.ObjectId[]
+  ownerId: string
   notes?: string
 }
 
@@ -41,6 +42,7 @@ const VehicleSchema = new Schema(
     tolls: [{ type: Schema.Types.ObjectId, ref: 'Fine' }],
     ownerId: { type: String, required: true, index: true },
     notes: { type: String },
+    regoStatus: { type: String, enum: ['in_stock', 'stolen', 'sold'], default: 'in_stock' },
   },
   { timestamps: true }
 )
