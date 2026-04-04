@@ -43,7 +43,7 @@ function expiryColor(dateStr: string) {
 }
 
 // ── Compress image using canvas ─────────────────────────────
-async function compressImage(file: File, maxWidth = 1200, quality = 0.72): Promise<string> {
+async function compressImage(file: File, maxWidth = 800, quality = 0.6): Promise<string> {
   return new Promise(resolve => {
     const img = new Image()
     const url = URL.createObjectURL(file)
