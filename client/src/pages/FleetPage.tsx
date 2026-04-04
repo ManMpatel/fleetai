@@ -48,7 +48,7 @@ function ShareLinks() {
     const url = type === 'onboard'
       ? `${BASE}/onboard/${slug}`
       : type === 'tablet'
-      ? `${BASE}/tablet/${slug}`
+      ? `${BASE}/tablet`
       : BASE
     navigator.clipboard.writeText(url).then(() => {
       setCopied(type); setTimeout(() => setCopied(null), 2000)

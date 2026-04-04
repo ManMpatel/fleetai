@@ -145,7 +145,7 @@ export default function App() {
       <Routes>
         <Route path="/onboard/:phone" element={<OnboardPage />} />
         <Route path="/onboard" element={<OnboardPage />} />
-        <Route path="/tablet/:slug" element={<TabletPage />} />
+        <Route path="/tablet" element={<TabletPage />} />
       </Routes>
     </BrowserRouter>
   )

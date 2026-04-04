@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
-import { useParams } from 'react-router-dom'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
@@ -22,7 +21,9 @@ const SERVICE_TYPES = [
 ]
 
 export default function TabletPage() {
-  const { slug } = useParams<{ slug: string }>()
+  const [savedSlug, setSavedSlug] = useState(() => localStorage.getItem('fleetai_tablet_slug') || '')
+  const [slugInput, setSlugInput] = useState('')
+  const [setupDone, setSetupDone] = useState(() => !!localStorage.getItem('fleetai_tablet_slug'))
   const [ownerId, setOwnerId] = useState<string | null>(null)
   const [ownerName, setOwnerName] = useState('')
   const [screen, setScreen] = useState<Screen>('home')
@@ -46,13 +47,28 @@ export default function TabletPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const countdownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  function saveSetup() {
+    const clean = slugInput.toLowerCase().replace(/[^a-z0-9-]/g, '')
+    if (!clean) return
+    localStorage.setItem('fleetai_tablet_slug', clean)
+    setSavedSlug(clean)
+    setSetupDone(true)
+  }
+
+  function resetSetup() {
+    localStorage.removeItem('fleetai_tablet_slug')
+    setSavedSlug('')
+    setSetupDone(false)
+    setOwnerId(null)
+  }
+
   // Resolve slug → ownerId
   useEffect(() => {
-    if (!slug) return
-    axios.get(`${API}/api/auth/resolve/${slug}`)
+    if (!savedSlug) return
+    axios.get(`${API}/api/auth/resolve/${savedSlug}`)
       .then(r => { setOwnerId(r.data.email); setOwnerName(r.data.name || '') })
       .catch(() => setOwnerId('invalid'))
-  }, [slug])
+  }, [savedSlug])
 
   // Load today's service records
   useEffect(() => {
@@ -176,9 +192,43 @@ export default function TabletPage() {
 
   // ── Render ──────────────────────────────────────────────
 
-  if (!slug || ownerId === 'invalid') return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <p className="text-white/40 text-lg">Invalid tablet link.</p>
+  if (!setupDone) return (
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-6">
+      <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center mb-6">
+        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
+        </svg>
+      </div>
+      <h1 className="text-white text-2xl font-bold mb-2">Tablet Setup</h1>
+      <p className="text-white/40 text-sm mb-8 text-center">Enter your business short name once — this tablet will remember it.</p>
+      <div className="w-full max-w-xs space-y-3">
+        <div className="flex items-center bg-white/5 border border-white/10 rounded-xl overflow-hidden px-4">
+          <span className="text-white/30 text-sm whitespace-nowrap">fleetai.co.in/onboard/</span>
+          <input
+            value={slugInput}
+            onChange={e => setSlugInput(e.target.value)}
+            placeholder="your-name"
+            className="flex-1 bg-transparent text-white text-sm py-4 focus:outline-none min-w-0"
+            onKeyDown={e => e.key === 'Enter' && saveSetup()}
+          />
+        </div>
+        <button
+          onClick={saveSetup}
+          disabled={!slugInput.trim()}
+          className="w-full py-4 bg-indigo-500 rounded-xl font-semibold text-white disabled:opacity-30 hover:bg-indigo-600 transition-all"
+        >
+          Set Up Tablet →
+        </button>
+      </div>
+    </div>
+  )
+
+  if (ownerId === 'invalid') return (
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center">
+      <p className="text-white/40 text-lg mb-4">Business name not found.</p>
+      <button onClick={resetSetup} className="text-indigo-400 text-sm hover:text-indigo-300">
+        Try a different name →
+      </button>
     </div>
   )
 
