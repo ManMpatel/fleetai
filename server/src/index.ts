@@ -128,9 +128,9 @@ mongoose
     checkExpiringDates()
   })
 
-  // Daily backup at 2am Sydney time
-  cron.schedule('0 2 * * *', () => {
-    console.log('🗄️ Running daily MongoDB backup...')
+  // Weekly backup — every Sunday at 2am Sydney time
+  cron.schedule('0 2 * * 0', () => {
+    console.log('🗄️ Running weekly MongoDB backup...')
     runMongoBackup()
   })
 
