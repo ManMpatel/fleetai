@@ -116,12 +116,13 @@ export default function RegoImportPage() {
     setScanning(true)
 
     try {
-      // Compress first
-      const compressed = await compressImage(file)
+      // Two versions: high quality for Gemini reading, compressed for storage
+      const forGemini = await compressImage(file, 1600, 0.85)
+      const forStorage = await compressImage(file, 800, 0.6)
 
-      // Send compressed to Gemini
+      // Send high quality to Gemini
       const { data } = await axios.post(`${API}/api/upload/read-rego-bulk`, {
-        files: [{ name: file.name, base64: compressed, mimeType: 'image/jpeg' }]
+        files: [{ name: file.name, base64: forGemini, mimeType: 'image/jpeg' }]
       })
 
       const result = data.results?.[0]
@@ -131,7 +132,7 @@ export default function RegoImportPage() {
           year:  result.data?.year  || '',
           regoExpiry: result.data?.regoExpiry || '',
           notes: '',
-          photoBase64: compressed,
+          photoBase64: forStorage,
         })
       } else {
         showToast('❌ Failed to process photo — please try again')
