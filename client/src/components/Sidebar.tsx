@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useStore } from '../store/useStore'
 import { useAuth0 } from '@auth0/auth0-react'
+import QuickLinks from './QuickLinks'
 
 const navItems = [
   {

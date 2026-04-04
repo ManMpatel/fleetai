@@ -1,10 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import axios from 'axios'
 
 export default function OnboardPage() {
-  const { phone } = useParams<{ phone: string }>()
-  const ownerEmail = new URLSearchParams(window.location.search).get('owner') || ''
+  
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -12,6 +11,28 @@ export default function OnboardPage() {
   const [licencePreview, setLicencePreview] = useState('')
   const [selfieFile, setSelfieFile] = useState<File | null>(null)
   const [selfiePreview, setSelfiePreview] = useState('')
+  const { phone } = useParams<{ phone: string }>()
+  const [ownerEmail, setOwnerEmail] = useState('')
+  const [ownerName, setOwnerName] = useState('')
+  const [slugError, setSlugError] = useState(false)
+
+  useEffect(() => {
+    // phone param might be a slug (no digits) or actual phone number
+    const isSlug = phone && !/^\d+$/.test(decodeURIComponent(phone))
+    if (isSlug) {
+      // Resolve slug to owner email
+      axios.get(`${import.meta.env.VITE_API_URL}/api/auth/resolve/${phone}`)
+        .then(res => {
+          setOwnerEmail(res.data.email)
+          setOwnerName(res.data.name || '')
+        })
+        .catch(() => setSlugError(true))
+    } else {
+      // Old style — get owner from ?owner= query param
+      const ownerParam = new URLSearchParams(window.location.search).get('owner') || ''
+      setOwnerEmail(ownerParam)
+    }
+  }, [phone])
 
   const [form, setForm] = useState({
     mobileNumber: decodeURIComponent(phone || ''),
@@ -141,6 +162,16 @@ export default function OnboardPage() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 pt-6">
+        {slugError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+            This link is invalid. Please ask your owner to resend the correct link.
+          </div>
+        )}
+        {ownerName && (
+          <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-700 text-sm">
+            This form was sent to you by <strong>{ownerName}</strong>. Please fill in your details below.
+          </div>
+        )}
         <h1 className="text-2xl font-bold text-gray-900 mb-1">Register Your Details</h1>
         <p className="text-gray-500 text-sm mb-6">Please fill in all required fields (*) accurately.</p>
 

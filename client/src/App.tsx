@@ -138,7 +138,7 @@ export default function App() {
     return () => axios.interceptors.request.eject(interceptor)
   }, [isAuthenticated, getAccessTokenSilently])
 
-  if (window.location.pathname.startsWith('/onboard')) {
+  if (window.location.pathname.startsWith('/onboard') || window.location.pathname.startsWith('/tablet')) {
   return (
     <BrowserRouter>
       <Routes>
