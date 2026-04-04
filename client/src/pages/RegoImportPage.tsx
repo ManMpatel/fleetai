@@ -125,16 +125,16 @@ export default function RegoImportPage() {
       })
 
       const result = data.results?.[0]
-      if (result?.data?.plate) {
+      if (result) {
         setConfirm({
-          plate: result.data.plate || '',
-          year:  result.data.year  || '',
-          regoExpiry: result.data.regoExpiry || '',
+          plate: result.data?.plate || '',
+          year:  result.data?.year  || '',
+          regoExpiry: result.data?.regoExpiry || '',
           notes: '',
           photoBase64: compressed,
         })
       } else {
-        showToast('❌ Could not read rego — try a clearer photo')
+        showToast('❌ Failed to process photo — please try again')
       }
     } catch {
       showToast('❌ Failed to scan photo')
