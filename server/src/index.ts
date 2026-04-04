@@ -117,10 +117,10 @@ mongoose
     })
 
     // ── Cron jobs ─────────────────────────────────────────
-    // Gmail check — every 2 minutes
-    cron.schedule('0 * * * *', async () => {
-      await checkGmailForFines()
-    })
+    // Gmail not configured — skipping cron
+// cron.schedule('0 * * * *', async () => {
+//   await checkGmailForFines()
+// })
 
     // Rego/Pink slip expiry check — daily at 8am Sydney time
     cron.schedule('0 8 * * *', () => {
