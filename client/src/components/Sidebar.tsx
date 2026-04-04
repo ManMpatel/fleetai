@@ -169,6 +169,13 @@ export default function Sidebar() {
           ))}
         </nav>
 
+        {/* Quick Links */}
+        {!collapsed && (
+          <div className="px-2 pb-2">
+            <QuickLinks />
+          </div>
+        )}
+
         {/* Footer */}
         <div className="px-2 py-3 border-t border-sidebar-border space-y-0.5">
           <button
