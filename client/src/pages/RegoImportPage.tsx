@@ -116,13 +116,19 @@ export default function RegoImportPage() {
     setScanning(true)
 
     try {
-      // Two versions: high quality for Gemini reading, compressed for storage
-      const forGemini = await compressImage(file, 1600, 0.85)
+      // Raw base64 for Gemini (no compression — needs full quality to read text)
+      const rawBase64 = await new Promise<string>(resolve => {
+        const reader = new FileReader()
+        reader.onload = ev => resolve((ev.target?.result as string).split(',')[1])
+        reader.readAsDataURL(file)
+      })
+
+      // Compressed version for storage in MongoDB
       const forStorage = await compressImage(file, 800, 0.6)
 
-      // Send high quality to Gemini
+      // Send raw to Gemini
       const { data } = await axios.post(`${API}/api/upload/read-rego-bulk`, {
-        files: [{ name: file.name, base64: forGemini, mimeType: 'image/jpeg' }]
+        files: [{ name: file.name, base64: rawBase64, mimeType: file.type || 'image/jpeg' }]
       })
 
       const result = data.results?.[0]
