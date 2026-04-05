@@ -69,67 +69,37 @@ function ShareLinks() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 w-80 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-4">
-          {/* Slug setup */}
-          <div>
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">Your short name</p>
-            <div className="flex gap-2">
-              <div className="flex-1 flex items-center bg-surface2 border border-border rounded-lg overflow-hidden px-3">
-                <span className="text-text-muted text-xs whitespace-nowrap">fleetai.co.in/</span>
-                <input
-                  value={slug}
-                  onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  placeholder="your-name"
-                  className="flex-1 bg-transparent text-text-primary text-sm py-2 focus:outline-none min-w-0"
-                />
+      <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
+        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
+        {[
+          { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: 'https://fleetai.co.in/tablet' },
+          { type: 'onboard', label: 'Onboard form', sub: 'Send link to new renters', icon: '👤', url: `https://fleetai.co.in/onboard/${slug}` },
+        ].map(link => (
+          <div key={link.type} className="flex items-center justify-between p-3 bg-surface2 border border-border rounded-lg">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span>{link.icon}</span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-text-primary">{link.label}</p>
+                <p className="text-xs text-text-muted truncate">{link.sub}</p>
               </div>
-              <button
-                onClick={saveSlug}
-                disabled={saving}
-                className="px-3 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 whitespace-nowrap"
-              >
-                {saved ? '✓' : saving ? '...' : 'Save'}
-              </button>
             </div>
+            <button
+              onClick={() => copyLink(link.type)}
+              className="ml-3 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors shrink-0"
+            >
+              {copied === link.type ? '✓ Copied' : 'Copy'}
+            </button>
           </div>
-
-          <div className="border-t border-border" />
-
-          {/* Links */}
-          {open && (
-          <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
-
-            {[
-              { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: 'https://fleetai.co.in/tablet' },
-              { type: 'onboard', label: 'Onboard form',  sub: 'Send link to new renters', icon: '👤', url: `https://fleetai.co.in/onboard/${slug}` },
-            ].map(link => (
-              <div key={link.type} className="flex items-center justify-between p-3 bg-surface2 border border-border rounded-lg">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span>{link.icon}</span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-text-primary">{link.label}</p>
-                    <p className="text-xs text-text-muted truncate">{link.sub}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => copyLink(link.type)}
-                  className="ml-3 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors shrink-0"
-                >
-                  {copied === link.type ? '✓' : 'Copy'}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        ))}
+      </div>
+    )}
           {!slug && (
             <p className="text-xs text-amber text-center">Set your short name above to enable copy</p>
           )}
         </div>
       )}
-    </div>
-  )
-}
+   
+    
 
 export default function FleetPage() {
   const { vehicles, fleetLoading, fetchVehicles, selectedVehicle, stats } = useStore()
