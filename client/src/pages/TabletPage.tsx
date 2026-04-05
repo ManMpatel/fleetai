@@ -63,11 +63,23 @@ export default function TabletPage() {
     setOwnerId(null)
   }
 
-  // No slug resolve needed — ownerId is the email directly
+ // No slug resolve needed — ownerId is the email directly
   useEffect(() => {
     if (!ownerEmail) return
     setOwnerId(ownerEmail)
   }, [ownerEmail])
+
+  // Grab owner email from URL ?owner= param on first open
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ownerFromUrl = params.get('owner')
+    if (ownerFromUrl) {
+      localStorage.setItem('fleetai_tablet_email', ownerFromUrl)
+      setOwnerEmail(ownerFromUrl)
+      setOwnerId(ownerFromUrl)
+      window.history.replaceState({}, '', '/tablet')
+    }
+  }, [])
 
   // Load today's service records
   useEffect(() => {
@@ -191,49 +203,15 @@ export default function TabletPage() {
 
   // ── Render ──────────────────────────────────────────────
 
-  {!setupDone && (
-  <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
-    <div className="w-full max-w-sm">
-      <div className="flex items-center gap-2.5 justify-center mb-8">
-        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-          <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
-          </svg>
-        </div>
-        <span className="font-bold text-lg text-white">Fleet<span className="text-indigo-400">AI</span></span>
-      </div>
-      <h2 className="text-xl font-bold text-white text-center mb-2">Tablet Setup</h2>
-      <p className="text-white/40 text-center text-sm mb-8">Enter the owner email to link this tablet. Only needs to be done once.</p>
-      <input
-        type="email"
-        value={emailInput}
-        onChange={e => setEmailInput(e.target.value)}
-        placeholder="owner@email.com"
-        className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-white/30 focus:outline-none focus:border-indigo-500 mb-4 text-sm"
-      />
-      <button
-        onClick={saveSetup}
-        disabled={!emailInput.includes('@')}
-        className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold disabled:opacity-40"
-      >
-        Link Tablet
-      </button>
-    </div>
-  </div>
-)}
-
-  if (ownerId === 'invalid') return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center">
-      <p className="text-white/40 text-lg mb-4">Business name not found.</p>
-      <button onClick={resetSetup} className="text-indigo-400 text-sm hover:text-indigo-300">
-        Try a different name →
-      </button>
-    </div>
-  )
-
   if (!ownerId) return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-6">
+      <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center mb-6">
+        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
+        </svg>
+      </div>
+      <h1 className="text-white text-xl font-bold mb-2">Tablet not linked</h1>
+      <p className="text-white/40 text-sm text-center">Open the tablet link from your FleetAI dashboard to activate this device.</p>
     </div>
   )
 
