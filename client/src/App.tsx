@@ -8,6 +8,7 @@ import ChatPage from './pages/ChatPage'
 import RentersPage from './pages/RentersPage'
 import OnboardPage from './pages/OnboardPage'
 import AdminPage from './pages/AdminPage'
+import StaffPage from './pages/StaffPage'
 import SearchPage from './pages/SearchPage'
 import RegoImportPage from './pages/RegoImportPage'
 import { useAuth0 } from '@auth0/auth0-react'
@@ -184,6 +185,7 @@ export default function App() {
                 <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/search" element={<SearchPage />} />
+                <Route path="/staff" element={<StaffPage />} />
                 <Route path="/rego-import" element={<RegoImportPage />} />
                 <Route path="/tablet/:slug" element={<TabletPage />} />
               </Routes>
