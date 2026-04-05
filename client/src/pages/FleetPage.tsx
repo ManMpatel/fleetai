@@ -96,27 +96,32 @@ function ShareLinks() {
           <div className="border-t border-border" />
 
           {/* Links */}
-          {[
-            { type: 'onboard', label: 'Onboard form', sub: 'Send to renters', icon: '👤' },
-            { type: 'tablet',  label: 'Tablet page',  sub: 'Give to employees', icon: '📱' },
-          ].map(link => (
-            <div key={link.type} className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="text-lg">{link.icon}</span>
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{link.label}</p>
-                  <p className="text-xs text-text-muted">{link.sub}</p>
+          {open && (
+          <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
+
+            {[
+              { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: 'https://fleetai.co.in/tablet' },
+              { type: 'onboard', label: 'Onboard form',  sub: 'Send link to new renters', icon: '👤', url: `https://fleetai.co.in/onboard/${slug}` },
+            ].map(link => (
+              <div key={link.type} className="flex items-center justify-between p-3 bg-surface2 border border-border rounded-lg">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span>{link.icon}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-text-primary">{link.label}</p>
+                    <p className="text-xs text-text-muted truncate">{link.sub}</p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => copyLink(link.type)}
+                  className="ml-3 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors shrink-0"
+                >
+                  {copied === link.type ? '✓' : 'Copy'}
+                </button>
               </div>
-              <button
-                onClick={() => copyLink(link.type)}
-                disabled={!slug}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface2 border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {copied === link.type ? '✓ Copied' : 'Copy'}
-              </button>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
           {!slug && (
             <p className="text-xs text-amber text-center">Set your short name above to enable copy</p>
           )}

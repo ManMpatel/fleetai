@@ -21,10 +21,10 @@ const SERVICE_TYPES = [
 ]
 
 export default function TabletPage() {
-  const [savedSlug, setSavedSlug] = useState(() => localStorage.getItem('fleetai_tablet_slug') || '')
-  const [slugInput, setSlugInput] = useState('')
-  const [setupDone, setSetupDone] = useState(() => !!localStorage.getItem('fleetai_tablet_slug'))
-  const [ownerId, setOwnerId] = useState<string | null>(null)
+  const [ownerEmail, setOwnerEmail] = useState(() => localStorage.getItem('fleetai_tablet_email') || '')
+  const [emailInput, setEmailInput] = useState('')
+  const [setupDone, setSetupDone] = useState(() => !!localStorage.getItem('fleetai_tablet_email'))
+  const [ownerId, setOwnerId] = useState<string | null>(() => localStorage.getItem('fleetai_tablet_email'))
   const [ownerName, setOwnerName] = useState('')
   const [screen, setScreen] = useState<Screen>('home')
   const [action, setAction] = useState<Action>('in')
@@ -48,27 +48,26 @@ export default function TabletPage() {
   const countdownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function saveSetup() {
-    const clean = slugInput.toLowerCase().replace(/[^a-z0-9-]/g, '')
-    if (!clean) return
-    localStorage.setItem('fleetai_tablet_slug', clean)
-    setSavedSlug(clean)
+    const clean = emailInput.trim().toLowerCase()
+    if (!clean || !clean.includes('@')) return
+    localStorage.setItem('fleetai_tablet_email', clean)
+    setOwnerEmail(clean)
+    setOwnerId(clean)
     setSetupDone(true)
   }
 
   function resetSetup() {
-    localStorage.removeItem('fleetai_tablet_slug')
-    setSavedSlug('')
+    localStorage.removeItem('fleetai_tablet_email')
+    setOwnerEmail('')
     setSetupDone(false)
     setOwnerId(null)
   }
 
-  // Resolve slug → ownerId
+  // No slug resolve needed — ownerId is the email directly
   useEffect(() => {
-    if (!savedSlug) return
-    axios.get(`${API}/api/auth/resolve/${savedSlug}`)
-      .then(r => { setOwnerId(r.data.email); setOwnerName(r.data.name || '') })
-      .catch(() => setOwnerId('invalid'))
-  }, [savedSlug])
+    if (!ownerEmail) return
+    setOwnerId(ownerEmail)
+  }, [ownerEmail])
 
   // Load today's service records
   useEffect(() => {
@@ -192,36 +191,36 @@ export default function TabletPage() {
 
   // ── Render ──────────────────────────────────────────────
 
-  if (!setupDone) return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-6">
-      <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center mb-6">
-        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
-          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
-        </svg>
-      </div>
-      <h1 className="text-white text-2xl font-bold mb-2">Tablet Setup</h1>
-      <p className="text-white/40 text-sm mb-8 text-center">Enter your business short name once — this tablet will remember it.</p>
-      <div className="w-full max-w-xs space-y-3">
-        <div className="flex items-center bg-white/5 border border-white/10 rounded-xl overflow-hidden px-4">
-          <span className="text-white/30 text-sm whitespace-nowrap">fleetai.co.in/onboard/</span>
-          <input
-            value={slugInput}
-            onChange={e => setSlugInput(e.target.value)}
-            placeholder="your-name"
-            className="flex-1 bg-transparent text-white text-sm py-4 focus:outline-none min-w-0"
-            onKeyDown={e => e.key === 'Enter' && saveSetup()}
-          />
+  {!setupDone && (
+  <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
+    <div className="w-full max-w-sm">
+      <div className="flex items-center gap-2.5 justify-center mb-8">
+        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+          <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
+          </svg>
         </div>
-        <button
-          onClick={saveSetup}
-          disabled={!slugInput.trim()}
-          className="w-full py-4 bg-indigo-500 rounded-xl font-semibold text-white disabled:opacity-30 hover:bg-indigo-600 transition-all"
-        >
-          Set Up Tablet →
-        </button>
+        <span className="font-bold text-lg text-white">Fleet<span className="text-indigo-400">AI</span></span>
       </div>
+      <h2 className="text-xl font-bold text-white text-center mb-2">Tablet Setup</h2>
+      <p className="text-white/40 text-center text-sm mb-8">Enter the owner email to link this tablet. Only needs to be done once.</p>
+      <input
+        type="email"
+        value={emailInput}
+        onChange={e => setEmailInput(e.target.value)}
+        placeholder="owner@email.com"
+        className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-white/30 focus:outline-none focus:border-indigo-500 mb-4 text-sm"
+      />
+      <button
+        onClick={saveSetup}
+        disabled={!emailInput.includes('@')}
+        className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold disabled:opacity-40"
+      >
+        Link Tablet
+      </button>
     </div>
-  )
+  </div>
+)}
 
   if (ownerId === 'invalid') return (
     <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center">
