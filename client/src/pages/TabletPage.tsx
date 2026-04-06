@@ -21,11 +21,8 @@ const SERVICE_TYPES = [
 ]
 
 export default function TabletPage() {
-  const [ownerEmail, setOwnerEmail] = useState(() => localStorage.getItem('fleetai_tablet_email') || '')
-  const [emailInput, setEmailInput] = useState('')
-  const [setupDone, setSetupDone] = useState(() => !!localStorage.getItem('fleetai_tablet_email'))
+  const [dark, setDark] = useState(() => localStorage.getItem('fleetai_tablet_theme') !== 'light')
   const [ownerId, setOwnerId] = useState<string | null>(() => localStorage.getItem('fleetai_tablet_email'))
-  const [ownerName, setOwnerName] = useState('')
   const [screen, setScreen] = useState<Screen>('home')
   const [action, setAction] = useState<Action>('in')
   const [pin, setPin] = useState('')
@@ -37,8 +34,9 @@ export default function TabletPage() {
   const [selfieBlob, setSelfieBlob] = useState<Blob | null>(null)
   const [selfiePreview, setSelfiePreview] = useState('')
   const [cameraError, setCameraError] = useState('')
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const [serviceForm, setServiceForm] = useState({
-    vehicleCategory: 'Rental Fleet', vehicleType: 'Scooter', plate: '',
+    vehicleCategory: 'rental', vehicleType: 'scooter', plate: '',
     customerName: '', customerPhone: '', serviceType: 'general',
     description: '', cost: '', notes: '',
   })
@@ -47,46 +45,16 @@ export default function TabletPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const countdownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  function saveSetup() {
-    const clean = emailInput.trim().toLowerCase()
-    if (!clean || !clean.includes('@')) return
-    localStorage.setItem('fleetai_tablet_email', clean)
-    setOwnerEmail(clean)
-    setOwnerId(clean)
-    setSetupDone(true)
-  }
-
-  function resetSetup() {
-    localStorage.removeItem('fleetai_tablet_email')
-    setOwnerEmail('')
-    setSetupDone(false)
-    setOwnerId(null)
-  }
-
- // No slug resolve needed — ownerId is the email directly
-  useEffect(() => {
-    if (!ownerEmail) return
-    setOwnerId(ownerEmail)
-  }, [ownerEmail])
-
   // Grab owner email from URL ?owner= param on first open
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const ownerFromUrl = params.get('owner')
     if (ownerFromUrl) {
       localStorage.setItem('fleetai_tablet_email', ownerFromUrl)
-      setOwnerEmail(ownerFromUrl)
       setOwnerId(ownerFromUrl)
       window.history.replaceState({}, '', '/tablet')
     }
   }, [])
-
-  // Load today's service records
-  useEffect(() => {
-    if (!ownerId || ownerId === 'invalid') return
-    // We fetch via the public log-service list — not available yet, skip for now
-    // Will show after each successful submission via local state
-  }, [ownerId])
 
   // Camera for selfie
   useEffect(() => {
@@ -100,6 +68,12 @@ export default function TabletPage() {
       .catch(() => setCameraError('Camera access denied. Please allow camera and refresh.'))
     return () => stopCamera()
   }, [screen])
+
+  function toggleTheme() {
+    const next = !dark
+    setDark(next)
+    localStorage.setItem('fleetai_tablet_theme', next ? 'dark' : 'light')
+  }
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach(t => t.stop())
@@ -119,13 +93,11 @@ export default function TabletPage() {
     }, 'image/jpeg', 0.85)
   }
 
-  function retakeSelfie() {
-    setSelfieBlob(null); setSelfiePreview('')
-  }
+  function retakeSelfie() { setSelfieBlob(null); setSelfiePreview('') }
 
   function goHome() {
     setScreen('home'); setPin(''); setPinError(''); setEmployee(null)
-    setSelfieBlob(null); setSelfiePreview(''); setSuccessMsg('')
+    setSelfieBlob(null); setSelfiePreview(''); setSuccessMsg(''); setSubmitAttempted(false)
     setServiceForm({
       vehicleCategory: 'rental', vehicleType: 'scooter', plate: '',
       customerName: '', customerPhone: '', serviceType: 'general',
@@ -154,8 +126,8 @@ export default function TabletPage() {
     try {
       const { data } = await axios.post(`${API}/api/employees/verify-pin`, { pin, ownerId })
       setEmployee(data.employee)
-      if (action === 'service') { setScreen('service-form') }
-      else { setScreen('selfie') }
+      if (action === 'service') setScreen('service-form')
+      else setScreen('selfie')
     } catch {
       setPinError('Wrong PIN. Try again.')
       setPin('')
@@ -172,13 +144,8 @@ export default function TabletPage() {
       fd.append('employeeName', employee.name)
       fd.append('type', action)
       fd.append('ownerId', ownerId)
-      await axios.post(`${API}/api/employees/clock`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      showSuccess(action === 'in'
-        ? `Welcome, ${employee.name}! Clocked in successfully.`
-        : `See you, ${employee.name}! Clocked out successfully.`
-      )
+      await axios.post(`${API}/api/employees/clock`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      showSuccess(action === 'in' ? `Welcome, ${employee.name}! Clocked in.` : `See you, ${employee.name}! Clocked out.`)
     } catch {
       setPinError('Failed to record. Please try again.')
       setScreen('selfie')
@@ -186,302 +153,252 @@ export default function TabletPage() {
   }
 
   async function submitService() {
+    setSubmitAttempted(true)
     if (!employee || !ownerId) return
-    if (!serviceForm.plate || !serviceForm.description) {
-      setPinError('Plate and description are required.'); return
-    }
+    if (!serviceForm.plate || !serviceForm.description) return
     setSubmitting(true)
     try {
-      const { data } = await axios.post(`${API}/api/employees/log-service`, {
-        pin, ownerId, ...serviceForm,
-      })
+      const { data } = await axios.post(`${API}/api/employees/log-service`, { pin, ownerId, ...serviceForm })
       showSuccess(`Service logged by ${employee.name}.`, data)
     } catch {
       setPinError('Failed to save. Please try again.')
     } finally { setSubmitting(false) }
   }
 
-  // ── Render ──────────────────────────────────────────────
+  // Theme object
+  const d = dark
+  const T = {
+    bg:          d ? 'bg-gray-950'           : 'bg-gray-50',
+    text:        d ? 'text-white'            : 'text-gray-900',
+    muted:       d ? 'text-white/40'         : 'text-gray-400',
+    subtext:     d ? 'text-white/70'         : 'text-gray-600',
+    border:      d ? 'border-white/10'       : 'border-gray-200',
+    card:        d ? 'bg-white/5 border border-white/10' : 'bg-white border border-gray-200',
+    input:       d ? 'bg-white/5 border-white/10 text-white placeholder:text-white/20' : 'bg-white border-gray-300 text-gray-900 placeholder:text-gray-400',
+    select:      d ? 'bg-gray-900 border-white/10 text-white' : 'bg-white border-gray-300 text-gray-900',
+    btnGhost:    d ? 'bg-white/10 border border-white/20 text-white hover:bg-white/15' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50',
+    pinBtn:      d ? 'bg-white/10 text-white hover:bg-white/20 active:bg-white/30' : 'bg-white text-gray-900 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
+    pinDot:      (filled: boolean) => filled ? 'bg-indigo-500' : (d ? 'bg-white/20' : 'bg-gray-300'),
+    toggleBg:    d ? 'bg-white/10 text-yellow-300 hover:bg-white/20' : 'bg-gray-200 text-gray-500 hover:bg-gray-300',
+  }
 
   if (!ownerId) return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-6">
+    <div className={`min-h-screen ${T.bg} flex flex-col items-center justify-center px-6`}>
       <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center mb-6">
-        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
-          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" /></svg>
       </div>
-      <h1 className="text-white text-xl font-bold mb-2">Tablet not linked</h1>
-      <p className="text-white/40 text-sm text-center">Open the tablet link from your FleetAI dashboard to activate this device.</p>
+      <h1 className={`${T.text} text-xl font-bold mb-2`}>Tablet not linked</h1>
+      <p className={`${T.muted} text-sm text-center`}>Open the tablet link from your FleetAI dashboard to activate this device.</p>
     </div>
   )
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white select-none overflow-hidden">
+    <div className={`min-h-screen ${T.bg} ${T.text} select-none`}>
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+      <div className={`flex items-center justify-between px-6 py-4 border-b ${T.border}`}>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
-            </svg>
+            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" /></svg>
           </div>
           <span className="font-bold text-lg">Fleet<span className="text-indigo-400">AI</span></span>
         </div>
-        <div className="text-right">
-          <p className="text-white/60 text-sm">{ownerName || 'Employee Portal'}</p>
-          <Clock />
+        <div className="flex items-center gap-3">
+          <button onClick={toggleTheme} className={`w-9 h-9 rounded-xl flex items-center justify-center text-base transition-colors ${T.toggleBg}`} title="Toggle theme">
+            {dark ? '☀️' : '🌙'}
+          </button>
+          <div className="text-right">
+            <p className={`${T.muted} text-sm`}>Employee Portal</p>
+            <Clock dark={dark} />
+          </div>
         </div>
       </div>
 
-      {/* Screens */}
+      {/* Body */}
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-73px)] px-6 py-8">
 
-        {/* ── HOME ── */}
+        {/* HOME */}
         {screen === 'home' && (
-          <div className="w-full max-w-lg">
-            <h1 className="text-2xl font-bold text-center mb-2">Employee Portal</h1>
-            <p className="text-white/40 text-center text-sm mb-10">Select an action to get started</p>
-
-            <div className="grid grid-cols-3 gap-4 mb-10">
-              {[
-                { label: 'Clock In',    action: 'in'      as Action, color: 'bg-green-500/10 border-green-500/30 hover:bg-green-500/20',  icon: '🟢', textColor: 'text-green-400' },
-                { label: 'Clock Out',   action: 'out'     as Action, color: 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20',        icon: '🔴', textColor: 'text-red-400' },
-                { label: 'Log Service', action: 'service' as Action, color: 'bg-indigo-500/10 border-indigo-500/30 hover:bg-indigo-500/20', icon: '🔧', textColor: 'text-indigo-400' },
-              ].map(btn => (
-                <button
-                  key={btn.action}
-                  onClick={() => { setAction(btn.action); setScreen('pin') }}
-                  className={`border rounded-2xl p-6 flex flex-col items-center gap-3 transition-all active:scale-95 ${btn.color}`}
-                >
-                  <span className="text-4xl">{btn.icon}</span>
-                  <span className={`font-semibold text-sm ${btn.textColor}`}>{btn.label}</span>
-                </button>
-              ))}
+          <div className="w-full max-w-sm space-y-4">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold">Welcome</h1>
+              <p className={`${T.muted} text-sm mt-1`}>What would you like to do?</p>
             </div>
+            <button onClick={() => { setAction('in'); setScreen('pin') }}
+              className="w-full py-5 bg-indigo-500 text-white rounded-2xl font-semibold text-lg hover:bg-indigo-600 active:scale-95 transition-all">
+              🟢 Clock In
+            </button>
+            <button onClick={() => { setAction('out'); setScreen('pin') }}
+              className={`w-full py-5 rounded-2xl font-semibold text-lg active:scale-95 transition-all ${T.btnGhost}`}>
+              🔴 Clock Out
+            </button>
+            <button onClick={() => { setAction('service'); setScreen('pin') }}
+              className={`w-full py-5 rounded-2xl font-semibold text-lg active:scale-95 transition-all ${T.btnGhost}`}>
+              🔧 Log Service
+            </button>
 
-            {/* Today's service records */}
             {todayRecords.length > 0 && (
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-                <p className="text-xs text-white/40 uppercase tracking-wide font-medium mb-3">Today's Services</p>
-                <div className="space-y-2">
-                  {todayRecords.map(r => (
-                    <div key={r._id} className="flex items-center justify-between text-sm">
-                      <div>
-                        <span className="font-medium">{r.plate}</span>
-                        <span className="text-white/40 ml-2">{r.description}</span>
-                      </div>
-                      <span className="text-white/40 text-xs">{r.employeeName}</span>
-                    </div>
-                  ))}
+              <div className={`mt-6 rounded-2xl overflow-hidden ${T.card}`}>
+                <div className={`px-4 py-3 border-b ${T.border}`}>
+                  <p className="text-sm font-semibold">Services this session ({todayRecords.length})</p>
                 </div>
+                {todayRecords.slice(0, 5).map(r => (
+                  <div key={r._id} className={`px-4 py-3 border-b ${T.border} last:border-0 flex items-center justify-between`}>
+                    <div>
+                      <p className="text-sm font-medium">{r.plate} · {SERVICE_TYPES.find(s => s.value === r.serviceType)?.label || r.serviceType}</p>
+                      <p className={`text-xs ${T.muted}`}>{r.employeeName} · {new Date(r.date).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                    {r.cost ? <p className="text-sm font-semibold text-indigo-400">${r.cost}</p> : null}
+                  </div>
+                ))}
               </div>
             )}
           </div>
         )}
 
-        {/* ── PIN ENTRY ── */}
+        {/* PIN */}
         {screen === 'pin' && (
-          <div className="w-full max-w-xs">
-            <button onClick={goHome} className="flex items-center gap-1 text-white/40 text-sm mb-8 hover:text-white/60">
-              ← Back
-            </button>
-            <h2 className="text-xl font-bold text-center mb-1">
-              {action === 'in' ? 'Clock In' : action === 'out' ? 'Clock Out' : 'Log Service'}
-            </h2>
-            <p className="text-white/40 text-center text-sm mb-8">Enter your 4-digit PIN</p>
-
-            {/* PIN dots */}
+          <div className="w-full max-w-xs text-center">
+            <button onClick={goHome} className={`flex items-center gap-1 ${T.muted} text-sm mb-6 hover:opacity-70 mx-auto`}>← Back</button>
+            <h2 className="text-xl font-bold mb-1">Enter PIN</h2>
+            <p className={`${T.muted} text-sm mb-8`}>{action === 'in' ? 'Clock In' : action === 'out' ? 'Clock Out' : 'Log Service'}</p>
             <div className="flex justify-center gap-4 mb-8">
               {[0,1,2,3].map(i => (
-                <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all ${
-                  pin.length > i ? 'bg-indigo-400 border-indigo-400' : 'border-white/30'
-                }`} />
+                <div key={i} className={`w-4 h-4 rounded-full transition-all ${T.pinDot(pin.length > i)}`} />
               ))}
             </div>
-
-            {pinError && (
-              <p className="text-red-400 text-center text-sm mb-4">{pinError}</p>
-            )}
-
-            {/* Numpad */}
-            <div className="grid grid-cols-3 gap-3">
+            {pinError && <p className="text-red-400 text-sm mb-4">{pinError}</p>}
+            <div className="grid grid-cols-3 gap-3 mb-4">
               {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, i) => (
-                <button
-                  key={i}
-                  onClick={() => k === '⌫' ? handlePinDelete() : k !== '' ? handlePinKey(k) : undefined}
-                  disabled={submitting}
-                  className={`h-16 rounded-2xl text-xl font-semibold transition-all active:scale-95 ${
-                    k === '' ? 'pointer-events-none' :
-                    k === '⌫' ? 'bg-white/5 text-white/40 hover:bg-white/10' :
-                    'bg-white/10 hover:bg-white/15'
-                  }`}
-                >
+                <button key={i}
+                  onClick={() => k === '⌫' ? handlePinDelete() : k ? handlePinKey(k) : null}
+                  disabled={submitting || !k}
+                  className={`h-16 rounded-2xl text-xl font-semibold transition-all active:scale-95 ${k ? T.pinBtn : 'opacity-0 pointer-events-none'}`}>
                   {k}
                 </button>
               ))}
             </div>
-
-            <button
-              onClick={submitPin}
-              disabled={pin.length !== 4 || submitting}
-              className="w-full mt-6 py-4 bg-indigo-500 rounded-2xl font-semibold text-lg disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all"
-            >
+            <button onClick={submitPin} disabled={pin.length !== 4 || submitting}
+              className="w-full py-4 bg-indigo-500 text-white rounded-2xl font-semibold disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all">
               {submitting ? 'Checking...' : 'Continue →'}
             </button>
           </div>
         )}
 
-        {/* ── SELFIE ── */}
+        {/* SELFIE */}
         {screen === 'selfie' && (
-          <div className="w-full max-w-sm">
-            <button onClick={goHome} className="flex items-center gap-1 text-white/40 text-sm mb-6 hover:text-white/60">
-              ← Cancel
-            </button>
-            <h2 className="text-xl font-bold text-center mb-1">Take a Selfie</h2>
-            <p className="text-white/40 text-center text-sm mb-6">
-              Hi {employee?.name}! Look at the camera and tap the button.
-            </p>
-
-            {cameraError ? (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-6 text-center text-red-400 text-sm mb-6">
-                {cameraError}
-              </div>
-            ) : selfiePreview ? (
-              <div className="relative mb-6">
-                <img src={selfiePreview} className="w-full rounded-2xl aspect-[4/3] object-cover" />
-                <button
-                  onClick={retakeSelfie}
-                  className="absolute top-3 right-3 bg-black/60 text-white text-xs px-3 py-1.5 rounded-lg"
-                >
-                  Retake
-                </button>
-              </div>
+          <div className="w-full max-w-sm text-center">
+            <button onClick={goHome} className={`flex items-center gap-1 ${T.muted} text-sm mb-4 hover:opacity-70 mx-auto`}>← Cancel</button>
+            <h2 className="text-xl font-bold mb-1">{action === 'in' ? 'Clock In' : 'Clock Out'}</h2>
+            <p className={`${T.muted} text-sm mb-6`}>Take a selfie to confirm</p>
+            {cameraError && <p className="text-red-400 text-sm mb-4">{cameraError}</p>}
+            {selfiePreview ? (
+              <div className="rounded-2xl overflow-hidden mb-4"><img src={selfiePreview} className="w-full" /></div>
             ) : (
-              <div className="relative mb-6 rounded-2xl overflow-hidden bg-black aspect-[4/3]">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+              <div className="rounded-2xl overflow-hidden mb-4 bg-black aspect-[3/4]">
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
               </div>
             )}
-
+            {pinError && <p className="text-red-400 text-sm mb-4">{pinError}</p>}
             {selfiePreview ? (
-              <button
-                onClick={submitClockAction}
-                disabled={submitting}
-                className="w-full py-4 bg-indigo-500 rounded-2xl font-semibold text-lg disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all"
-              >
-                {submitting ? 'Saving...' : action === 'in' ? 'Confirm Clock In ✓' : 'Confirm Clock Out ✓'}
-              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={retakeSelfie} className={`py-4 rounded-2xl font-semibold ${T.btnGhost}`}>Retake</button>
+                <button onClick={submitClockAction} disabled={submitting}
+                  className="py-4 bg-indigo-500 text-white rounded-2xl font-semibold disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all">
+                  {submitting ? 'Saving...' : action === 'in' ? 'Confirm In ✓' : 'Confirm Out ✓'}
+                </button>
+              </div>
             ) : !cameraError ? (
-              <button
-                onClick={takeSelfie}
-                className="w-full py-4 bg-white/10 border border-white/20 rounded-2xl font-semibold text-lg hover:bg-white/15 active:scale-95 transition-all"
-              >
-                📸 Take Photo
-              </button>
+              <button onClick={takeSelfie} className={`w-full py-4 rounded-2xl font-semibold ${T.btnGhost}`}>📸 Take Photo</button>
             ) : null}
           </div>
         )}
 
-        {/* ── SERVICE FORM ── */}
+        {/* SERVICE FORM */}
         {screen === 'service-form' && (
           <div className="w-full max-w-lg">
-            <button onClick={goHome} className="flex items-center gap-1 text-white/40 text-sm mb-4 hover:text-white/60">
-              ← Cancel
-            </button>
+            <button onClick={goHome} className={`flex items-center gap-1 ${T.muted} text-sm mb-4 hover:opacity-70`}>← Cancel</button>
             <h2 className="text-xl font-bold mb-1">Log Service</h2>
-            <p className="text-white/40 text-sm mb-6">Logged by <span className="text-white/70">{employee?.name}</span></p>
-
+            <p className={`${T.muted} text-sm mb-6`}>Logged by <span className={T.subtext}>{employee?.name}</span></p>
             {pinError && <p className="text-red-400 text-sm mb-4">{pinError}</p>}
 
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-white/40 mb-1.5">Vehicle Category</label>
-                  <select
-                    value={serviceForm.vehicleCategory}
+                  <label className={`block text-xs ${T.muted} mb-1.5`}>Vehicle Category</label>
+                  <select value={serviceForm.vehicleCategory}
                     onChange={e => setServiceForm(f => ({ ...f, vehicleCategory: e.target.value }))}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  >
+                    className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-indigo-500 ${T.select}`}>
                     <option value="rental">Rental Fleet</option>
                     <option value="personal">Personal</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-white/40 mb-1.5">Vehicle Type</label>
-                  <select
-                    value={serviceForm.vehicleType}
+                  <label className={`block text-xs ${T.muted} mb-1.5`}>Vehicle Type</label>
+                  <select value={serviceForm.vehicleType}
                     onChange={e => setServiceForm(f => ({ ...f, vehicleType: e.target.value }))}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option>Scooter</option>
-                    <option>Car</option>
-                    <option>E-bike</option>
+                    className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-indigo-500 ${T.select}`}>
+                    <option value="scooter">Scooter</option>
+                    <option value="car">Car</option>
+                    <option value="e-bike">E-Bike</option>
                   </select>
                 </div>
               </div>
 
-              <Field label="Plate Number *" value={serviceForm.plate}
+              <TField label="Plate Number *" value={serviceForm.plate} T={T}
                 onChange={v => setServiceForm(f => ({ ...f, plate: v.toUpperCase() }))}
-                placeholder="e.g. ABC123" />
+                placeholder="e.g. ABC123"
+                error={submitAttempted && !serviceForm.plate} />
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Customer Name" value={serviceForm.customerName}
+                <TField label="Customer Name" value={serviceForm.customerName} T={T}
                   onChange={v => setServiceForm(f => ({ ...f, customerName: v }))} />
-                <Field label="Customer Phone" value={serviceForm.customerPhone}
-                  onChange={v => setServiceForm(f => ({ ...f, customerPhone: v }))}
-                  type="tel" />
+                <TField label="Customer Phone" value={serviceForm.customerPhone} T={T} type="tel"
+                  onChange={v => setServiceForm(f => ({ ...f, customerPhone: v }))} />
               </div>
 
               <div>
-                <label className="block text-xs text-white/40 mb-1.5">Service Type</label>
-                <select
-                  value={serviceForm.serviceType}
+                <label className={`block text-xs ${T.muted} mb-1.5`}>Service Type</label>
+                <select value={serviceForm.serviceType}
                   onChange={e => setServiceForm(f => ({ ...f, serviceType: e.target.value }))}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
-                >
+                  className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-indigo-500 ${T.select}`}>
                   {SERVICE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs text-white/40 mb-1.5">Description *</label>
-                <textarea
-                  value={serviceForm.description}
+                <label className={`block text-xs ${T.muted} mb-1.5`}>Description *</label>
+                <textarea value={serviceForm.description}
                   onChange={e => setServiceForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="What was done?"
-                  rows={3}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-indigo-500 resize-none"
-                />
+                  placeholder="What was done?" rows={3}
+                  className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none resize-none focus:border-indigo-500 ${T.input} ${submitAttempted && !serviceForm.description ? 'border-red-500' : ''}`} />
+                {submitAttempted && !serviceForm.description && (
+                  <p className="text-red-400 text-xs mt-1">Description is required</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Cost ($)" value={serviceForm.cost} type="number"
-                  onChange={v => setServiceForm(f => ({ ...f, cost: v }))}
-                  placeholder="0.00" />
-                <Field label="Notes (optional)" value={serviceForm.notes}
+                <TField label="Cost ($)" value={serviceForm.cost} T={T} type="number"
+                  onChange={v => setServiceForm(f => ({ ...f, cost: v }))} placeholder="0.00" />
+                <TField label="Notes (optional)" value={serviceForm.notes} T={T}
                   onChange={v => setServiceForm(f => ({ ...f, notes: v }))} />
               </div>
             </div>
 
-            <button
-              onClick={submitService}
-              disabled={submitting}
-              className="w-full mt-6 py-4 bg-indigo-500 rounded-2xl font-semibold text-lg disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all"
-            >
+            <button onClick={submitService} disabled={submitting}
+              className="w-full mt-6 py-4 bg-indigo-500 text-white rounded-2xl font-semibold text-lg disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all">
               {submitting ? 'Saving...' : 'Submit Service Record ✓'}
             </button>
           </div>
         )}
 
-        {/* ── SUCCESS ── */}
+        {/* SUCCESS */}
         {screen === 'success' && (
           <div className="text-center">
             <div className="text-7xl mb-6">✅</div>
             <h2 className="text-2xl font-bold mb-3">{successMsg}</h2>
-            <p className="text-white/40 text-sm">Returning to home in 4 seconds...</p>
-            <button onClick={goHome} className="mt-6 text-indigo-400 text-sm hover:text-indigo-300">
-              Go now →
-            </button>
+            <p className={`${T.muted} text-sm`}>Returning to home in 4 seconds...</p>
+            <button onClick={goHome} className="mt-6 text-indigo-400 text-sm hover:text-indigo-300">Go now →</button>
           </div>
         )}
 
@@ -490,31 +407,29 @@ export default function TabletPage() {
   )
 }
 
-function Clock() {
+function Clock({ dark }: { dark: boolean }) {
   const [time, setTime] = useState(new Date())
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
   return (
-    <p className="text-white/80 text-sm font-mono">
+    <p className={`text-sm font-mono ${dark ? 'text-white/80' : 'text-gray-600'}`}>
       {time.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
     </p>
   )
 }
 
-function Field({ label, value, onChange, type = 'text', placeholder }: {
+function TField({ label, value, onChange, type = 'text', placeholder, error, T }: {
   label: string; value: string; onChange: (v: string) => void
-  type?: string; placeholder?: string
+  type?: string; placeholder?: string; error?: boolean; T: Record<string, any>
 }) {
   return (
     <div>
-      <label className="block text-xs text-white/40 mb-1.5">{label}</label>
-      <input
-        type={type} value={value} onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-indigo-500"
-      />
+      <label className={`block text-xs ${T.muted} mb-1.5`}>{label}</label>
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-indigo-500 ${T.input} ${error ? 'border-red-500' : ''}`} />
+      {error && <p className="text-red-400 text-xs mt-1">This field is required</p>}
     </div>
   )
 }

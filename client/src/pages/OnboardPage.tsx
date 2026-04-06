@@ -35,7 +35,7 @@ export default function OnboardPage() {
   }, [phone])
 
   const [form, setForm] = useState({
-    mobileNumber: decodeURIComponent(phone || ''),
+    mobileNumber: '',
     firstName: '',
     lastName: '',
     dateOfBirth: '',
@@ -101,7 +101,7 @@ export default function OnboardPage() {
 
       await axios.post('/api/renters', {
         name: `${form.firstName} ${form.lastName}`,
-        phone: phone ? decodeURIComponent(phone) : form.mobileNumber,
+        phone: form.mobileNumber,
         ownerId: ownerEmail,
         email: form.email,
         dateOfBirth: form.dateOfBirth,
@@ -127,7 +127,12 @@ export default function OnboardPage() {
 
       setSubmitted(true)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Something went wrong. Please try again.')
+      const msg = err.response?.data?.error || ''
+      if (msg.toLowerCase().includes('duplicate') || msg.toLowerCase().includes('dup key')) {
+        setError('This phone number is already registered. Please check the number and try again.')
+      } else {
+        setError(msg || 'Something went wrong. Please try again.')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -184,7 +189,7 @@ export default function OnboardPage() {
               <Field label="Last Name *" name="lastName" value={form.lastName} onChange={handleChange} required />
             </div>
             <Field label="Date of Birth *" name="dateOfBirth" type="date" value={form.dateOfBirth} onChange={handleChange} required />
-            <Field label="Mobile Number *" name="mobileNumber" value={form.mobileNumber} onChange={handleChange} required={!phone} disabled={!!phone} />
+            <Field label="Mobile Number *" name="mobileNumber" value={form.mobileNumber} onChange={handleChange} required={!phone} />
             <Field label="Email ID *" name="email" type="email" value={form.email} onChange={handleChange} required />
             <div>
               <label className="block text-xs text-gray-500 mb-1.5">Vehicle Type *</label>
