@@ -932,6 +932,10 @@ export default function RentersPage() {
       addressCity: renter.address?.city || '',
       addressState: renter.address?.state || 'NSW',
       addressPostcode: renter.address?.postcode || '',
+      bankName: renter.bankName || '',
+      accountHolderName: renter.accountHolderName || '',
+      bsbNumber: renter.bsbNumber || '',
+      accountNumber: renter.accountNumber || '',
     })
     setAiVerifyResults(null)
   }
@@ -999,8 +1003,8 @@ export default function RentersPage() {
       {/* Pending renter modal */}
       {pendingModal && (
         <>
-          <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setPendingModal(null)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/50 z-[9999]" onClick={() => setPendingModal(null)} />
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-surface border border-border rounded-2xl w-full max-w-3xl my-auto shadow-2xl">
 
               {/* Modal Header */}
@@ -1026,6 +1030,10 @@ export default function RentersPage() {
                           passportNumber: modalForm.passportNumber,
                           emergencyContactName: modalForm.emergencyContactName,
                           emergencyContactPhone: modalForm.emergencyContactPhone,
+                          bankName: modalForm.bankName,
+                          accountHolderName: modalForm.accountHolderName,
+                          bsbNumber: modalForm.bsbNumber,
+                          accountNumber: modalForm.accountNumber,
                           address: { street: modalForm.addressStreet, city: modalForm.addressCity, state: modalForm.addressState, postcode: modalForm.addressPostcode },
                         })
                         setToast({ message: '✅ Details saved', type: 'success' })
@@ -1062,6 +1070,20 @@ export default function RentersPage() {
                         className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
                     </div>
                   ))}
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wide pt-1 mb-1">Bank details</p>
+                  {[
+                    { label: 'Bank name', key: 'bankName' },
+                    { label: 'Account holder name', key: 'accountHolderName' },
+                    { label: 'BSB (e.g. 062-000)', key: 'bsbNumber' },
+                    { label: 'Account number', key: 'accountNumber' },
+                  ].map(bk => (
+                    <div key={bk.key}>
+                      <label className="block text-xs text-text-muted mb-1">{bk.label}</label>
+                      <input value={modalForm[bk.key] || ''}
+                        onChange={e => setModalForm((p: any) => ({ ...p, [bk.key]: e.target.value }))}
+                        className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                    </div>
+                  ))}
                   <p className="text-xs font-semibold text-text-muted uppercase tracking-wide pt-1 mb-1">Address</p>
                   {[
                     { label: 'Street', key: 'addressStreet' },
@@ -1091,11 +1113,14 @@ export default function RentersPage() {
                       Identity photos <span className="normal-case font-normal text-text-tertiary">(tap to enlarge)</span>
                     </p>
                     <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { label: 'Licence', url: pendingModal.licencePhotoUrl ? `${import.meta.env.VITE_API_URL}${pendingModal.licencePhotoUrl}` : null },
-                        { label: 'Selfie', url: (pendingModal as any).selfieUrl ? `${import.meta.env.VITE_API_URL}${(pendingModal as any).selfieUrl}` : null },
-                        { label: 'Passport', url: (pendingModal as any).passportPhotoUrl ? `${import.meta.env.VITE_API_URL}${(pendingModal as any).passportPhotoUrl}` : null },
-                      ].map(ph => (
+                      {(() => {
+                        const toUrl = (u?: string) => !u ? null : u.startsWith('http') ? u : `${import.meta.env.VITE_API_URL}${u}`
+                        return [
+                          { label: 'Licence', url: toUrl(pendingModal.licencePhotoUrl) },
+                          { label: 'Selfie', url: toUrl((pendingModal as any).selfieUrl) },
+                          { label: 'Passport', url: toUrl((pendingModal as any).passportPhotoUrl) },
+                        ]
+                      })().map(ph => (
                         <div key={ph.label}>
                           <p className="text-xs text-text-muted mb-1">{ph.label}</p>
                           {ph.url ? (
