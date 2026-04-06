@@ -46,7 +46,7 @@ const chatLimiter = rateLimit({
   message: { error: 'Too many messages, please slow down' }
 })
 
-app.use('/api/', generalLimiter)
+// Only limit the public-facing routes — owner dashboard routes are protected by JWT anyway
 app.post('/api/renters', onboardLimiter)
 app.use('/api/chat', chatLimiter)
 const PORT = process.env.PORT || 5000
