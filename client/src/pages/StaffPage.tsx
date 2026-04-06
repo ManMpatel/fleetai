@@ -54,8 +54,10 @@ export default function StaffPage() {
   const [formError, setFormError] = useState('')
   const [saving, setSaving]       = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+const [refreshing, setRefreshing] = useState(false)
 
-  async function fetchAll() {
+  async function fetchAll(showSpinner = false) {
+    if (showSpinner) setRefreshing(true)
     try {
       const [e, c, s] = await Promise.all([
         axios.get('/api/employees'),
@@ -69,6 +71,7 @@ export default function StaffPage() {
       console.error(err)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -219,6 +222,15 @@ export default function StaffPage() {
               {t === 'clock' ? `Clock Log (${clockRecords.length})` : `Service Records (${serviceRecords.length})`}
             </button>
           ))}
+          <div className="ml-auto flex items-center pr-3">
+            <button
+              onClick={() => fetchAll(true)}
+              disabled={refreshing}
+              className="px-3 py-1.5 text-xs border border-border rounded-lg text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1"
+            >
+              {refreshing ? '...' : '↻ Refresh'}
+            </button>
+          </div>
         </div>
 
         {/* Clock tab */}
