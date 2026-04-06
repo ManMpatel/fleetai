@@ -110,7 +110,7 @@ router.post('/', async (req: Request, res: Response) => {
     const allowed = ['name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'vehicleType',
       'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
       'emergencyContactName', 'emergencyContactPhone', 'licencePhotoUrl', 'selfieUrl',
-      'ownerId', 'status']
+      'passportPhotoUrl', 'passportNumber', 'ownerId', 'status']
     Object.keys(body).forEach(k => { if (!allowed.includes(k)) delete body[k] })
 
     // Encrypt bank details
@@ -345,9 +345,20 @@ router.get('/:phone/verify', async (req: Request, res: Response) => {
     // BSB format
     if (renter.bsbNumber) {
       const bsb = decrypt(renter.bsbNumber)
-      checks.push(bsb.match(/^\d{3}-?\d{3}$/)
-        ? { label: 'BSB number', status: 'pass', detail: 'Valid format' }
-        : { label: 'BSB number', status: 'warn', detail: 'Unusual format — verify manually' })
+      const bsbClean = bsb.replace('-', '')
+      const AU_BANKS: Record<string, string> = {
+        '01': 'ANZ', '09': 'ANZ', '06': 'Commonwealth', '76': 'Commonwealth',
+        '08': 'NAB', '03': 'Westpac', '73': 'Westpac', '48': 'Suncorp',
+        '63': 'Bendigo', '80': 'Credit Union', '70': 'Credit Union',
+        '28': 'Bankwest', '30': 'Macquarie', '18': 'Citibank', '19': 'St George',
+        '33': 'BankSA', '55': 'Bank of Melbourne',
+      }
+      if (bsbClean.match(/^\d{6}$/)) {
+        const bank = AU_BANKS[bsbClean.slice(0, 2)]
+        checks.push({ label: 'BSB number', status: 'pass', detail: bank ? `Valid — ${bank}` : 'Valid format' })
+      } else {
+        checks.push({ label: 'BSB number', status: 'warn', detail: 'Must be 6 digits (e.g. 062-000)' })
+      }
     } else {
       checks.push({ label: 'BSB number', status: 'warn', detail: 'Not provided' })
     }
@@ -449,6 +460,67 @@ router.post('/find-by-date', async (req: Request, res: Response) => {
     }
 
     res.json({ found: true, renter })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/renters/:phone/ai-verify — Gemini photo verification
+router.post('/:phone/ai-verify', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+    if (!renter.licencePhotoUrl) return res.status(400).json({ error: 'No licence photo uploaded' })
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+    const fetchBase64 = async (url: string) => {
+      const r = await axios.get(url, { responseType: 'arraybuffer' })
+      return {
+        data: Buffer.from(r.data).toString('base64'),
+        mimeType: (r.headers['content-type'] as string) || 'image/jpeg',
+      }
+    }
+
+    const licImg = await fetchBase64(renter.licencePhotoUrl)
+    const passportUrl = (renter as any).passportPhotoUrl
+    const passImg = passportUrl ? await fetchBase64(passportUrl) : null
+
+    const parts: any[] = [{ inlineData: licImg }]
+    if (passImg) parts.push({ inlineData: passImg })
+
+    const address = [renter.address?.street, renter.address?.city, renter.address?.state, renter.address?.postcode].filter(Boolean).join(', ') || 'not provided'
+
+    parts.push({ text: `You are verifying identity documents for an Australian scooter rental company.
+
+Renter submitted details:
+- Full name: ${renter.name}
+- Date of birth: ${renter.dateOfBirth || 'not provided'}
+- Address: ${address}
+- Licence number: ${renter.licenceNumber || 'not provided'}
+- Passport number: ${(renter as any).passportNumber || 'not provided'}
+
+Image 1 is the driver's licence.${passImg ? ' Image 2 is the passport.' : ' No passport was uploaded.'}
+
+Verify each field against the documents:
+1. name: Does the name on the LICENCE match "${renter.name}"?
+2. dob: Does the DOB on the LICENCE match "${renter.dateOfBirth}"?
+3. address: Is the submitted address visible and matching on the LICENCE? (Many Australian licences do NOT show address — if not visible, use warn with detail "Not shown on licence")
+4. licenceNumber: Does the licence number on LICENCE match "${renter.licenceNumber}"?
+5. passportNumber: ${passImg ? `Does the passport number on the PASSPORT match "${(renter as any).passportNumber}"?` : 'No passport uploaded — respond with warn and detail "No passport uploaded"'}
+
+Respond ONLY with this exact JSON (no markdown, no extra text):
+{"name":{"status":"pass|fail|warn","detail":"short reason"},"dob":{"status":"pass|fail|warn","detail":"short reason"},"address":{"status":"pass|fail|warn","detail":"short reason"},"licenceNumber":{"status":"pass|fail|warn","detail":"short reason"},"passportNumber":{"status":"pass|fail|warn","detail":"short reason"}}` })
+
+    const result = await model.generateContent(parts)
+    const text = result.response.text().trim()
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return res.status(500).json({ error: 'Could not parse AI response' })
+    const aiResults = JSON.parse(jsonMatch[0])
+    res.json({ success: true, results: aiResults })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

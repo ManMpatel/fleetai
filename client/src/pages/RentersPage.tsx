@@ -911,6 +911,30 @@ export default function RentersPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null)
   const [verifyData, setVerifyData] = useState<Record<string, any>>({})
   const [verifyLoading, setVerifyLoading] = useState<Record<string, boolean>>({})
+  const [pendingModal, setPendingModal] = useState<Renter | null>(null)
+  const [modalForm, setModalForm] = useState<Record<string, any>>({})
+  const [modalSaving, setModalSaving] = useState(false)
+  const [aiVerifyResults, setAiVerifyResults] = useState<any>(null)
+  const [aiVerifyLoading, setAiVerifyLoading] = useState(false)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+
+  function openPendingModal(renter: Renter) {
+    setPendingModal(renter)
+    setModalForm({
+      name: renter.name || '',
+      email: renter.email || '',
+      dateOfBirth: renter.dateOfBirth || '',
+      licenceNumber: renter.licenceNumber || '',
+      passportNumber: (renter as any).passportNumber || '',
+      emergencyContactName: renter.emergencyContactName || '',
+      emergencyContactPhone: renter.emergencyContactPhone || '',
+      addressStreet: renter.address?.street || '',
+      addressCity: renter.address?.city || '',
+      addressState: renter.address?.state || 'NSW',
+      addressPostcode: renter.address?.postcode || '',
+    })
+    setAiVerifyResults(null)
+  }
 
   async function loadVerification(phone: string) {
     setVerifyLoading(p => ({ ...p, [phone]: true }))
@@ -964,6 +988,228 @@ export default function RentersPage() {
     <div className="flex-1 flex h-full overflow-hidden">
       {toast && <Toast message={toast.message} type={toast.type} />}
 
+      {/* Lightbox */}
+      {lightbox && (
+        <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          <img src={lightbox} className="max-w-full max-h-full rounded-xl object-contain" onClick={e => e.stopPropagation()} />
+          <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl">✕</button>
+        </div>
+      )}
+
+      {/* Pending renter modal */}
+      {pendingModal && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setPendingModal(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-surface border border-border rounded-2xl w-full max-w-3xl my-auto shadow-2xl">
+
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-amber-bg flex items-center justify-center shrink-0">
+                    <span className="text-amber font-semibold text-sm">{pendingModal.name?.charAt(0)}</span>
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-text-primary">{pendingModal.name}</h2>
+                    <p className="text-xs text-text-muted">{pendingModal.phone} · {pendingModal.email}</p>
+                  </div>
+                  <span className="text-[10px] bg-amber-bg text-amber px-2 py-0.5 rounded-full font-medium">Pending</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button disabled={modalSaving}
+                    onClick={async () => {
+                      setModalSaving(true)
+                      try {
+                        await axios.put(`/api/renters/${encodeURIComponent(pendingModal.phone)}`, {
+                          name: modalForm.name, email: modalForm.email,
+                          dateOfBirth: modalForm.dateOfBirth, licenceNumber: modalForm.licenceNumber,
+                          passportNumber: modalForm.passportNumber,
+                          emergencyContactName: modalForm.emergencyContactName,
+                          emergencyContactPhone: modalForm.emergencyContactPhone,
+                          address: { street: modalForm.addressStreet, city: modalForm.addressCity, state: modalForm.addressState, postcode: modalForm.addressPostcode },
+                        })
+                        setToast({ message: '✅ Details saved', type: 'success' })
+                        fetchRenters()
+                      } catch { setToast({ message: '❌ Failed to save', type: 'warning' }) }
+                      finally { setModalSaving(false) }
+                    }}
+                    className="px-3 py-1.5 text-xs border border-border rounded-lg text-text-secondary hover:border-accent hover:text-accent disabled:opacity-40 transition-colors"
+                  >{modalSaving ? 'Saving...' : 'Save changes'}</button>
+                  <button onClick={() => setPendingModal(null)}
+                    className="w-7 h-7 rounded-full bg-surface2 flex items-center justify-center text-text-muted hover:text-text-primary text-sm">✕</button>
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 grid grid-cols-2 gap-6 max-h-[70vh] overflow-y-auto">
+
+                {/* Left — editable fields */}
+                <div className="space-y-2.5">
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">Personal details</p>
+                  {[
+                    { label: 'Full name', key: 'name' },
+                    { label: 'Date of birth', key: 'dateOfBirth', type: 'date' },
+                    { label: 'Email', key: 'email', type: 'email' },
+                    { label: 'Licence number', key: 'licenceNumber' },
+                    { label: 'Passport number (optional)', key: 'passportNumber' },
+                    { label: 'Emergency contact', key: 'emergencyContactName' },
+                    { label: 'Emergency phone', key: 'emergencyContactPhone' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <label className="block text-xs text-text-muted mb-1">{f.label}</label>
+                      <input type={f.type || 'text'} value={modalForm[f.key] || ''}
+                        onChange={e => setModalForm((p: any) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                    </div>
+                  ))}
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wide pt-1 mb-1">Address</p>
+                  {[
+                    { label: 'Street', key: 'addressStreet' },
+                    { label: 'City', key: 'addressCity' },
+                    { label: 'Postcode', key: 'addressPostcode' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <label className="block text-xs text-text-muted mb-1">{f.label}</label>
+                      <input value={modalForm[f.key] || ''}
+                        onChange={e => setModalForm((p: any) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs text-text-muted mb-1">State</label>
+                    <select value={modalForm.addressState || 'NSW'} onChange={e => setModalForm((p: any) => ({ ...p, addressState: e.target.value }))}
+                      className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
+                      {['NSW','VIC','QLD','WA','SA','TAS','ACT','NT'].map(s => <option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Right — photos + verification */}
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">
+                      Identity photos <span className="normal-case font-normal text-text-tertiary">(tap to enlarge)</span>
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: 'Licence', url: pendingModal.licencePhotoUrl ? `${import.meta.env.VITE_API_URL}${pendingModal.licencePhotoUrl}` : null },
+                        { label: 'Selfie', url: (pendingModal as any).selfieUrl ? `${import.meta.env.VITE_API_URL}${(pendingModal as any).selfieUrl}` : null },
+                        { label: 'Passport', url: (pendingModal as any).passportPhotoUrl ? `${import.meta.env.VITE_API_URL}${(pendingModal as any).passportPhotoUrl}` : null },
+                      ].map(ph => (
+                        <div key={ph.label}>
+                          <p className="text-xs text-text-muted mb-1">{ph.label}</p>
+                          {ph.url ? (
+                            <img src={ph.url} alt={ph.label} onClick={() => setLightbox(ph.url!)}
+                              className="w-full h-20 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80 transition-opacity" />
+                          ) : (
+                            <div className="w-full h-20 rounded-lg border border-border bg-surface2 flex items-center justify-center">
+                              <span className="text-xs text-text-muted">Not uploaded</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Manual format checks */}
+                  {verifyData[pendingModal.phone] && !verifyData[pendingModal.phone].error && (
+                    <div>
+                      <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">Format checks</p>
+                      <div className="bg-surface2 rounded-xl px-3 py-1">
+                        {verifyData[pendingModal.phone].checks?.map((c: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-border last:border-0">
+                            <span className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${c.status === 'pass' ? 'bg-green-bg text-green' : c.status === 'fail' ? 'bg-red-bg text-red' : 'bg-amber-bg text-amber'}`}>
+                              {c.status === 'pass' ? '✓' : c.status === 'fail' ? '✗' : '!'}
+                            </span>
+                            <span className="text-text-secondary flex-1">{c.label}</span>
+                            <span className="text-text-muted text-right text-[11px]">{c.detail}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI verification results */}
+                  {aiVerifyResults && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">AI document check</p>
+                        <span className="text-xs bg-accent-bg text-accent px-2 py-0.5 rounded-full">Gemini</span>
+                      </div>
+                      <div className="bg-surface2 rounded-xl px-3 py-1">
+                        {[
+                          { key: 'name', label: 'Full name' },
+                          { key: 'dob', label: 'Date of birth' },
+                          { key: 'address', label: 'Address' },
+                          { key: 'licenceNumber', label: 'Licence number' },
+                          { key: 'passportNumber', label: 'Passport number' },
+                        ].map(f => {
+                          const r = aiVerifyResults[f.key]
+                          if (!r) return null
+                          return (
+                            <div key={f.key} className="flex items-center gap-2 text-xs py-1.5 border-b border-border last:border-0">
+                              <span className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${r.status === 'pass' ? 'bg-green-bg text-green' : r.status === 'fail' ? 'bg-red-bg text-red' : 'bg-amber-bg text-amber'}`}>
+                                {r.status === 'pass' ? '✓' : r.status === 'fail' ? '✗' : '!'}
+                              </span>
+                              <span className="text-text-secondary flex-1">{f.label}</span>
+                              <span className="text-text-muted text-right text-[11px]">{r.detail}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {aiVerifyLoading && (
+                    <div className="text-xs text-text-muted text-center py-3">Running AI document check...</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+                <button
+                  disabled={aiVerifyLoading}
+                  onClick={async () => {
+                    if (!verifyData[pendingModal.phone]) await loadVerification(pendingModal.phone)
+                    setAiVerifyLoading(true)
+                    setAiVerifyResults(null)
+                    try {
+                      const { data } = await axios.post(`/api/renters/${encodeURIComponent(pendingModal.phone)}/ai-verify`)
+                      setAiVerifyResults(data.results)
+                    } catch (err: any) {
+                      setToast({ message: '❌ AI check failed: ' + (err.response?.data?.error || 'error'), type: 'warning' })
+                    } finally { setAiVerifyLoading(false) }
+                  }}
+                  className="px-4 py-2.5 border border-border rounded-xl text-sm text-text-secondary hover:text-text-primary hover:border-accent disabled:opacity-40 transition-colors"
+                >
+                  {aiVerifyLoading ? 'Running checks...' : 'Run verification checks'}
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Reject ${pendingModal.name}?`)) return
+                      await axios.delete(`/api/renters/${encodeURIComponent(pendingModal.phone)}/reject`)
+                      setToast({ message: `${pendingModal.name} rejected`, type: 'warning' })
+                      setPendingModal(null); fetchRenters()
+                    }}
+                    className="px-4 py-2.5 bg-red-bg text-red text-sm font-medium rounded-xl border border-red/20"
+                  >✕ Reject</button>
+                  <button
+                    onClick={async () => {
+                      await axios.post(`/api/renters/${encodeURIComponent(pendingModal.phone)}/approve`)
+                      setToast({ message: `✅ ${pendingModal.name} approved!`, type: 'success' })
+                      setPendingModal(null); fetchRenters()
+                    }}
+                    className="px-4 py-2.5 bg-green text-white text-sm font-medium rounded-xl"
+                  >✓ Approve</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Pending drawer */}
       {showPending && (
         <>
@@ -978,85 +1224,30 @@ export default function RentersPage() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-             {pendingRenters.map(renter => {
-                const verify = verifyData[renter.phone]
-                const vLoading = verifyLoading[renter.phone]
-                return (
-                  <div key={renter._id} className="bg-surface2 border border-border rounded-xl p-4">
-                    {/* Header */}
-                    <div className="flex justify-between mb-3">
-                      <div>
-                        <p className="font-semibold text-text-primary">{renter.name}</p>
-                        <p className="text-text-muted text-xs">{renter.phone} · {renter.email || 'no email'}</p>
-                      </div>
-                      <span className="text-[10px] bg-amber-bg text-amber px-2 py-0.5 rounded-full font-medium h-fit">Pending</span>
+             {pendingRenters.map(renter => (
+                <div key={renter._id}
+                  onClick={() => openPendingModal(renter)}
+                  className="bg-surface2 border border-border rounded-xl p-4 cursor-pointer hover:border-accent transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="font-semibold text-text-primary text-sm">{renter.name}</p>
+                      <p className="text-text-muted text-xs">{renter.phone}</p>
                     </div>
-
-                    {/* Photos */}
-                    <div className="flex gap-2 mb-3">
-                      {renter.licencePhotoUrl && (
-                        <img src={`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`} alt="Licence"
-                          className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80"
-                          onClick={() => window.open(`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`, '_blank')} />
-                      )}
-                      {(renter as any).selfieUrl && (
-                        <img src={`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`} alt="Selfie"
-                          className="flex-1 h-20 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80"
-                          onClick={() => window.open(`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`, '_blank')} />
-                      )}
-                    </div>
-
-                    {/* Verification checklist */}
-                    {!verify && !vLoading && (
-                      <button onClick={() => loadVerification(renter.phone)}
-                        className="w-full py-2 mb-3 text-xs border border-border rounded-lg text-text-muted hover:text-text-primary hover:border-accent transition-colors">
-                        Run verification checks
-                      </button>
-                    )}
-
-                    {vLoading && (
-                      <div className="text-xs text-text-muted text-center py-2 mb-3">Running checks...</div>
-                    )}
-
-                    {verify && !verify.error && (
-                      <div className="mb-3 space-y-1">
-                        {verify.fails > 0 && (
-                          <div className="text-xs bg-red-bg text-red px-3 py-1.5 rounded-lg mb-2 font-medium">
-                            {verify.fails} issue{verify.fails > 1 ? 's' : ''} found — review carefully
-                          </div>
-                        )}
-                        {verify.checks?.map((c: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-border last:border-0">
-                            <span className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold
-                              ${c.status === 'pass' ? 'bg-green-bg text-green' :
-                                c.status === 'fail' ? 'bg-red-bg text-red' : 'bg-amber-bg text-amber'}`}>
-                              {c.status === 'pass' ? '✓' : c.status === 'fail' ? '✗' : '!'}
-                            </span>
-                            <span className="text-text-secondary font-medium">{c.label}</span>
-                            <span className="text-text-muted ml-auto text-right">{c.detail}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-2">
-                      <button onClick={async () => {
-                        await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/approve`)
-                        setToast({ message: `✅ ${renter.name} approved!`, type: 'success' })
-                        fetchRenters()
-                      }} className="flex-1 bg-green text-white text-xs font-medium py-2 rounded-lg">✓ Approve</button>
-                      <button onClick={async () => {
-                        if (window.confirm(`Reject ${renter.name}?`)) {
-                          await axios.delete(`/api/renters/${encodeURIComponent(renter.phone)}/reject`)
-                          setToast({ message: `${renter.name} rejected`, type: 'warning' })
-                          fetchRenters()
-                        }
-                      }} className="flex-1 bg-red-bg text-red text-xs font-medium py-2 rounded-lg border border-red/20">✕ Reject</button>
-                    </div>
+                    <span className="text-[10px] bg-amber-bg text-amber px-2 py-0.5 rounded-full font-medium">Pending</span>
                   </div>
-                )
-              })}
+                  <div className="flex gap-2 mb-2">
+                    {renter.licencePhotoUrl && (
+                      <img src={`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`} alt="Licence"
+                        className="w-14 h-10 object-cover rounded-md border border-border" />
+                    )}
+                    {(renter as any).selfieUrl && (
+                      <img src={`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`} alt="Selfie"
+                        className="w-14 h-10 object-cover rounded-md border border-border" />
+                    )}
+                  </div>
+                  <p className="text-xs text-accent">Click to review →</p>
+                </div>
+              ))}
             </div>
           </div>
         </>

@@ -11,6 +11,8 @@ export default function OnboardPage() {
   const [licencePreview, setLicencePreview] = useState('')
   const [selfieFile, setSelfieFile] = useState<File | null>(null)
   const [selfiePreview, setSelfiePreview] = useState('')
+  const [passportFile, setPassportFile] = useState<File | null>(null)
+  const [passportPreview, setPassportPreview] = useState('')
   const { phone } = useParams<{ phone: string }>()
   const [ownerEmail, setOwnerEmail] = useState('')
   const [ownerName, setOwnerName] = useState('')
@@ -54,6 +56,7 @@ export default function OnboardPage() {
     emergencyContactName: '',
     emergencyContactPhone: '',
     licenceNumber: '',
+    passportNumber: '',
   })
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
@@ -62,19 +65,15 @@ export default function OnboardPage() {
 
   function handleFileChange(
     e: React.ChangeEvent<HTMLInputElement>,
-    type: 'licence' | 'selfie'
+    type: 'licence' | 'selfie' | 'passport'
   ) {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
-      if (type === 'licence') {
-        setLicenceFile(file)
-        setLicencePreview(ev.target?.result as string)
-      } else {
-        setSelfieFile(file)
-        setSelfiePreview(ev.target?.result as string)
-      }
+      if (type === 'licence') { setLicenceFile(file); setLicencePreview(ev.target?.result as string) }
+      else if (type === 'selfie') { setSelfieFile(file); setSelfiePreview(ev.target?.result as string) }
+      else { setPassportFile(file); setPassportPreview(ev.target?.result as string) }
     }
     reader.readAsDataURL(file)
   }
@@ -94,10 +93,12 @@ export default function OnboardPage() {
     setError('')
 
     try {
-      const [licencePhotoUrl, selfieUrl] = await Promise.all([
+      const uploadResults = await Promise.all([
         uploadFile(licenceFile),
         uploadFile(selfieFile),
+        ...(passportFile ? [uploadFile(passportFile)] : []),
       ])
+      const [licencePhotoUrl, selfieUrl, passportPhotoUrl] = uploadResults
 
       await axios.post('/api/renters', {
         name: `${form.firstName} ${form.lastName}`,
@@ -106,8 +107,10 @@ export default function OnboardPage() {
         email: form.email,
         dateOfBirth: form.dateOfBirth,
         licenceNumber: form.licenceNumber,
+        passportNumber: form.passportNumber || undefined,
         licencePhotoUrl,
         selfieUrl,
+        ...(passportPhotoUrl ? { passportPhotoUrl } : {}),
         vehicleType: form.vehicleType,
         status: 'pending',
         address: {
@@ -200,6 +203,7 @@ export default function OnboardPage() {
               </select>
             </div>
             <Field label="Licence Number *" name="licenceNumber" value={form.licenceNumber} onChange={handleChange} required />
+            <Field label="Passport Number (optional — international licence holders)" name="passportNumber" value={form.passportNumber} onChange={handleChange} />
           </Section>
 
           {/* Licence Photo */}
@@ -222,6 +226,17 @@ export default function OnboardPage() {
               onChange={e => handleFileChange(e, 'selfie')}
               label="Take selfie with licence"
               capture="user"
+            />
+          </Section>
+
+          {/* Passport Photo (optional) */}
+          <Section title="Passport Photo (optional)">
+            <p className="text-xs text-gray-400 mb-3">Only required if you hold an international licence</p>
+            <PhotoUpload
+              preview={passportPreview}
+              inputId="passport-upload"
+              onChange={e => handleFileChange(e, 'passport')}
+              label="Upload passport photo page"
             />
           </Section>
 

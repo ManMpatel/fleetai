@@ -8,6 +8,8 @@ export interface IRenter extends Document {
   licenceNumber: string
   licencePhotoUrl?: string
   selfieUrl?: string
+  passportPhotoUrl?: string
+  passportNumber?: string
   vehicleType?: 'scooter' | 'car'
   status?: 'pending' | 'active' | 'inactive'
   ownerId?: string
@@ -68,8 +70,10 @@ const RenterSchema = new Schema<IRenter>(
     email:           { type: String },
     dateOfBirth:     { type: String },
     licenceNumber:   { type: String },
-    licencePhotoUrl: { type: String },
-    selfieUrl:       { type: String },
+    licencePhotoUrl:    { type: String },
+    selfieUrl:          { type: String },
+    passportPhotoUrl:   { type: String },
+    passportNumber:     { type: String },
     vehicleType:     { type: String, enum: ['scooter', 'car'] },
     status:          { type: String, enum: ['pending', 'active', 'inactive'], default: 'pending' },
     ownerId:         { type: String, index: true },
