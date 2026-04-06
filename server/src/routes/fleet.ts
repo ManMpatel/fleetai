@@ -111,4 +111,99 @@ router.delete('/:plate', async (req: Request, res: Response) => {
   }
 })
 
+// POST /api/fleet/:plate/assign
+router.post('/:plate/assign', async (req: Request, res: Response) => {
+  try {
+    const plate = req.params.plate.toUpperCase()
+    const { renterId } = req.body
+    if (!renterId) return res.status(400).json({ error: 'renterId is required' })
+
+    const vehicle = await Vehicle.findOne({ plate, ownerId: req.ownerEmail })
+    if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' })
+
+    const Renter = (await import('../models/Renter')).default
+    const renter = await Renter.findOne({ _id: renterId, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+
+    const now = new Date()
+
+    // If vehicle already assigned to someone else — close their history
+    if (vehicle.currentRenter && vehicle.currentRenter.toString() !== renterId) {
+      const oldRenter = await Renter.findById(vehicle.currentRenter)
+      if (oldRenter) {
+        const h = (oldRenter.rentalHistory as any[]).find(
+          e => e.vehicle?.toString() === (vehicle._id as any).toString() && !e.endDate
+        )
+        if (h) h.endDate = now
+        ;(oldRenter as any).currentVehicle = null
+        await oldRenter.save()
+      }
+    }
+
+    // If renter already has a different vehicle — close it
+    if ((renter as any).currentVehicle &&
+        (renter as any).currentVehicle.toString() !== (vehicle._id as any).toString()) {
+      const oldVehicle = await Vehicle.findById((renter as any).currentVehicle)
+      if (oldVehicle) {
+        const h = (renter.rentalHistory as any[]).find(
+          e => e.vehicle?.toString() === (oldVehicle._id as any).toString() && !e.endDate
+        )
+        if (h) h.endDate = now
+        ;(oldVehicle as any).currentRenter = null
+        ;(oldVehicle as any).status = 'available'
+        ;(oldVehicle as any).rentStartDate = null
+        await oldVehicle.save()
+      }
+    }
+
+    // Do the assignment
+    ;(vehicle as any).currentRenter = renter._id
+    ;(vehicle as any).status = 'rented'
+    ;(vehicle as any).rentStartDate = now
+    await vehicle.save()
+
+    ;(renter as any).currentVehicle = vehicle._id
+    ;(renter as any).rentStartDate = now
+    ;(renter.rentalHistory as any[]).push({ vehicle: vehicle._id, plate: vehicle.plate, startDate: now })
+    await renter.save()
+
+    res.json({ success: true, plate: vehicle.plate, renterName: renter.name })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/fleet/:plate/unassign
+router.post('/:plate/unassign', async (req: Request, res: Response) => {
+  try {
+    const plate = req.params.plate.toUpperCase()
+    const vehicle = await Vehicle.findOne({ plate, ownerId: req.ownerEmail })
+    if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' })
+
+    if (vehicle.currentRenter) {
+      const Renter = (await import('../models/Renter')).default
+      const renter = await Renter.findById(vehicle.currentRenter)
+      if (renter) {
+        const now = new Date()
+        const h = (renter.rentalHistory as any[]).find(
+          e => e.vehicle?.toString() === (vehicle._id as any).toString() && !e.endDate
+        )
+        if (h) h.endDate = now
+        ;(renter as any).currentVehicle = null
+        ;(renter as any).rentStartDate = null
+        await renter.save()
+      }
+    }
+
+    ;(vehicle as any).currentRenter = null
+    ;(vehicle as any).status = 'available'
+    ;(vehicle as any).rentStartDate = null
+    await vehicle.save()
+
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router
