@@ -18,8 +18,8 @@ async function getManagementToken() {
   const { data } = await axios.post(
     `https://${process.env.AUTH0_DOMAIN}/oauth/token`,
     {
-      client_id:     process.env.AUTH0_CLIENT_ID,
-      client_secret: process.env.AUTH0_CLIENT_SECRET,
+      client_id:     process.env.AUTH0_MGMT_CLIENT_ID,
+      client_secret: process.env.AUTH0_MGMT_CLIENT_SECRET,
       audience:      `https://${process.env.AUTH0_DOMAIN}/api/v2/`,
       grant_type:    'client_credentials'
     }
@@ -127,6 +127,72 @@ router.get('/logs', requireSuperAdmin, async (_req, res) => {
       }
     )
     res.json(data)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/admin/stats — MongoDB platform stats
+router.get('/stats', requireSuperAdmin, async (_req, res) => {
+  try {
+    const Renter  = (await import('../models/Renter')).default
+    const Vehicle = (await import('../models/Vehicle')).default
+    const ServiceRecord = (await import('../models/ServiceRecord')).default
+
+    const [totalOwners, approvedOwners, totalRenters, activeRenters,
+           pendingRenters, totalVehicles, rentedVehicles, totalServices] = await Promise.all([
+      Owner.countDocuments(),
+      Owner.countDocuments({ status: 'approved' }),
+      Renter.countDocuments(),
+      Renter.countDocuments({ status: 'active' }),
+      Renter.countDocuments({ status: 'pending' }),
+      Vehicle.countDocuments(),
+      Vehicle.countDocuments({ status: 'rented' }),
+      ServiceRecord.countDocuments(),
+    ])
+
+    // Per-owner breakdown
+    const owners = await Owner.find().sort({ createdAt: -1 })
+    const breakdown = await Promise.all(owners.map(async o => {
+      const [renters, vehicles, services] = await Promise.all([
+        Renter.countDocuments({ ownerId: o.email }),
+        Vehicle.countDocuments({ ownerId: o.email }),
+        ServiceRecord.countDocuments({ ownerId: o.email }),
+      ])
+      return { email: o.email, name: o.name, status: o.status, picture: o.picture, renters, vehicles, services, createdAt: o.createdAt }
+    }))
+
+    res.json({ totalOwners, approvedOwners, totalRenters, activeRenters,
+               pendingRenters, totalVehicles, rentedVehicles, totalServices, breakdown })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/admin/stats
+router.get('/stats', requireSuperAdmin, async (_req, res) => {
+  try {
+    const Renter = (await import('../models/Renter')).default
+    const Vehicle = (await import('../models/Vehicle')).default
+    const ServiceRecord = (await import('../models/ServiceRecord')).default
+    const owners = await Owner.find().sort({ createdAt: -1 })
+    const [totalRenters, activeRenters, pendingRenters, totalVehicles, rentedVehicles, totalServices] = await Promise.all([
+      Renter.countDocuments(),
+      Renter.countDocuments({ status: 'active' }),
+      Renter.countDocuments({ status: 'pending' }),
+      Vehicle.countDocuments(),
+      Vehicle.countDocuments({ status: 'rented' }),
+      ServiceRecord.countDocuments(),
+    ])
+    const breakdown = await Promise.all(owners.map(async o => {
+      const [renters, vehicles, services] = await Promise.all([
+        Renter.countDocuments({ ownerId: o.email }),
+        Vehicle.countDocuments({ ownerId: o.email }),
+        ServiceRecord.countDocuments({ ownerId: o.email }),
+      ])
+      return { email: o.email, name: o.name, status: o.status, picture: o.picture, renters, vehicles, services, createdAt: o.createdAt }
+    }))
+    res.json({ totalOwners: owners.length, approvedOwners: owners.filter(o => o.status === 'approved').length, totalRenters, activeRenters, pendingRenters, totalVehicles, rentedVehicles, totalServices, breakdown })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
