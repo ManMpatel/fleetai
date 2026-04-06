@@ -103,6 +103,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   const [assignLoading, setAssignLoading] = useState(false)
   const [vehicleServiceRecords, setVehicleServiceRecords] = useState<any[]>([])
   const [vehicleSvcLoading, setVehicleSvcLoading] = useState(false)
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
   const [personalForm, setPersonalForm] = useState({
     name: renter.name || '', email: renter.email || '',
@@ -276,6 +277,12 @@ function RenterDetail({ renter, onToast, onRefresh }: {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {lightbox && (
+        <div className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          <img src={lightbox} className="max-w-full max-h-full rounded-xl object-contain" onClick={e => e.stopPropagation()} />
+          <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl">✕</button>
+        </div>
+      )}
       {confirm.show && (
         <ConfirmModal
           title={
@@ -437,23 +444,45 @@ function RenterDetail({ renter, onToast, onRefresh }: {
             </div>
 
             {/* Photos */}
-            {(renter.licencePhotoUrl || (renter as any).selfieUrl) && (
+            {((renter as any).licencePhotoBase64 || (renter as any).selfieBase64 || (renter as any).passportPhotoBase64 || renter.licencePhotoUrl || (renter as any).selfieUrl) && (
               <div className="bg-surface border border-border rounded-xl p-4">
                 <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Identity Documents</h3>
                 <div className="flex gap-4">
-                  {renter.licencePhotoUrl && (
+                  {((renter as any).licencePhotoBase64 || renter.licencePhotoUrl) && (
                     <div className="flex-1">
                       <p className="text-xs text-text-muted mb-2">Driver's Licence</p>
-                      <img src={`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`} alt="Licence"
-                        onClick={() => window.open(`${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`, '_blank')}
+                      <img
+                        src={(renter as any).licencePhotoBase64
+                          ? `data:image/jpeg;base64,${(renter as any).licencePhotoBase64}`
+                          : `${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`}
+                        alt="Licence"
+                        onClick={() => setLightbox((renter as any).licencePhotoBase64
+                          ? `data:image/jpeg;base64,${(renter as any).licencePhotoBase64}`
+                          : `${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`)}
                         className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
                     </div>
                   )}
-                  {(renter as any).selfieUrl && (
+                  {((renter as any).selfieBase64 || (renter as any).selfieUrl) && (
                     <div className="flex-1">
                       <p className="text-xs text-text-muted mb-2">Selfie with Licence</p>
-                      <img src={`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`} alt="Selfie"
-                        onClick={() => window.open(`${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`, '_blank')}
+                      <img
+                        src={(renter as any).selfieBase64
+                          ? `data:image/jpeg;base64,${(renter as any).selfieBase64}`
+                          : `${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`}
+                        alt="Selfie"
+                        onClick={() => setLightbox((renter as any).selfieBase64
+                          ? `data:image/jpeg;base64,${(renter as any).selfieBase64}`
+                          : `${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`)}
+                        className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
+                    </div>
+                  )}
+                  {(renter as any).passportPhotoBase64 && (
+                    <div className="flex-1">
+                      <p className="text-xs text-text-muted mb-2">Passport</p>
+                      <img
+                        src={`data:image/jpeg;base64,${(renter as any).passportPhotoBase64}`}
+                        alt="Passport"
+                        onClick={() => setLightbox(`data:image/jpeg;base64,${(renter as any).passportPhotoBase64}`)}
                         className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
                     </div>
                   )}
@@ -1116,9 +1145,15 @@ export default function RentersPage() {
                       {(() => {
                         const toUrl = (u?: string) => !u ? null : u.startsWith('http') ? u : `${import.meta.env.VITE_API_URL}${u}`
                         return [
-                          { label: 'Licence', url: toUrl(pendingModal.licencePhotoUrl) },
-                          { label: 'Selfie', url: toUrl((pendingModal as any).selfieUrl) },
-                          { label: 'Passport', url: toUrl((pendingModal as any).passportPhotoUrl) },
+                          { label: 'Licence', url: (pendingModal as any).licencePhotoBase64
+                            ? `data:image/jpeg;base64,${(pendingModal as any).licencePhotoBase64}`
+                            : toUrl(pendingModal.licencePhotoUrl) },
+                          { label: 'Selfie', url: (pendingModal as any).selfieBase64
+                            ? `data:image/jpeg;base64,${(pendingModal as any).selfieBase64}`
+                            : toUrl((pendingModal as any).selfieUrl) },
+                          { label: 'Passport', url: (pendingModal as any).passportPhotoBase64
+                            ? `data:image/jpeg;base64,${(pendingModal as any).passportPhotoBase64}`
+                            : toUrl((pendingModal as any).passportPhotoUrl) },
                         ]
                       })().map(ph => (
                         <div key={ph.label}>
