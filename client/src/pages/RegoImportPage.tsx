@@ -15,6 +15,7 @@ interface RegoVehicle {
   notes?: string
   regoStatus: RegoStatus
   regoPhotoBase64?: string
+  currentRenter?: { name: string; phone: string } | null
 }
 
 interface ConfirmData {
@@ -292,7 +293,7 @@ export default function RegoImportPage() {
                   <table className="w-full text-sm border-t border-border">
                     <thead>
                       <tr className="bg-surface2 border-b border-border">
-                        {['Plate','Year','Rego expiry','Rego photo','Notes','Status',''].map(h => (
+                        {['Plate','Year','Rego expiry','Rego photo','Notes','Assigned To','Status',''].map(h => (
                           <th key={h} className="px-4 py-2.5 text-left text-xs text-text-muted font-medium uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
@@ -326,6 +327,16 @@ export default function RegoImportPage() {
                             </td>
                             <td className="px-4 py-3 max-w-[140px]">
                               <span className="text-xs text-text-muted truncate block">{v.notes || '—'}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {v.currentRenter ? (
+                                <div>
+                                  <p className="text-xs font-medium text-text-primary">{v.currentRenter.name}</p>
+                                  <p className="text-xs text-text-muted">{v.currentRenter.phone}</p>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-text-muted">—</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               <select
