@@ -127,7 +127,7 @@ export default function TabletPage() {
     setScreen('home'); setPin(''); setPinError(''); setEmployee(null)
     setSelfieBlob(null); setSelfiePreview(''); setSuccessMsg('')
     setServiceForm({
-      vehicleCategory: 'Rental Fleet', vehicleType: 'Scooter', plate: '',
+      vehicleCategory: 'rental', vehicleType: 'scooter', plate: '',
       customerName: '', customerPhone: '', serviceType: 'general',
       description: '', cost: '', notes: '',
     })
@@ -402,8 +402,8 @@ export default function TabletPage() {
                     onChange={e => setServiceForm(f => ({ ...f, vehicleCategory: e.target.value }))}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option>Rental Fleet</option>
-                    <option>Personal/Customer Vehicle</option>
+                    <option value="rental">Rental Fleet</option>
+                    <option value="personal">Personal</option>
                   </select>
                 </div>
                 <div>
