@@ -25,6 +25,8 @@ interface ServiceRecord {
   description?: string
   cost?: number
   date: string
+  status?: 'pending' | 'done'
+  completedAt?: string
 }
 
 function fmt(d: string) {
@@ -44,7 +46,8 @@ export default function StaffPage() {
   const [clockRecords, setClockRecords] = useState<ClockRecord[]>([])
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([])
   const [loading, setLoading]           = useState(true)
-  const [tab, setTab]                   = useState<'clock' | 'service'>('clock')
+  const [tab, setTab] = useState<'clock' | 'service'>('clock')
+  const [svcFilter, setSvcFilter] = useState<'all' | 'pending' | 'done'>('all')
 
   // form
   const [showForm, setShowForm]   = useState(false)
@@ -222,6 +225,16 @@ const [refreshing, setRefreshing] = useState(false)
               {t === 'clock' ? `Clock Log (${clockRecords.length})` : `Service Records (${serviceRecords.length})`}
             </button>
           ))}
+          {tab === 'service' && (
+            <div className="flex items-center gap-1 ml-2 py-2">
+              {(['all','pending','done'] as const).map(f => (
+                <button key={f} onClick={() => setSvcFilter(f)}
+                  className={`text-xs px-2.5 py-1 rounded-full capitalize transition-colors ${
+                    svcFilter === f ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary'
+                  }`}>{f}</button>
+              ))}
+            </div>
+          )}
           <div className="ml-auto flex items-center pr-3">
             <button
               onClick={() => fetchAll(true)}
@@ -286,54 +299,71 @@ const [refreshing, setRefreshing] = useState(false)
 
         {/* Service tab */}
         {tab === 'service' && (
-          serviceRecords.length === 0 ? (
-            <div className="py-12 text-center text-text-muted text-sm">No service records yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    {['Employee', 'Plate', 'Service', 'Customer', 'Cost', 'Date'].map(h => (
-                      <th key={h} className="px-5 py-3 text-left text-xs text-text-muted font-medium">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {serviceRecords.map(r => (
-                    <tr key={r._id} className="border-b border-border last:border-0 hover:bg-surface2">
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
-                            <span className="text-accent text-xs font-semibold">{(r.employeeName || '?').charAt(0).toUpperCase()}</span>
-                          </div>
-                          <span className="text-text-primary font-medium">{r.employeeName || '—'}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <span className="font-mono text-xs bg-surface2 border border-border px-2 py-0.5 rounded text-text-primary">
-                          {r.plate || '—'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3">
-                        <p className="text-text-primary capitalize">{r.serviceType}</p>
-                        {r.description && <p className="text-xs text-text-muted truncate max-w-[180px]">{r.description}</p>}
-                      </td>
-                      <td className="px-5 py-3">
-                        <p className="text-text-primary">{r.customerName || '—'}</p>
-                        {r.customerPhone && <p className="text-xs text-text-muted">{r.customerPhone}</p>}
-                      </td>
-                      <td className="px-5 py-3 text-text-primary font-medium">
-                        {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}
-                      </td>
-                      <td className="px-5 py-3 text-text-muted">{fmtDate(r.date)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div>
+            <div className="flex gap-2 px-5 py-2.5 border-b border-border">
+              {(['all','pending','done'] as const).map(f => (
+                <button key={f} onClick={() => setSvcFilter(f)}
+                  className={`text-xs px-3 py-1 rounded-full capitalize transition-colors border ${
+                    svcFilter === f ? 'bg-accent text-white border-accent' : 'border-border text-text-muted hover:text-text-primary'
+                  }`}>
+                  {f} ({f === 'pending' ? serviceRecords.filter(r => !r.status || r.status === 'pending').length : f === 'done' ? serviceRecords.filter(r => r.status === 'done').length : serviceRecords.length})
+                </button>
+              ))}
             </div>
-          )
+            {(() => {
+              const filtered = serviceRecords.filter(r => svcFilter === 'all' || (svcFilter === 'pending' ? (!r.status || r.status === 'pending') : r.status === svcFilter))
+              return filtered.length === 0 ? (
+                <div className="py-12 text-center text-text-muted text-sm">No service records found.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        {['Employee', 'Plate', 'Service', 'Customer', 'Cost', 'Status', 'Date'].map(h => (
+                          <th key={h} className="px-5 py-3 text-left text-xs text-text-muted font-medium">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(r => (
+                        <tr key={r._id} className="border-b border-border last:border-0 hover:bg-surface2">
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
+                                <span className="text-accent text-xs font-semibold">{(r.employeeName || '?').charAt(0).toUpperCase()}</span>
+                              </div>
+                              <span className="text-text-primary font-medium">{r.employeeName || '—'}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3">
+                            <span className="font-mono text-xs bg-surface2 border border-border px-2 py-0.5 rounded text-text-primary">{r.plate || '—'}</span>
+                          </td>
+                          <td className="px-5 py-3">
+                            <p className="text-text-primary capitalize">{r.serviceType}</p>
+                            {r.description && <p className="text-xs text-text-muted truncate max-w-[180px]">{r.description}</p>}
+                          </td>
+                          <td className="px-5 py-3">
+                            <p className="text-text-primary">{r.customerName || '—'}</p>
+                            {r.customerPhone && <p className="text-xs text-text-muted">{r.customerPhone}</p>}
+                          </td>
+                          <td className="px-5 py-3 text-text-primary font-medium">
+                            {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}
+                          </td>
+                          <td className="px-5 py-3">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${(!r.status || r.status === 'pending') ? 'bg-amber-500/10 text-amber-500' : 'bg-green-500/10 text-green-500'}`}>
+                              {r.status || 'pending'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 text-text-muted">{fmtDate(r.date)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+          </div>
         )}
-      </div>
 
       {/* Add/Edit modal */}
       {showForm && (
@@ -388,5 +418,7 @@ const [refreshing, setRefreshing] = useState(false)
         </div>
       )}
     </div>
-  )
+    </div>
+)
+
 }
