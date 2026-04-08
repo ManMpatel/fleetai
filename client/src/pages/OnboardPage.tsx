@@ -2,9 +2,28 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import axios from 'axios'
 
+async function compressToBase64(file: File, maxWidth: number, quality: number): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1]
+      URL.revokeObjectURL(url)
+      resolve(base64)
+    }
+    img.src = url
+  })
+}
+
 export default function OnboardPage() {
   
   const [submitted, setSubmitted] = useState(false)
+  const [termsAccepted, setTermsAccepted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [licenceFile, setLicenceFile] = useState<File | null>(null)
@@ -78,27 +97,21 @@ export default function OnboardPage() {
     reader.readAsDataURL(file)
   }
 
-  async function uploadFile(file: File): Promise<string> {
-    const formData = new FormData()
-    formData.append('file', file)
-    const res = await axios.post('/api/upload/document', formData)
-    return res.data.url
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!licenceFile) { setError('Please upload your licence photo'); return }
     if (!selfieFile) { setError('Please upload a selfie photo'); return }
+    if (!termsAccepted) { setError('Please accept the terms and conditions to proceed'); return }
     setSubmitting(true)
     setError('')
 
     try {
-      const uploadResults = await Promise.all([
-        uploadFile(licenceFile),
-        uploadFile(selfieFile),
-        ...(passportFile ? [uploadFile(passportFile)] : []),
+      // Compress all photos to base64 — no S3, stored directly in MongoDB
+      const [licencePhotoBase64, selfieBase64, passportPhotoBase64] = await Promise.all([
+        compressToBase64(licenceFile, 1200, 0.8),
+        compressToBase64(selfieFile, 800, 0.7),
+        ...(passportFile ? [compressToBase64(passportFile, 1200, 0.8)] : [Promise.resolve(undefined)]),
       ])
-      const [licencePhotoUrl, selfieUrl, passportPhotoUrl] = uploadResults
 
       await axios.post('/api/renters', {
         name: `${form.firstName} ${form.lastName}`,
@@ -108,9 +121,9 @@ export default function OnboardPage() {
         dateOfBirth: form.dateOfBirth,
         licenceNumber: form.licenceNumber,
         passportNumber: form.passportNumber || undefined,
-        licencePhotoUrl,
-        selfieUrl,
-        ...(passportPhotoUrl ? { passportPhotoUrl } : {}),
+        licencePhotoBase64,
+        selfieBase64,
+        ...(passportPhotoBase64 ? { passportPhotoBase64 } : {}),
         vehicleType: form.vehicleType,
         status: 'pending',
         address: {
@@ -274,13 +287,36 @@ export default function OnboardPage() {
             <Field label="Contact Phone *" name="emergencyContactPhone" type="tel" value={form.emergencyContactPhone} onChange={handleChange} required />
           </Section>
 
+          {/* Terms & Conditions */}
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-3">Privacy & Terms</h3>
+            <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+              Your driver's licence and passport photos are collected solely to verify your identity for rental purposes. 
+              Photos are stored securely and encrypted. They will be permanently deleted once your rental has ended and 
+              30 days have passed with no outstanding fines on your rental vehicle. Your personal details are retained 
+              for record-keeping as required by Australian law. You may request access to or deletion of your information 
+              at any time.
+            </p>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={e => setTermsAccepted(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span className="text-xs text-gray-700">
+                I have read and agree to the above privacy policy and consent to the collection and storage of my identity documents for rental verification purposes.
+              </span>
+            </label>
+          </div>
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>
           )}
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || !termsAccepted}
             className="w-full bg-indigo-600 text-white font-semibold py-4 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors text-base"
           >
             {submitting ? 'Submitting...' : 'Submit My Details'}

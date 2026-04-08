@@ -139,4 +139,53 @@ router.post('/log-service', async (req: Request, res: Response) => {
   }
 })
 
+// GET /api/employees/service-records — tablet fetches service records by ownerId + date
+router.get('/service-records', async (req: Request, res: Response) => {
+  try {
+    const { ownerId, date } = req.query
+    if (!ownerId) return res.status(400).json({ error: 'ownerId required' })
+
+    const ServiceRecord = (await import('../models/ServiceRecord')).default
+    const filter: any = { ownerId }
+
+    if (date) {
+      const d = new Date(date as string)
+      const start = new Date(d); start.setHours(0,0,0,0)
+      const end = new Date(d); end.setHours(23,59,59,999)
+      filter.date = { $gte: start, $lte: end }
+    } else {
+      const start = new Date(); start.setHours(0,0,0,0)
+      const end = new Date(); end.setHours(23,59,59,999)
+      filter.date = { $gte: start, $lte: end }
+    }
+
+    const records = await ServiceRecord.find(filter).sort({ date: -1 })
+    res.json(records)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/employees/service-records/:id — tablet marks as done or edits
+router.patch('/service-records/:id', async (req: Request, res: Response) => {
+  try {
+    const { ownerId, ...updates } = req.body
+    if (!ownerId) return res.status(400).json({ error: 'ownerId required' })
+
+    const ServiceRecord = (await import('../models/ServiceRecord')).default
+
+    if (updates.status === 'done') updates.completedAt = new Date()
+
+    const record = await ServiceRecord.findOneAndUpdate(
+      { _id: req.params.id, ownerId },
+      { $set: updates },
+      { new: true }
+    )
+    if (!record) return res.status(404).json({ error: 'Record not found' })
+    res.json(record)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router

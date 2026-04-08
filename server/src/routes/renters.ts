@@ -110,7 +110,8 @@ router.post('/', async (req: Request, res: Response) => {
     const allowed = ['name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'vehicleType',
       'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
       'emergencyContactName', 'emergencyContactPhone', 'licencePhotoUrl', 'selfieUrl',
-      'passportPhotoUrl', 'passportNumber', 'ownerId', 'status']
+      'passportPhotoUrl', 'passportNumber', 'licencePhotoBase64', 'selfieBase64',
+      'passportPhotoBase64', 'ownerId', 'status']
     Object.keys(body).forEach(k => { if (!allowed.includes(k)) delete body[k] })
 
     // Encrypt bank details
@@ -471,23 +472,17 @@ router.post('/:phone/ai-verify', async (req: Request, res: Response) => {
     const phone = decodeURIComponent(req.params.phone)
     const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
-    if (!renter.licencePhotoUrl) return res.status(400).json({ error: 'No licence photo uploaded' })
+    const licenceB64 = (renter as any).licencePhotoBase64 || null
+    const passportB64 = (renter as any).passportPhotoBase64 || null
+
+    if (!licenceB64) return res.status(400).json({ error: 'No licence photo uploaded' })
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
-    const fetchBase64 = async (url: string) => {
-      const r = await axios.get(url, { responseType: 'arraybuffer' })
-      return {
-        data: Buffer.from(r.data).toString('base64'),
-        mimeType: (r.headers['content-type'] as string) || 'image/jpeg',
-      }
-    }
-
-    const licImg = await fetchBase64(renter.licencePhotoUrl)
-    const passportUrl = (renter as any).passportPhotoUrl
-    const passImg = passportUrl ? await fetchBase64(passportUrl) : null
+    const licImg = { data: licenceB64, mimeType: 'image/jpeg' }
+    const passImg = passportB64 ? { data: passportB64, mimeType: 'image/jpeg' } : null
 
     const parts: any[] = [{ inlineData: licImg }]
     if (passImg) parts.push({ inlineData: passImg })

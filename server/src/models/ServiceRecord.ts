@@ -13,6 +13,8 @@ export interface IServiceRecord extends Document {
   customerName?: string
   customerPhone?: string
   ownerId?: string
+  status?: 'pending' | 'done'
+  completedAt?: Date
 }
 
 const ServiceRecordSchema = new Schema<IServiceRecord>(
@@ -29,6 +31,8 @@ const ServiceRecordSchema = new Schema<IServiceRecord>(
     customerName:    { type: String },
     customerPhone:   { type: String },
     ownerId:         { type: String, index: true },
+    status:          { type: String, enum: ['pending', 'done'], default: 'pending' },
+    completedAt:     { type: Date },
   },
   { timestamps: true }
 )
