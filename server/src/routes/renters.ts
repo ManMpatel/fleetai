@@ -3,7 +3,7 @@ import Renter from '../models/Renter'
 import Vehicle from '../models/Vehicle'
 import Fine from '../models/Fine'
 import Notification from '../models/Notification'
-import { encrypt, decrypt } from '../services/encryption'
+import { encrypt, decrypt, hash } from '../services/encryption'
 import { requireOwner } from '../middleware/ownerAuth'
 import axios from 'axios'
 import {
@@ -70,6 +70,10 @@ router.get('/', async (req: Request, res: Response) => {
 
     const decrypted = renters.map(r => {
       const obj = r.toObject() as any
+      if (obj.licenceNumber)    obj.licenceNumber    = decrypt(obj.licenceNumber)
+      if (obj.passportNumber)   obj.passportNumber   = decrypt(obj.passportNumber)
+      if (obj.dateOfBirth)      obj.dateOfBirth      = decrypt(obj.dateOfBirth)
+      if (obj.bankName)         obj.bankName         = decrypt(obj.bankName)
       if (obj.bsbNumber)        obj.bsbNumber        = decrypt(obj.bsbNumber)
       if (obj.accountNumber)    obj.accountNumber    = decrypt(obj.accountNumber)
       if (obj.accountHolderName) obj.accountHolderName = decrypt(obj.accountHolderName)
@@ -107,14 +111,17 @@ router.post('/', async (req: Request, res: Response) => {
     const body = { ...req.body }
 
     // Whitelist allowed fields — strip anything unexpected
-    const allowed = ['name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'vehicleType',
-      'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
+    const allowed = ['name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'passportNumber',
+      'vehicleType', 'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
       'emergencyContactName', 'emergencyContactPhone', 'licencePhotoUrl', 'selfieUrl',
-      'passportPhotoUrl', 'passportNumber', 'licencePhotoBase64', 'selfieBase64',
-      'passportPhotoBase64', 'ownerId', 'status']
+      'ownerId', 'status']
     Object.keys(body).forEach(k => { if (!allowed.includes(k)) delete body[k] })
 
-    // Encrypt bank details
+    // Encrypt sensitive fields
+    if (body.licenceNumber) { body.licenceNumberHash = hash(body.licenceNumber); body.licenceNumber = encrypt(body.licenceNumber) }
+    if (body.passportNumber) { body.passportNumberHash = hash(body.passportNumber); body.passportNumber = encrypt(body.passportNumber) }
+    if (body.dateOfBirth) body.dateOfBirth = encrypt(body.dateOfBirth)
+    if (body.bankName) body.bankName = encrypt(body.bankName)
     if (body.bsbNumber) body.bsbNumber = encrypt(body.bsbNumber)
     if (body.accountNumber) body.accountNumber = encrypt(body.accountNumber)
     if (body.accountHolderName) body.accountHolderName = encrypt(body.accountHolderName)
@@ -136,6 +143,10 @@ router.put('/:phone', async (req: Request, res: Response) => {
     const phone = decodeURIComponent(req.params.phone)
     const body  = { ...req.body }
 
+    if (body.licenceNumber) { body.licenceNumberHash = hash(body.licenceNumber); body.licenceNumber = encrypt(body.licenceNumber) }
+    if (body.passportNumber) { body.passportNumberHash = hash(body.passportNumber); body.passportNumber = encrypt(body.passportNumber) }
+    if (body.dateOfBirth) body.dateOfBirth = encrypt(body.dateOfBirth)
+    if (body.bankName) body.bankName = encrypt(body.bankName)
     if (body.bsbNumber)        body.bsbNumber        = encrypt(body.bsbNumber)
     if (body.accountNumber)    body.accountNumber    = encrypt(body.accountNumber)
     if (body.accountHolderName) body.accountHolderName = encrypt(body.accountHolderName)
@@ -310,7 +321,7 @@ router.get('/:phone/verify', async (req: Request, res: Response) => {
 
     // Age 18+
     if (renter.dateOfBirth) {
-      const dob = new Date(renter.dateOfBirth)
+      const dob = new Date(decrypt(renter.dateOfBirth))
       const age = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000))
       checks.push(age >= 18
         ? { label: 'Age check', status: 'pass', detail: `${age} years old — over 18` }
@@ -322,7 +333,7 @@ router.get('/:phone/verify', async (req: Request, res: Response) => {
     // Licence number unique
     if (renter.licenceNumber) {
       const dupLicence = await Renter.findOne({
-        licenceNumber: renter.licenceNumber,
+        licenceNumberHash: hash(decrypt(renter.licenceNumber)),
         _id: { $ne: renter._id },
         ownerId: req.ownerEmail
       })

@@ -6,6 +6,8 @@ export interface IRenter extends Document {
   email: string
   dateOfBirth?: string
   licenceNumber: string
+  licenceNumberHash?: string
+  passportNumberHash?: string
   licencePhotoUrl?: string
   selfieUrl?: string
   passportPhotoUrl?: string
@@ -72,11 +74,13 @@ const RenterSchema = new Schema<IRenter>(
     phone:           { type: String, required: true, unique: true, trim: true },
     email:           { type: String },
     dateOfBirth:     { type: String },
-    licenceNumber:   { type: String },
-    licencePhotoUrl:      { type: String },
+    licenceNumber:      { type: String },
+    licenceNumberHash:  { type: String },
+    passportNumber:     { type: String },
+    passportNumberHash: { type: String },
+    licencePhotoUrl: { type: String },
     selfieUrl:            { type: String },
     passportPhotoUrl:     { type: String },
-    passportNumber:       { type: String },
     licencePhotoBase64:   { type: String },
     selfieBase64:         { type: String },
     passportPhotoBase64:  { type: String },

@@ -28,3 +28,9 @@ export function decrypt(text: string): string {
     return text // return as-is if decryption fails
   }
 }
+
+// Deterministic HMAC hash — used for DB duplicate lookups on encrypted fields
+export function hash(text: string): string {
+  if (!text) return ''
+  return crypto.createHmac('sha256', KEY).update(text.toLowerCase().trim()).digest('hex')
+}
