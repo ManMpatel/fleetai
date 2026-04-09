@@ -75,6 +75,8 @@ export default function RegoImportPage() {
   const [toast, setToast] = useState('')
   const [editVehicle, setEditVehicle] = useState<RegoVehicle | null>(null)
   const [editYear, setEditYear] = useState('')
+  const [showManual, setShowManual] = useState(false)
+  const [manual, setManual] = useState({ plate: '', year: '', regoExpiry: '', notes: '' })
   const [photoModal, setPhotoModal] = useState<string | null>(null)
 
   function showToast(msg: string) {
@@ -228,6 +230,16 @@ export default function RegoImportPage() {
           <h1 className="text-xl font-bold text-text-primary">Rego management</h1>
           <p className="text-text-muted text-sm mt-0.5">Scan a rego photo — Gemini extracts details, photo stored in database</p>
         </div>
+        <div className="flex items-center gap-3">
+        <button
+          onClick={() => { setManual({ plate: '', year: '', regoExpiry: '', notes: '' }); setShowManual(true) }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-surface border border-border text-text-primary rounded-xl text-sm font-medium hover:border-accent transition-colors"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add Manual
+        </button>
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={scanning}
@@ -239,6 +251,7 @@ export default function RegoImportPage() {
           </svg>
           {scanning ? 'Scanning...' : 'Scan rego photo'}
         </button>
+        </div>
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
       </div>
 
@@ -366,6 +379,75 @@ export default function RegoImportPage() {
           })
         )}
       </div>
+
+      {/* Manual entry modal */}
+      {showManual && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4">
+          <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h2 className="text-base font-semibold text-text-primary mb-1">Add rego manually</h2>
+            <p className="text-text-muted text-xs mb-5">Enter the rego details by hand.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Plate number *</label>
+                <input value={manual.plate} onChange={e => setManual(p => ({ ...p, plate: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. ABC123"
+                  className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary font-mono focus:outline-none focus:border-accent" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Year</label>
+                  <input value={manual.year} onChange={e => setManual(p => ({ ...p, year: e.target.value }))}
+                    placeholder="e.g. 2022"
+                    className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Rego expiry *</label>
+                  <input type="date" value={manual.regoExpiry} onChange={e => setManual(p => ({ ...p, regoExpiry: e.target.value }))}
+                    className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Notes (optional)</label>
+                <input value={manual.notes} onChange={e => setManual(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Any notes..."
+                  className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowManual(false)}
+                className="flex-1 py-2.5 border border-border rounded-xl text-sm text-text-secondary hover:border-accent transition-colors">
+                Cancel
+              </button>
+              <button
+                disabled={saving}
+                onClick={async () => {
+                  if (!manual.plate || !manual.regoExpiry) { showToast('❌ Plate and expiry required'); return }
+                  setSaving(true)
+                  try {
+                    await axios.post(`${API}/api/fleet`, {
+                      plate: manual.plate.toUpperCase(),
+                      model: 'Unknown',
+                      year: parseInt(manual.year) || new Date().getFullYear(),
+                      type: 'scooter',
+                      regoExpiry: manual.regoExpiry,
+                      notes: manual.notes,
+                      regoStatus: 'in_stock',
+                    }, { headers: { 'x-owner-email': user?.email || '' } })
+                    showToast(`✅ ${manual.plate.toUpperCase()} saved`)
+                    setShowManual(false)
+                    fetchVehicles()
+                  } catch (err: any) {
+                    showToast(`❌ ${err.response?.data?.error || 'Failed to save'}`)
+                  }
+                  setSaving(false)
+                }}
+                className="flex-1 py-2.5 bg-accent text-white rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
+                {saving ? 'Saving...' : 'Save to dashboard'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Photo viewer modal */}
       {photoModal && (
