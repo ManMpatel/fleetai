@@ -165,7 +165,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
           .finally(() => setPaymentsLoading(false))
       }
       // Fetch service records for current vehicle
-     
+      
     }
   }, [tab])
 
