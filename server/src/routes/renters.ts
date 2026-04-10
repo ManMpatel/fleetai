@@ -113,8 +113,8 @@ router.post('/', async (req: Request, res: Response) => {
     // Whitelist allowed fields — strip anything unexpected
     const allowed = ['name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'passportNumber',
       'vehicleType', 'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
-      'emergencyContactName', 'emergencyContactPhone', 'licencePhotoUrl', 'selfieUrl',
-      'ownerId', 'status']
+      'emergencyContactName', 'emergencyContactPhone', 'licencePhotoBase64', 'selfieBase64',
+      'passportPhotoBase64', 'ownerId', 'status']
     Object.keys(body).forEach(k => { if (!allowed.includes(k)) delete body[k] })
 
     // Encrypt sensitive fields
