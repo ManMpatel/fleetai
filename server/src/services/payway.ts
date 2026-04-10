@@ -135,7 +135,7 @@ export async function setupWeeklyDebit(
     }
 
     const params = new URLSearchParams({
-      frequency: 'weekly',
+      frequency: 'WEEKLY',
       nextPaymentDate: nextDate.toISOString().slice(0, 10),
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
@@ -168,15 +168,9 @@ export async function pauseDebit(
 
   try {
     // PayWay doesn't have a "pause" — we set next payment far in future
-    const farFuture = new Date()
-    farFuture.setFullYear(farFuture.getFullYear() + 1)
-    farFuture.setDate(farFuture.getDate() - 1)
-    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-    const formattedDate = `${String(farFuture.getDate()).padStart(2,'0')} ${MONTHS[farFuture.getMonth()]} ${farFuture.getFullYear()}`
-
     const params = new URLSearchParams({
-      frequency: 'weekly',
-      nextPaymentDate: formattedDate,
+      frequency: 'WEEKLY',
+      nextPaymentDate: '2099-12-31',
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
     })
@@ -207,12 +201,10 @@ export async function resumeDebit(
   try {
     const nextDate = new Date()
     nextDate.setDate(nextDate.getDate() + 7)
-    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-    const formattedDate = `${String(nextDate.getDate()).padStart(2,'0')} ${MONTHS[nextDate.getMonth()]} ${nextDate.getFullYear()}`
 
     const params = new URLSearchParams({
-      frequency: 'weekly',
-      nextPaymentDate: formattedDate,
+      frequency: 'WEEKLY',
+      nextPaymentDate: nextDate.toISOString().slice(0, 10),
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
     })

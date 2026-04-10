@@ -8,11 +8,12 @@ import ChatPage from './pages/ChatPage'
 import RentersPage from './pages/RentersPage'
 import OnboardPage from './pages/OnboardPage'
 import AdminPage from './pages/AdminPage'
-import StaffPage from './pages/StaffPage'
 import SearchPage from './pages/SearchPage'
 import RegoImportPage from './pages/RegoImportPage'
 import { useAuth0 } from '@auth0/auth0-react'
 import TabletPage from './pages/TabletPage'
+import StaffPage from './pages/StaffPage'
+
 
 function LoginPage() {
   const { loginWithRedirect } = useAuth0()
@@ -160,6 +161,19 @@ export default function App() {
 
   if (!isAuthenticated) return <LoginPage />
 
+  useEffect(() => {
+    if (ownerStatus !== 'pending') return
+    const interval = setInterval(async () => {
+      try {
+        const res = await axios.post('/api/auth/register', {
+          email: user?.email, name: user?.name,
+          picture: user?.picture, auth0Id: user?.sub
+        })
+        if (res.data.status === 'approved') setOwnerStatus('approved')
+      } catch {}
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [ownerStatus, user])
   if (ownerStatus === 'checking') return (
     <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: '#3b82f6', fontSize: 14 }}>Checking access...</div>

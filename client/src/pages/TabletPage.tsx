@@ -73,7 +73,7 @@ export default function TabletPage() {
   const [serviceForm, setServiceForm] = useState({
     vehicleCategory: 'rental', vehicleType: 'scooter', plate: '',
     customerName: '', customerPhone: '', serviceType: 'general',
-    description: '', cost: '', notes: '',
+    description: '', kilometres: '',
   })
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -90,11 +90,10 @@ export default function TabletPage() {
     }
   }, [])
 
-  const fetchRecords = useCallback(async (dateStr?: string) => {
+  const fetchRecords = useCallback(async (dateParams?: { date?: string; from?: string; to?: string }) => {
     if (!ownerId) return
     try {
-      const params: any = { ownerId }
-      if (dateStr) params.date = dateStr
+      const params: any = { ownerId, ...dateParams }
       const { data } = await axios.get(`${API}/api/employees/service-records`, { params })
       setAllRecords(data || [])
     } catch { console.error('Failed to fetch records') }
@@ -109,19 +108,22 @@ export default function TabletPage() {
 
   useEffect(() => {
     if (navPage !== 'services') return
-    const d = getDateForFilter()
-    fetchRecords(d || undefined)
+    fetchRecords(getDateParams())
   }, [navPage, dateFilter, customDate])
 
-  function getDateForFilter() {
-    if (dateFilter === 'today') return new Date().toISOString().split('T')[0]
+  function getDateParams(): { date?: string; from?: string; to?: string } {
+    const today = new Date().toISOString().split('T')[0]
+    if (dateFilter === 'today') return { date: today }
     if (dateFilter === 'yesterday') {
       const y = new Date(); y.setDate(y.getDate() - 1)
-      return y.toISOString().split('T')[0]
+      return { date: y.toISOString().split('T')[0] }
     }
-    if (dateFilter === 'week') return undefined
-    if (dateFilter === 'custom' && customDate) return customDate
-    return new Date().toISOString().split('T')[0]
+    if (dateFilter === 'week') {
+      const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7)
+      return { from: weekAgo.toISOString().split('T')[0], to: today }
+    }
+    if (dateFilter === 'custom' && customDate) return { date: customDate }
+    return { date: today }
   }
 
   useEffect(() => {
@@ -149,7 +151,7 @@ export default function TabletPage() {
   function goHome() {
     setScreen('home'); setPin(''); setPinError(''); setEmployee(null)
     setSelfieBlob(null); setSelfiePreview(''); setSuccessMsg(''); setSubmitAttempted(false)
-    setServiceForm({ vehicleCategory: 'rental', vehicleType: 'scooter', plate: '', customerName: '', customerPhone: '', serviceType: 'general', description: '', cost: '', notes: '' })
+    setServiceForm({ vehicleCategory: 'rental', vehicleType: 'scooter', plate: '', customerName: '', customerPhone: '', serviceType: 'general', description: '', kilometres: '' })
     if (countdownRef.current) clearTimeout(countdownRef.current)
   }
   function showSuccess(msg: string, record?: ServiceRecord) {
@@ -465,10 +467,7 @@ export default function TabletPage() {
                       className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none resize-none focus:border-indigo-500 ${T.input} ${submitAttempted && !serviceForm.description ? 'border-red-500' : ''}`} />
                     {submitAttempted && !serviceForm.description && <p className="text-red-400 text-xs mt-1">Required</p>}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <TField label="Cost ($)" value={serviceForm.cost} T={T} type="number" onChange={v => setServiceForm(f => ({ ...f, cost: v }))} placeholder="0.00" />
-                    <TField label="Notes (optional)" value={serviceForm.notes} T={T} onChange={v => setServiceForm(f => ({ ...f, notes: v }))} />
-                  </div>
+                  <TField label="Kilometres (km)" value={serviceForm.kilometres} T={T} type="number" onChange={v => setServiceForm(f => ({ ...f, kilometres: v }))} placeholder="0" />
                 </div>
                 <button onClick={submitService} disabled={submitting}
                   className="w-full mt-6 py-4 bg-indigo-500 text-white rounded-2xl font-semibold text-lg disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all">

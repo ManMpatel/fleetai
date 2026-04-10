@@ -117,7 +117,6 @@ mongoose
       console.log(`🚀 FleetAI server running on http://localhost:${PORT}`)
       console.log(`   Gemini:  ${process.env.GEMINI_API_KEY !== 'your_key_here' ? '✅' : '❌ not configured'}`)
       console.log(`   Gmail:   ${process.env.GMAIL_CLIENT_ID ? '✅' : '❌ not configured'}`)
-      console.log(`   Twilio:  ${process.env.TWILIO_SID ? '✅' : '❌ not configured'}`)
     })
 
     // ── Cron jobs ─────────────────────────────────────────

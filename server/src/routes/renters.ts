@@ -206,8 +206,9 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
 
     const created = await createPayWayCustomer({
       phone: renter.phone, name: renter.name, email: renter.email,
-      bsbNumber: renter.bsbNumber, accountNumber: renter.accountNumber,
-      accountHolderName: renter.accountHolderName,
+      bsbNumber: renter.bsbNumber ? decrypt(renter.bsbNumber) : undefined,
+      accountNumber: renter.accountNumber ? decrypt(renter.accountNumber) : undefined,
+      accountHolderName: renter.accountHolderName ? decrypt(renter.accountHolderName) : undefined,
     })
 
     if (!created.success) return res.status(500).json({ error: 'Failed to create PayWay customer' })

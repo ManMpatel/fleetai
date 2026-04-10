@@ -311,7 +311,7 @@ export default function OnboardPage() {
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>
+            <div className="bg-red-50 border border-red-400 text-red-700 text-sm rounded-lg px-4 py-3 font-medium">{error}</div>
           )}
 
           <button
@@ -378,8 +378,8 @@ function PhotoUpload({ preview, inputId, onChange, label, capture }: {
       )}
       <input
         id={inputId} type="file"
-        accept="image/*,application/pdf"
-        capture={capture || 'environment'}
+        accept="image/*"
+        {...(capture ? { capture } : {})}
         onChange={onChange}
         className="hidden"
       />

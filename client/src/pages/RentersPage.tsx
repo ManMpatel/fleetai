@@ -442,53 +442,6 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                 </div>
               </div>
             </div>
-
-            {/* Photos */}
-            {((renter as any).licencePhotoBase64 || (renter as any).selfieBase64 || (renter as any).passportPhotoBase64 || renter.licencePhotoUrl || (renter as any).selfieUrl) && (
-              <div className="bg-surface border border-border rounded-xl p-4">
-                <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Identity Documents</h3>
-                <div className="flex gap-4">
-                  {((renter as any).licencePhotoBase64 || renter.licencePhotoUrl) && (
-                    <div className="flex-1">
-                      <p className="text-xs text-text-muted mb-2">Driver's Licence</p>
-                      <img
-                        src={(renter as any).licencePhotoBase64
-                          ? `data:image/jpeg;base64,${(renter as any).licencePhotoBase64}`
-                          : `${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`}
-                        alt="Licence"
-                        onClick={() => setLightbox((renter as any).licencePhotoBase64
-                          ? `data:image/jpeg;base64,${(renter as any).licencePhotoBase64}`
-                          : `${import.meta.env.VITE_API_URL}${renter.licencePhotoUrl}`)}
-                        className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
-                    </div>
-                  )}
-                  {((renter as any).selfieBase64 || (renter as any).selfieUrl) && (
-                    <div className="flex-1">
-                      <p className="text-xs text-text-muted mb-2">Selfie with Licence</p>
-                      <img
-                        src={(renter as any).selfieBase64
-                          ? `data:image/jpeg;base64,${(renter as any).selfieBase64}`
-                          : `${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`}
-                        alt="Selfie"
-                        onClick={() => setLightbox((renter as any).selfieBase64
-                          ? `data:image/jpeg;base64,${(renter as any).selfieBase64}`
-                          : `${import.meta.env.VITE_API_URL}${(renter as any).selfieUrl}`)}
-                        className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
-                    </div>
-                  )}
-                  {(renter as any).passportPhotoBase64 && (
-                    <div className="flex-1">
-                      <p className="text-xs text-text-muted mb-2">Passport</p>
-                      <img
-                        src={`data:image/jpeg;base64,${(renter as any).passportPhotoBase64}`}
-                        alt="Passport"
-                        onClick={() => setLightbox(`data:image/jpeg;base64,${(renter as any).passportPhotoBase64}`)}
-                        className="w-full max-h-40 object-contain rounded-lg border border-border cursor-pointer hover:opacity-80" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -845,63 +798,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                 )}
               </div>
 
-              {/* Service History */}
-              {(renter.currentVehicle as any)?.plate && (
-                <div className="bg-surface border border-border rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                      Service History — <span className="text-accent font-mono">{(renter.currentVehicle as any).plate}</span>
-                    </h3>
-                    <button onClick={() => setShowAddService(!showAddService)} className="text-xs text-accent hover:underline">+ Add</button>
-                  </div>
-
-                  {showAddService && (
-                    <div className="bg-surface2 border border-border rounded-lg p-3 mb-3 space-y-2">
-                      <select value={serviceForm.serviceType} onChange={e => setServiceForm(f => ({ ...f, serviceType: e.target.value }))}
-                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary">
-                        <option value="oil_change">Oil Change</option>
-                        <option value="tyres">Tyres</option>
-                        <option value="brakes">Brakes</option>
-                        <option value="general">General</option>
-                        <option value="other">Other</option>
-                      </select>
-                      <input placeholder="Description *" value={serviceForm.description} onChange={e => setServiceForm(f => ({ ...f, description: e.target.value }))}
-                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted" />
-                      <input placeholder="Cost ($)" type="number" value={serviceForm.cost} onChange={e => setServiceForm(f => ({ ...f, cost: e.target.value }))}
-                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted" />
-                      <input placeholder="Notes (optional)" value={serviceForm.notes} onChange={e => setServiceForm(f => ({ ...f, notes: e.target.value }))}
-                        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted" />
-                      <div className="flex gap-2">
-                        <button onClick={handleAddService} className="flex-1 py-2 bg-accent text-white rounded-lg text-xs font-medium">Save</button>
-                        <button onClick={() => setShowAddService(false)} className="flex-1 py-2 bg-surface border border-border rounded-lg text-xs text-text-muted">Cancel</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {serviceLoading ? (
-                    <p className="text-sm text-text-muted text-center py-3">Loading...</p>
-                  ) : serviceRecords.length === 0 ? (
-                    <p className="text-sm text-text-muted text-center py-3">No service records yet</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {serviceRecords.map((s, i) => (
-                        <div key={i} className="border border-border rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-semibold text-text-primary capitalize">{s.serviceType.replace('_', ' ')}</span>
-                            <div className="flex items-center gap-2">
-                              {s.cost && <span className="text-xs font-semibold text-green">${s.cost}</span>}
-                              <span className="text-xs text-text-muted">{new Date(s.date).toLocaleDateString('en-AU')}</span>
-                            </div>
-                          </div>
-                          <p className="text-xs text-text-secondary">{s.description}</p>
-                          {s.notes && <p className="text-xs text-text-muted mt-1">{s.notes}</p>}
-                          {s.employeeName && <p className="text-xs text-text-muted mt-1">By: {s.employeeName}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+             
 
               {(renter.rentalHistory?.length ?? 0) > 0 && (
                 <div className="bg-surface border border-border rounded-xl p-4">
@@ -911,7 +808,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                       <div>
                         <span className="font-mono font-semibold text-accent">{r.plate}</span>
                         <span className="text-text-muted text-xs ml-2">
-                          {new Date(r.startDate).toLocaleDateString('en-AU')} → {r.endDate ? new Date(r.endDate).toLocaleDateString('en-AU') : 'Present'}
+                          {new Date(r.startDate).toLocaleDateString('en-AU')} {new Date(r.startDate).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })} → {r.endDate ? `${new Date(r.endDate).toLocaleDateString('en-AU')} ${new Date(r.endDate).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })}` : 'Present'}
                         </span>
                       </div>
                       {r.totalAmount && <span className="text-text-secondary">${r.totalAmount}</span>}
