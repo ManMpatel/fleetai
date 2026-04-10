@@ -7,6 +7,7 @@ export interface IClockRecord extends Document {
   type: 'in' | 'out'
   time: Date
   selfieUrl?: string
+  selfieBase64?: string
 }
 
 const clockRecordSchema = new mongoose.Schema<IClockRecord>({
@@ -16,6 +17,7 @@ const clockRecordSchema = new mongoose.Schema<IClockRecord>({
   type:         { type: String, enum: ['in', 'out'], required: true },
   time:         { type: Date, default: Date.now },
   selfieUrl:    { type: String },
+  selfieBase64: { type: String },
 }, { timestamps: true })
 
 const ClockRecord = mongoose.model<IClockRecord>('ClockRecord', clockRecordSchema)

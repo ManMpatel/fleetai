@@ -3,29 +3,13 @@ import Employee from '../models/Employee'
 import ClockRecord from '../models/ClockRecord'
 import { requireOwner } from '../middleware/ownerAuth'
 import multer from 'multer'
-import multerS3 from 'multer-s3'
-import { S3Client } from '@aws-sdk/client-s3'
-import path from 'path'
+
 
 const router = Router()
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION || 'ap-southeast-2',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-})
 
 const upload = multer({
-  storage: multerS3({
-    s3,
-    bucket: process.env.AWS_BUCKET_NAME || 'fleetai-uploads',
-    key: (_req, file, cb) => {
-      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
-      cb(null, `selfies/${unique}${path.extname(file.originalname)}`)
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 })
 
@@ -96,8 +80,13 @@ router.post('/clock', upload.single('selfie'), async (req: Request, res: Respons
   try {
     const { employeeId, employeeName, type, ownerId } = req.body
     if (!employeeId || !type || !ownerId) return res.status(400).json({ error: 'Missing fields' })
-    const selfieUrl = req.file ? (req.file as any).location : undefined
-    const record = new ClockRecord({ ownerId, employeeId, employeeName, type, selfieUrl })
+
+    let selfieBase64: string | undefined
+    if (req.file) {
+      selfieBase64 = req.file.buffer.toString('base64')
+    }
+
+    const record = new ClockRecord({ ownerId, employeeId, employeeName, type, selfieBase64 })
     await record.save()
     res.status(201).json(record)
   } catch (err: any) { res.status(400).json({ error: err.message }) }
