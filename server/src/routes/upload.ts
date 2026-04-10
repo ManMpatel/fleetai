@@ -128,20 +128,30 @@ router.post('/read-rego-bulk', async (req: Request, res: Response) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
-    const prompt = `You are reading an Australian vehicle registration document or certificate. This may be a photo of a physical paper taken with a phone — it may be slightly blurry or at an angle. Do your best to extract what you can.
+   const prompt = `You are reading a vehicle registration document from an image or PDF.
 
-Extract these fields and return ONLY a valid JSON object, no markdown, no explanation:
+Extract the following details from the registration document:
+
+- plate number
+- vehicle model name (for example: Honda Click, Yamaha NMAX)
+- manufacture year
+- rego expiry date
+
+Return ONLY valid JSON in this exact format:
+
 {
-  "plate": "NSW plate number e.g. FPI27U — uppercase, no spaces",
-  "make": "vehicle make e.g. Toyota",
-  "model": "vehicle model e.g. RAV4",
-  "year": "4 digit manufacture year",
-  "regoExpiry": "expiry date in YYYY-MM-DD format — look for Expiry date field",
-  "vin": "VIN or chassis number",
-  "confident": true
+  "plate": "",
+  "model": "",
+  "year": "",
+  "regoExpiry": ""
 }
 
-Important: Always set confident to true and always return your best guess even if unclear. Never return confident: false.`
+Rules:
+- Do NOT include explanations
+- Do NOT include markdown
+- Only return the JSON object
+- If a value cannot be found, return an empty string
+`
 
     const results = []
     for (const file of files) {
