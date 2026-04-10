@@ -204,14 +204,14 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
-        const created = await createPayWayCustomer({
-      phone: renter.phone,
-      name: renter.name,
-      email: renter.email,
-      bsbNumber: renter.bsbNumber ? decrypt(renter.bsbNumber) : '',
-      accountNumber: renter.accountNumber ? decrypt(renter.accountNumber) : '',
-      accountHolderName: renter.accountHolderName ? decrypt(renter.accountHolderName) : renter.name,
-    })  
+      const created = await createPayWayCustomer({
+    phone: renter.phone,
+    name: renter.name,
+    email: renter.email,
+    bsbNumber: renter.bsbNumber ? decrypt(renter.bsbNumber) : '',
+    accountNumber: renter.accountNumber ? decrypt(renter.accountNumber) : '',
+    accountHolderName: renter.accountHolderName ? decrypt(renter.accountHolderName) : renter.name,
+  })  
 
     if (!created.success) return res.status(500).json({ error: 'Failed to create PayWay customer' })
 
