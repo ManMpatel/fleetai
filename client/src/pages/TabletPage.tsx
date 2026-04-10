@@ -60,6 +60,7 @@ export default function TabletPage() {
   const [selfiePreview, setSelfiePreview] = useState('')
   const [cameraError, setCameraError] = useState('')
   const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [plateError, setPlateError] = useState('')
 
   // Services page state
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'custom'>('today')
@@ -191,10 +192,21 @@ export default function TabletPage() {
     finally { setSubmitting(false) }
   }
 
+  async function validatePlate(plate: string) {
+    if (serviceForm.vehicleCategory !== 'personal' || !plate) { setPlateError(''); return }
+    try {
+      await axios.get(`${API}/api/fleet/${plate}`, { headers: { 'x-owner-email': ownerId } })
+      setPlateError('')
+    } catch {
+      setPlateError('This vehicle is not registered in the system')
+    }
+  }
+
   async function submitService() {
     setSubmitAttempted(true)
     if (!employee || !ownerId) return
     if (!serviceForm.plate || !serviceForm.description) return
+    if (plateError) return
     setSubmitting(true)
     try {
       const { data } = await axios.post(`${API}/api/employees/log-service`, { pin, ownerId, ...serviceForm })
@@ -447,8 +459,10 @@ export default function TabletPage() {
                     </div>
                   </div>
                   <TField label="Plate Number *" value={serviceForm.plate} T={T}
-                    onChange={v => setServiceForm(f => ({ ...f, plate: v.toUpperCase() }))}
+                    onChange={v => { setServiceForm(f => ({ ...f, plate: v.toUpperCase() })); setPlateError('') }}
+                    onBlur={() => validatePlate(serviceForm.plate)}
                     placeholder="e.g. ABC123" error={submitAttempted && !serviceForm.plate} />
+                  {plateError && <p className="text-red-400 text-xs -mt-2">{plateError}</p>}
                   <div className="grid grid-cols-2 gap-3">
                     <TField label="Customer Name" value={serviceForm.customerName} T={T} onChange={v => setServiceForm(f => ({ ...f, customerName: v }))} />
                     <TField label="Customer Phone" value={serviceForm.customerPhone} T={T} type="tel" onChange={v => setServiceForm(f => ({ ...f, customerPhone: v }))} />
@@ -647,14 +661,14 @@ function Clock({ dark }: { dark: boolean }) {
   return <p className={`text-sm font-mono ${dark ? 'text-white/80' : 'text-gray-600'}`}>{time.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}</p>
 }
 
-function TField({ label, value, onChange, type = 'text', placeholder, error, T }: {
+function TField({ label, value, onChange, onBlur, type = 'text', placeholder, error, T }: {
   label: string; value: string; onChange: (v: string) => void
-  type?: string; placeholder?: string; error?: boolean; T: Record<string, any>
+  onBlur?: () => void; type?: string; placeholder?: string; error?: boolean; T: Record<string, any>
 }) {
   return (
     <div>
       <label className={`block text-xs ${T.muted} mb-1.5`}>{label}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur} placeholder={placeholder}
         className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-indigo-500 ${T.input} ${error ? 'border-red-500' : ''}`} />
       {error && <p className="text-red-400 text-xs mt-1">Required</p>}
     </div>
