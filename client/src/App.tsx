@@ -111,6 +111,8 @@ export default function App() {
 
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
 
+  const isPublicPath = window.location.pathname.startsWith('/onboard') || window.location.pathname.startsWith('/tablet')
+
   useEffect(() => {
     if (!isAuthenticated || !user?.email) return
     // Set axios header for ALL requests
@@ -130,6 +132,20 @@ export default function App() {
   }, [isAuthenticated, user?.email])
 
   useEffect(() => {
+    if (ownerStatus !== 'pending' || !isAuthenticated) return
+    const interval = setInterval(async () => {
+      try {
+        const res = await axios.post('/api/auth/register', {
+          email: user?.email, name: user?.name,
+          picture: user?.picture, auth0Id: user?.sub
+        })
+        if (res.data.status === 'approved') setOwnerStatus('approved')
+      } catch {}
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [ownerStatus, user, isAuthenticated])
+
+  useEffect(() => {
     if (!isAuthenticated) return
     const interceptor = axios.interceptors.request.use(async (config) => {
       try {
@@ -141,17 +157,17 @@ export default function App() {
     return () => axios.interceptors.request.eject(interceptor)
   }, [isAuthenticated, getAccessTokenSilently])
 
-  if (window.location.pathname.startsWith('/onboard') || window.location.pathname.startsWith('/tablet')) {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/onboard/:phone" element={<OnboardPage />} />
-        <Route path="/onboard" element={<OnboardPage />} />
-        <Route path="/tablet" element={<TabletPage />} />
-      </Routes>
-    </BrowserRouter>
-  )
-}
+  if (isPublicPath) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/onboard/:phone" element={<OnboardPage />} />
+          <Route path="/onboard" element={<OnboardPage />} />
+          <Route path="/tablet" element={<TabletPage />} />
+        </Routes>
+      </BrowserRouter>
+    )
+  }
 
   if (isLoading) return (
     <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -160,20 +176,6 @@ export default function App() {
   )
 
   if (!isAuthenticated) return <LoginPage />
-
-  useEffect(() => {
-    if (ownerStatus !== 'pending') return
-    const interval = setInterval(async () => {
-      try {
-        const res = await axios.post('/api/auth/register', {
-          email: user?.email, name: user?.name,
-          picture: user?.picture, auth0Id: user?.sub
-        })
-        if (res.data.status === 'approved') setOwnerStatus('approved')
-      } catch {}
-    }, 30000)
-    return () => clearInterval(interval)
-  }, [ownerStatus, user])
   if (ownerStatus === 'checking') return (
     <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: '#3b82f6', fontSize: 14 }}>Checking access...</div>
