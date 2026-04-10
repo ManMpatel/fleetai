@@ -165,13 +165,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
           .finally(() => setPaymentsLoading(false))
       }
       // Fetch service records for current vehicle
-      if ((renter.currentVehicle as any)?.plate) {
-        setServiceLoading(true)
-        axios.get(`/api/service-records?plate=${(renter.currentVehicle as any).plate}`)
-          .then(res => setServiceRecords(res.data || []))
-          .catch(() => setServiceRecords([]))
-          .finally(() => setServiceLoading(false))
-      }
+     
     }
   }, [tab])
 
