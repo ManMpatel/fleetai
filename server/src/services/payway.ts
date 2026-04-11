@@ -92,14 +92,15 @@ export async function createPayWayCustomer(renter: {
 
     // Step 2 — create customer with token
     const params = new URLSearchParams({
-    singleUseTokenId,
-    merchantId,
-    bankAccountId: '0000000A',
-    customerName: renter.name,
-    emailAddress: renter.email || '',
-    sendEmailReceipts: 'false',
-    phoneNumber: renter.phone,
-  })
+      customerNumber: customerId,
+      singleUseTokenId,
+      merchantId,
+      bankAccountId: process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A',
+      customerName: renter.name,
+      emailAddress: renter.email || '',
+      sendEmailReceipts: 'false',
+      phoneNumber: renter.phone,
+    })
 
     const res = await axios.post(
       `${PAYWAY_BASE}/customers`,
