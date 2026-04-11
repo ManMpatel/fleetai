@@ -298,12 +298,17 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
     const nextAmount = weeklyAmount + extraAmount
 
     const { setupWeeklyDebit } = await import('../services/payway')
+    const nextDate = new Date(Date.now() + 7 * 86400000)
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const dd = String(nextDate.getDate()).padStart(2, '0')
+    const mon = MONTHS[nextDate.getMonth()]
+    const yyyy = nextDate.getFullYear()
+
     const params = new URLSearchParams({
-      frequency: 'WEEKLY',
-      nextPaymentDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      frequency: 'weekly',
+      nextPaymentDate: `${dd} ${mon} ${yyyy}`,
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: nextAmount.toFixed(2),
-      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
     })
 
     const axios = (await import('axios')).default
