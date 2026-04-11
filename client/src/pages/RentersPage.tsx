@@ -819,16 +819,14 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                           </div>
                         </div>
                       ) : (
-                        <div className="relative">
-                          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-surface/80 backdrop-blur-[2px] gap-0.5">
-                            <span className="text-base">🔒</span>
-                            <p className="text-[10px] text-text-muted font-medium">Coming Soon</p>
-                          </div>
-                          <button disabled
-                            className="w-full bg-surface2 text-text-muted border border-border text-xs font-medium py-2 rounded-lg opacity-40 pointer-events-none">
-                            + Charge Extra on Next Debit
-                          </button>
-                        </div>
+                        <button disabled
+                          className="w-full bg-surface2 text-text-muted border border-border text-xs font-medium py-2 rounded-lg opacity-50 pointer-events-none flex items-center justify-between px-3"
+                          style={{ filter: 'blur(0.4px)' }}>
+                          <span>+ Charge Extra on Next Debit</span>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                          </svg>
+                        </button>
                       )}
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
