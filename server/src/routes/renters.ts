@@ -295,14 +295,19 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
     if (renter.payway.status !== 'active') return res.status(400).json({ error: 'Auto-debit is not active' })
 
     const weeklyAmount = renter.payway.weeklyAmount || 0
-    const nextAmount = weeklyAmount + extraAmount
+    const existingExtra = renter.payway.pendingExtraAmount || 0
+    const totalExtra = existingExtra + extraAmount
+    const nextAmount = weeklyAmount + totalExtra
 
-    const { setupWeeklyDebit } = await import('../services/payway')
+    const secretKey = process.env.PAYWAY_SECRET_KEY || ''
+    const customerId = renter.payway.customerId
     const nextDate = new Date(Date.now() + 7 * 86400000)
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
     const dd = String(nextDate.getDate()).padStart(2, '0')
     const mon = MONTHS[nextDate.getMonth()]
     const yyyy = nextDate.getFullYear()
+
+    console.log(`📤 PayWay charge-extra — customerId: ${customerId}, extra: $${extraAmount}, total next: $${nextAmount}`)
 
     const params = new URLSearchParams({
       frequency: 'weekly',
@@ -311,10 +316,8 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
       nextPrincipalAmount: nextAmount.toFixed(2),
     })
 
-    const axios = (await import('axios')).default
-    const secretKey = process.env.PAYWAY_SECRET_KEY || ''
-    await axios.put(
-      `https://api.payway.com.au/rest/v1/customers/${renter.payway.customerId}/schedule`,
+    const pwRes = await axios.put(
+      `https://api.payway.com.au/rest/v1/customers/${customerId}/schedule`,
       params.toString(),
       {
         headers: {
@@ -324,6 +327,13 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
       }
     )
 
+    console.log(`✅ PayWay charge-extra set — nextPaymentAmount: $${nextAmount}, response: ${JSON.stringify(pwRes.data)}`)
+
+    renter.payway!.pendingExtraAmount = totalExtra
+    if (!renter.payway!.extraCharges) renter.payway!.extraCharges = []
+    renter.payway!.extraCharges.push({ amount: extraAmount, note: note || '', date: new Date() })
+    await renter.save()
+
     await Notification.create({
       ownerId: req.ownerEmail,
       type: 'info',
@@ -332,9 +342,7 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
       actionRequired: false,
     })
 
-    renter.payway!.pendingExtraAmount = extraAmount
-    await renter.save()
-    res.json({ success: true, nextAmount, regularAmount: weeklyAmount })
+    res.json({ success: true, nextAmount, regularAmount: weeklyAmount, totalExtra })
   } catch (err: any) {
     console.error('❌ charge-extra error:', err.response?.data || err.message)
     res.status(500).json({ error: err.message })

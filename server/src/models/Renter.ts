@@ -46,6 +46,7 @@ export interface IRenter extends Document {
     status: 'active' | 'paused' | 'cancelled' | 'not_setup'
     weeklyAmount?: number
     pendingExtraAmount?: number
+    extraCharges?: Array<{ amount: number; note?: string; date: Date }>
     startDate?: Date
     nextDebitDate?: Date
   }
@@ -121,8 +122,9 @@ const RenterSchema = new Schema<IRenter>(
       },
       weeklyAmount:       { type: Number },
       pendingExtraAmount: { type: Number },
-      startDate:          { type: Date },
-      nextDebitDate:      { type: Date },
+      extraCharges: [{ amount: { type: Number }, note: { type: String }, date: { type: Date } }],
+      startDate:    { type: Date },
+      nextDebitDate:{ type: Date },
     },
 
     rentalHistory: [RentalRecordSchema],

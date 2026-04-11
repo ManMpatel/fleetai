@@ -758,9 +758,16 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                               </p>
                             )}
                             {(renter.payway as any)?.pendingExtraAmount && (
-                              <p className="text-xs text-amber font-medium mt-1">
-                                ⚠️ Next charge: ${((renter.payway?.weeklyAmount || 0) + (renter.payway as any).pendingExtraAmount).toFixed(2)} (includes ${(renter.payway as any).pendingExtraAmount} extra)
-                              </p>
+                              <div className="mt-2 space-y-1">
+                                <p className="text-xs text-amber font-medium">
+                                  ⚠️ Next charge: ${((renter.payway?.weeklyAmount || 0) + (renter.payway as any).pendingExtraAmount).toFixed(2)} (includes ${(renter.payway as any).pendingExtraAmount} extra)
+                                </p>
+                                {((renter.payway as any)?.extraCharges || []).map((ec: any, i: number) => (
+                                  <p key={i} className="text-xs text-text-muted">
+                                    +${ec.amount} — {ec.note || 'No note'} · {new Date(ec.date).toLocaleDateString('en-AU')}
+                                  </p>
+                                ))}
+                              </div>
                             )}
                           </div>
                           <button
