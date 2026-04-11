@@ -45,6 +45,7 @@ export interface IRenter extends Document {
     accountToken?: string
     status: 'active' | 'paused' | 'cancelled' | 'not_setup'
     weeklyAmount?: number
+    pendingExtraAmount?: number
     startDate?: Date
     nextDebitDate?: Date
   }
@@ -118,9 +119,10 @@ const RenterSchema = new Schema<IRenter>(
         enum: ['active', 'paused', 'cancelled', 'not_setup'],
         default: 'not_setup',
       },
-      weeklyAmount:  { type: Number },
-      startDate:     { type: Date },
-      nextDebitDate: { type: Date },
+      weeklyAmount:       { type: Number },
+      pendingExtraAmount: { type: Number },
+      startDate:          { type: Date },
+      nextDebitDate:      { type: Date },
     },
 
     rentalHistory: [RentalRecordSchema],

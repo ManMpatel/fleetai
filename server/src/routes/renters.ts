@@ -332,6 +332,8 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
       actionRequired: false,
     })
 
+    renter.payway!.pendingExtraAmount = extraAmount
+    await renter.save()
     res.json({ success: true, nextAmount, regularAmount: weeklyAmount })
   } catch (err: any) {
     console.error('❌ charge-extra error:', err.response?.data || err.message)

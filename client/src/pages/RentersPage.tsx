@@ -757,6 +757,11 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                                 Next: {new Date(renter.payway.nextDebitDate).toLocaleDateString('en-AU')}
                               </p>
                             )}
+                            {(renter.payway as any)?.pendingExtraAmount && (
+                              <p className="text-xs text-amber font-medium mt-1">
+                                ⚠️ Next charge: ${((renter.payway?.weeklyAmount || 0) + (renter.payway as any).pendingExtraAmount).toFixed(2)} (includes ${(renter.payway as any).pendingExtraAmount} extra)
+                              </p>
+                            )}
                           </div>
                           <button
                             onClick={() => { setWeeklyAmount(renter.payway?.weeklyAmount?.toString() || ''); setEditingSchedule(true) }}
