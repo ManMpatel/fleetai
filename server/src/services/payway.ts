@@ -137,12 +137,16 @@ export async function setupWeeklyDebit(
       nextDate.setDate(new Date().getDate() + 7)
     }
 
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const dd = String(nextDate.getDate()).padStart(2, '0')
+    const mon = MONTHS[nextDate.getMonth()]
+    const yyyy = nextDate.getFullYear()
+
     const params = new URLSearchParams({
-      frequency: 'WEEKLY',
-      nextPaymentDate: nextDate.toISOString().slice(0, 10),
+      frequency: 'weekly',
+      nextPaymentDate: `${dd} ${mon} ${yyyy}`,
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
-      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
     })
 
     console.log(`📤 PayWay schedule — customerId: ${customerId}, amount: $${weeklyAmount}, frequency: WEEKLY, nextDate: ${nextDate.toISOString().slice(0, 10)}`)
@@ -174,13 +178,11 @@ export async function pauseDebit(
   try {
     // PayWay doesn't have a "pause" — we set next payment far in future
     const params = new URLSearchParams({
-      frequency: 'WEEKLY',
-      nextPaymentDate: '2099-12-31',
+      frequency: 'weekly',
+      nextPaymentDate: '31 Dec 2099',
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
-      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
     })
-
     await axios.put(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
       params.toString(),
@@ -208,12 +210,16 @@ export async function resumeDebit(
     const nextDate = new Date()
     nextDate.setDate(nextDate.getDate() + 7)
 
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const dd = String(nextDate.getDate()).padStart(2, '0')
+    const mon = MONTHS[nextDate.getMonth()]
+    const yyyy = nextDate.getFullYear()
+
     const params = new URLSearchParams({
-      frequency: 'WEEKLY',
-      nextPaymentDate: nextDate.toISOString().slice(0, 10),
+      frequency: 'weekly',
+      nextPaymentDate: `${dd} ${mon} ${yyyy}`,
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
-      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
     })
 
     await axios.put(
