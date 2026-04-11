@@ -521,23 +521,27 @@ router.post('/:phone/ai-verify', async (req: Request, res: Response) => {
 
     const address = [renter.address?.street, renter.address?.city, renter.address?.state, renter.address?.postcode].filter(Boolean).join(', ') || 'not provided'
 
+    const plainDob = renter.dateOfBirth ? decrypt(renter.dateOfBirth) : 'not provided'
+    const plainLicence = renter.licenceNumber ? decrypt(renter.licenceNumber) : 'not provided'
+    const plainPassport = (renter as any).passportNumber ? decrypt((renter as any).passportNumber) : 'not provided'
+
     parts.push({ text: `You are verifying identity documents for an Australian scooter rental company.
 
 Renter submitted details:
 - Full name: ${renter.name}
-- Date of birth: ${renter.dateOfBirth || 'not provided'}
+- Date of birth: ${plainDob}
 - Address: ${address}
-- Licence number: ${renter.licenceNumber || 'not provided'}
-- Passport number: ${(renter as any).passportNumber || 'not provided'}
+- Licence number: ${plainLicence}
+- Passport number: ${plainPassport}
 
 Image 1 is the driver's licence.${passImg ? ' Image 2 is the passport.' : ' No passport was uploaded.'}
 
 Verify each field against the documents:
 1. name: Does the name on the LICENCE match "${renter.name}"?
-2. dob: Does the DOB on the LICENCE match "${renter.dateOfBirth}"?
+2. dob: Does the DOB on the LICENCE match "${plainDob}"?
 3. address: Is the submitted address visible and matching on the LICENCE? (Many Australian licences do NOT show address — if not visible, use warn with detail "Not shown on licence")
-4. licenceNumber: Does the licence number on LICENCE match "${renter.licenceNumber}"?
-5. passportNumber: ${passImg ? `Does the passport number on the PASSPORT match "${(renter as any).passportNumber}"?` : 'No passport uploaded — respond with warn and detail "No passport uploaded"'}
+4. licenceNumber: Does the licence number on LICENCE match "${plainLicence}"?
+5. passportNumber: ${passImg ? `Does the passport number on the PASSPORT match "${plainPassport}"?` : 'No passport uploaded — respond with warn and detail "No passport uploaded"'}
 
 Respond ONLY with this exact JSON (no markdown, no extra text):
 {"name":{"status":"pass|fail|warn","detail":"short reason"},"dob":{"status":"pass|fail|warn","detail":"short reason"},"address":{"status":"pass|fail|warn","detail":"short reason"},"licenceNumber":{"status":"pass|fail|warn","detail":"short reason"},"passportNumber":{"status":"pass|fail|warn","detail":"short reason"}}` })

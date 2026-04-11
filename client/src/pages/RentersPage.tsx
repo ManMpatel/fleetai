@@ -963,8 +963,16 @@ export default function RentersPage() {
                           accountNumber: modalForm.accountNumber,
                           address: { street: modalForm.addressStreet, city: modalForm.addressCity, state: modalForm.addressState, postcode: modalForm.addressPostcode },
                         })
-                        setToast({ message: '✅ Details saved', type: 'success' })
+                        setToast({ message: '✅ Details saved — running checks...', type: 'success' })
                         fetchRenters()
+                        // Auto-run format checks
+                        loadVerification(pendingModal.phone)
+                        // Auto-run AI verify
+                        setAiVerifyLoading(true)
+                        try {
+                          const { data } = await axios.post(`/api/renters/${encodeURIComponent(pendingModal.phone)}/ai-verify`)
+                          setAiVerifyResults(data.results)
+                        } catch { } finally { setAiVerifyLoading(false) }
                       } catch { setToast({ message: '❌ Failed to save', type: 'warning' }) }
                       finally { setModalSaving(false) }
                     }}
