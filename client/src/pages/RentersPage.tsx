@@ -378,6 +378,16 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                     <InfoRow label="DOB" value={renter.dateOfBirth} />
                     <InfoRow label="Licence" value={renter.licenceNumber} />
               {(renter as any).docRef && <InfoRow label="Doc Ref" value={(renter as any).docRef} />}
+              {(renter as any).selfieBase64 && (
+                <div className="mt-2">
+                  <p className="text-xs text-text-muted mb-1">Selfie</p>
+                  <img
+                    src={`data:image/jpeg;base64,${(renter as any).selfieBase64}`}
+                    className="w-16 h-16 rounded-full object-cover border border-border cursor-pointer hover:opacity-80"
+                    onClick={() => setLightbox(`data:image/jpeg;base64,${(renter as any).selfieBase64}`)}
+                  />
+                </div>
+              )}
                     <InfoRow label="Vehicle" value={renter.vehicleType} />
                     <InfoRow label="Emergency" value={renter.emergencyContactName} />
                     <InfoRow label="Emg. Phone" value={renter.emergencyContactPhone} />
@@ -1056,13 +1066,14 @@ export default function RentersPage() {
                       <button
                         onClick={() => {
                           const ref = (pendingModal as any).docRef || pendingModal.phone
+                          const safeName = pendingModal.name.replace(/\s+/g, '-')
                           const downloads = []
                           if ((pendingModal as any).licencePhotoBase64)
-                            downloads.push({ data: (pendingModal as any).licencePhotoBase64, name: `${ref}-licence.jpg` })
+                            downloads.push({ data: (pendingModal as any).licencePhotoBase64, name: `${ref}-${safeName}-licence.jpg` })
                           if ((pendingModal as any).selfieBase64)
-                            downloads.push({ data: (pendingModal as any).selfieBase64, name: `${ref}-selfie.jpg` })
+                            downloads.push({ data: (pendingModal as any).selfieBase64, name: `${ref}-${safeName}-selfie.jpg` })
                           if ((pendingModal as any).passportPhotoBase64)
-                            downloads.push({ data: (pendingModal as any).passportPhotoBase64, name: `${ref}-passport.jpg` })
+                            downloads.push({ data: (pendingModal as any).passportPhotoBase64, name: `${ref}-${safeName}-passport.jpg` })
                           downloads.forEach((d, i) => {
                             setTimeout(() => {
                               const a = document.createElement('a')
