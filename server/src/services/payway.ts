@@ -245,7 +245,14 @@ export async function getPaymentHistory(
         params: { offset: 0, limit: 10 }
       }
     )
-    return { success: true, payments: res.data.data || [] }
+    const raw = res.data.data || []
+    const payments = raw.map((t: any) => ({
+      date: t.transactionTime || t.settlementDate || null,
+      amount: t.principalAmount || 0,
+      status: t.responseCode === '00' || t.responseCode === '08' ? 'approved' : 'declined',
+      description: t.responseText || 'Direct debit',
+    }))
+    return { success: true, payments }
   } catch (err: any) {
     // Silently fail — no payment history yet is normal
     return { success: true, payments: [] }

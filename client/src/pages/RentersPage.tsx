@@ -157,7 +157,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
       }
     }
     if (tab === 'payments') {
-      if (renter.payway?.customerId && renter.payway?.status === 'active') {
+      if (renter.payway?.customerId && renter.payway?.status && renter.payway.status !== 'not_setup') {
         setPaymentsLoading(true)
         axios.get(`/api/renters/${encodeURIComponent(renter.phone)}/payments`)
           .then(res => setPayments(res.data.payments || []))
