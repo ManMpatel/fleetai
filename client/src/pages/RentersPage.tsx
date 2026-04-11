@@ -84,6 +84,8 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   const [confirm, setConfirm] = useState<{ show: boolean; action: string | null }>({ show: false, action: null })
   const [weeklyAmount, setWeeklyAmount] = useState(renter.payway?.weeklyAmount?.toString() || '')
   const [editingSchedule, setEditingSchedule] = useState(false)
+  const [linkMode, setLinkMode] = useState(false)
+  const [linkCustomerId, setLinkCustomerId] = useState('')
   const [fleetVehicles, setFleetVehicles] = useState<any[]>([])
   const [fleetLoading, setFleetLoading] = useState(false)
   const [vehicleSearch, setVehicleSearch] = useState('')
@@ -188,7 +190,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
     }
   }
 
-  const paywayStatus = renter.payway?.status || 'not_setup'
+  const paywayStatus = (renter.payway?.status || 'not_setup') as 'active' | 'paused' | 'cancelled' | 'not_setup'
 
   async function savePersonal() {
     setSaving(true)
@@ -210,6 +212,19 @@ function RenterDetail({ renter, onToast, onRefresh }: {
       onRefresh()
     } catch { onToast('❌ Failed to save', 'warning') }
     finally { setSaving(false) }
+  }
+  
+  async function handleLink() {
+    setActionLoading(true)
+    try {
+      await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/link-payway`, {
+        paywayCustomerId: linkCustomerId,
+        weeklyAmount: parseFloat(weeklyAmount),
+      })
+      onToast(`✅ PayWay customer linked — ${linkCustomerId}`, 'success')
+      onRefresh()
+    } catch { onToast('❌ Failed to link', 'warning') }
+    finally { setActionLoading(false) }
   }
 
   async function handleActivate() {
@@ -249,7 +264,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
     try {
       await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/activate`, {
         weeklyAmount: parseFloat(weeklyAmount),
-        intervalDays: days,
+        intervalDays: 7,
       })
       onToast(`✅ Schedule updated — $${weeklyAmount}/week`, 'success')
       setEditingSchedule(false)
@@ -655,22 +670,59 @@ function RenterDetail({ renter, onToast, onRefresh }: {
 
               {paywayStatus === 'not_setup' && (
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5">Amount per charge ($)</label>
-                    <input type="number" placeholder="e.g. 150" value={weeklyAmount} onChange={e => setWeeklyAmount(e.target.value)}
-                      className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                  {/* Mode toggle */}
+                  <div className="flex gap-2">
+                    <button onClick={() => setLinkMode(false)}
+                      className={`flex-1 text-xs py-2 rounded-lg border transition-colors ${!linkMode ? 'bg-accent text-white border-accent' : 'bg-surface2 text-text-secondary border-border'}`}>
+                      New Customer
+                    </button>
+                    <button onClick={() => setLinkMode(true)}
+                      className={`flex-1 text-xs py-2 rounded-lg border transition-colors ${linkMode ? 'bg-accent text-white border-accent' : 'bg-surface2 text-text-secondary border-border'}`}>
+                      Link Existing
+                    </button>
                   </div>
-                  {weeklyAmount && (
+
+                  {!linkMode ? (
+                    <>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1.5">Amount per charge ($)</label>
+                        <input type="number" placeholder="e.g. 150" value={weeklyAmount} onChange={e => setWeeklyAmount(e.target.value)}
+                          className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                      </div>
+                      {weeklyAmount && (
                         <div className="bg-accent-bg border border-accent/20 rounded-lg p-3 text-xs text-accent">
-                          Will change to <strong>${weeklyAmount}</strong> every <strong>week</strong>
+                          Will charge <strong>${weeklyAmount}</strong> every <strong>week</strong>
                         </div>
                       )}
-                      <button
-                    onClick={() => setConfirm({ show: true, action: 'activate' })}
-                    disabled={!weeklyAmount || actionLoading}
-                    className="w-full bg-green text-white text-sm font-medium py-3 rounded-lg disabled:opacity-50">
-                    Activate Auto-Debit
-                  </button>
+                      <button onClick={() => setConfirm({ show: true, action: 'activate' })}
+                        disabled={!weeklyAmount || actionLoading}
+                        className="w-full bg-green text-white text-sm font-medium py-3 rounded-lg disabled:opacity-50">
+                        Activate Auto-Debit
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-amber-bg border border-amber/20 rounded-lg p-3 text-xs text-amber">
+                        Paste the PayWay customer number from the portal. No new debit will be created.
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1.5">PayWay Customer Number</label>
+                        <input type="text" placeholder="e.g. 481864194" value={linkCustomerId} onChange={e => setLinkCustomerId(e.target.value)}
+                          className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1.5">Weekly amount ($)</label>
+                        <input type="number" placeholder="e.g. 150" value={weeklyAmount} onChange={e => setWeeklyAmount(e.target.value)}
+                          className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                      </div>
+                      <button onClick={handleLink}
+                        disabled={!linkCustomerId || !weeklyAmount || actionLoading}
+                        className="w-full bg-accent text-white text-sm font-medium py-3 rounded-lg disabled:opacity-50">
+                        {actionLoading ? 'Linking...' : 'Link PayWay Customer'}
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
 
               {paywayStatus === 'active' && (
@@ -689,14 +741,9 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                             )}
                           </div>
                           <button
-                            onClick={() => {
-                              setWeeklyAmount(renter.payway?.weeklyAmount?.toString() || '')
-                              setEditingSchedule(true)
-                            }}
+                            onClick={() => { setWeeklyAmount(renter.payway?.weeklyAmount?.toString() || ''); setEditingSchedule(true) }}
                             className="text-xs text-green font-medium border border-green/30 px-3 py-1.5 rounded-lg hover:bg-green/10"
-                          >
-                            Edit
-                          </button>
+                          >Edit</button>
                         </div>
                       </div>
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
@@ -718,11 +765,9 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         </div>
                       )}
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => setConfirm({ show: true, action: 'update' })}
+                        <button onClick={() => setConfirm({ show: true, action: 'update' })}
                           disabled={!weeklyAmount || actionLoading}
-                          className="flex-1 bg-accent text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50"
-                        >
+                          className="flex-1 bg-accent text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
                           Update Schedule
                         </button>
                         <button onClick={() => setEditingSchedule(false)}
@@ -763,7 +808,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                       <span className="font-medium text-text-primary">Total: ${payments.reduce((s, p) => s + (p.amount || 0), 0).toFixed(2)}</span>
                     </div>
                     {payments.map((p, i) => {
-                      const ok = p.status === 'approved' || p.status === '0'
+                      const ok = p.status === 'approved'
                       return (
                         <div key={i} className="flex justify-between py-1.5 border-b border-border last:border-0 text-sm">
                           <div className="flex items-center gap-2">
@@ -777,9 +822,6 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                   </div>
                 )}
               </div>
-
-             
-
               {(renter.rentalHistory?.length ?? 0) > 0 && (
                 <div className="bg-surface border border-border rounded-xl p-4">
                   <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Rental History</h3>
@@ -788,7 +830,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                       <div>
                         <span className="font-mono font-semibold text-accent">{r.plate}</span>
                         <span className="text-text-muted text-xs ml-2">
-                          {new Date(r.startDate).toLocaleDateString('en-AU')} {new Date(r.startDate).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })} → {r.endDate ? `${new Date(r.endDate).toLocaleDateString('en-AU')} ${new Date(r.endDate).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })}` : 'Present'}
+                          {new Date(r.startDate).toLocaleDateString('en-AU')} → {r.endDate ? new Date(r.endDate).toLocaleDateString('en-AU') : 'Present'}
                         </span>
                       </div>
                       {r.totalAmount && <span className="text-text-secondary">${r.totalAmount}</span>}
@@ -801,9 +843,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
         )}
       </div>
     </div>
-    
-  )
-}
+  )}
 
 // ── Main Page ───────────────────────────────────────────────
 export default function RentersPage() {
@@ -1186,6 +1226,7 @@ export default function RentersPage() {
               </div>
             </div>
           </div>
+          
         </>
       )}
 

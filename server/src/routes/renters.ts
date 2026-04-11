@@ -240,7 +240,44 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message })
   }
 })
+// POST /api/renters/:phone/link-payway
+router.post('/:phone/link-payway', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const { paywayCustomerId, weeklyAmount } = req.body as { paywayCustomerId: string; weeklyAmount: number }
 
+    if (!paywayCustomerId || !weeklyAmount) {
+      return res.status(400).json({ error: 'paywayCustomerId and weeklyAmount are required' })
+    }
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+
+    const nextDebit = new Date()
+    nextDebit.setDate(nextDebit.getDate() + 7)
+
+    renter.payway = {
+      customerId: paywayCustomerId.trim(),
+      status: 'active',
+      weeklyAmount,
+      startDate: new Date(),
+      nextDebitDate: nextDebit,
+    }
+    await renter.save()
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `PayWay linked — ${renter.name}`,
+      description: `Existing PayWay customer ${paywayCustomerId} linked to ${renter.name}`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true, renter })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
 // POST /api/renters/:phone/pause
 router.post('/:phone/pause', async (req: Request, res: Response) => {
   try {
