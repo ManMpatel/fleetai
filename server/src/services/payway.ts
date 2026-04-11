@@ -93,7 +93,6 @@ export async function createPayWayCustomer(renter: {
 
     // Step 2 — create customer with token
     const params = new URLSearchParams({
-      customerNumber: customerId,
       singleUseTokenId,
       merchantId,
       bankAccountId: process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A',
