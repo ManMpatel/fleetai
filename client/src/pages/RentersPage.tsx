@@ -776,6 +776,16 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                           >Edit</button>
                         </div>
                       </div>
+
+                      <div className="relative">
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-xl bg-surface/80 backdrop-blur-[2px]">
+                          <span className="text-xl mb-1">🔒</span>
+                          <p className="text-xs text-text-muted font-medium">Coming Soon</p>
+                        </div>
+                        <button className="w-full bg-surface2 text-text-muted border border-border text-xs font-medium py-2 rounded-lg opacity-40 pointer-events-none">
+                          + Charge Extra on Next Debit
+                        </button>
+                      </div>
                       {showChargeExtra ? (
                         <div className="space-y-2 bg-surface2 border border-border rounded-xl p-3">
                           <p className="text-xs font-semibold text-text-primary">Schedule Extra Charge</p>
@@ -809,10 +819,16 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                           </div>
                         </div>
                       ) : (
-                        <button onClick={() => setShowChargeExtra(true)}
-                          className="w-full bg-surface2 text-text-secondary border border-border text-xs font-medium py-2 rounded-lg hover:border-accent hover:text-accent">
-                          + Charge Extra on Next Debit
-                        </button>
+                        <div className="relative">
+                          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-surface/80 backdrop-blur-[2px] gap-0.5">
+                            <span className="text-base">🔒</span>
+                            <p className="text-[10px] text-text-muted font-medium">Coming Soon</p>
+                          </div>
+                          <button disabled
+                            className="w-full bg-surface2 text-text-muted border border-border text-xs font-medium py-2 rounded-lg opacity-40 pointer-events-none">
+                            + Charge Extra on Next Debit
+                          </button>
+                        </div>
                       )}
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
