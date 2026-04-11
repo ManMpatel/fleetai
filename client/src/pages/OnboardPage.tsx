@@ -101,6 +101,8 @@ export default function OnboardPage() {
     e.preventDefault()
     if (!licenceFile) { setError('Please upload your licence photo'); return }
     if (!selfieFile) { setError('Please upload a selfie photo'); return }
+    if (!passportFile) { setError('Please upload your passport photo'); return }
+    if (!form.passportNumber.trim()) { setError('Please enter your passport number'); return }
     if (!termsAccepted) { setError('Please accept the terms and conditions to proceed'); return }
     setSubmitting(true)
     setError('')
@@ -216,7 +218,7 @@ export default function OnboardPage() {
               </select>
             </div>
             <Field label="Licence Number *" name="licenceNumber" value={form.licenceNumber} onChange={handleChange} required />
-            <Field label="Passport Number (optional — international licence holders)" name="passportNumber" value={form.passportNumber} onChange={handleChange} />
+            <Field label="Passport Number *" name="passportNumber" value={form.passportNumber} onChange={handleChange} required />
           </Section>
 
           {/* Licence Photo */}
@@ -242,9 +244,9 @@ export default function OnboardPage() {
             />
           </Section>
 
-          {/* Passport Photo (optional) */}
-          <Section title="Passport Photo (optional)">
-            <p className="text-xs text-gray-400 mb-3">Only required if you hold an international licence</p>
+          {/* Passport Photo */}
+          <Section title="Passport Photo *">
+            <p className="text-xs text-gray-400 mb-3">Take a clear photo of your passport photo page</p>
             <PhotoUpload
               preview={passportPreview}
               inputId="passport-upload"

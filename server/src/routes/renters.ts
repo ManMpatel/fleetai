@@ -337,16 +337,32 @@ router.get('/:phone/verify', async (req: Request, res: Response) => {
 
     // Licence number unique
     if (renter.licenceNumber) {
+      const decryptedLicence = decrypt(renter.licenceNumber)
       const dupLicence = await Renter.findOne({
-        licenceNumberHash: hash(decrypt(renter.licenceNumber)),
+        licenceNumberHash: hash(decryptedLicence),
         _id: { $ne: renter._id },
         ownerId: req.ownerEmail
       })
       checks.push(dupLicence
-        ? { label: 'Licence number', status: 'fail', detail: `Already used by another renter` }
-        : { label: 'Licence number', status: 'pass', detail: `${renter.licenceNumber} — unique` })
+        ? { label: 'Licence number', status: 'fail', detail: `Already used by ${dupLicence.name}` }
+        : { label: 'Licence number', status: 'pass', detail: `${decryptedLicence} — unique` })
     } else {
       checks.push({ label: 'Licence number', status: 'warn', detail: 'Not provided' })
+    }
+
+    // Passport number unique
+    if ((renter as any).passportNumber) {
+      const decryptedPassport = decrypt((renter as any).passportNumber)
+      const dupPassport = await Renter.findOne({
+        passportNumberHash: hash(decryptedPassport),
+        _id: { $ne: renter._id },
+        ownerId: req.ownerEmail
+      })
+      checks.push(dupPassport
+        ? { label: 'Passport number', status: 'fail', detail: `Already used by ${dupPassport.name}` }
+        : { label: 'Passport number', status: 'pass', detail: `${decryptedPassport} — unique` })
+    } else {
+      checks.push({ label: 'Passport number', status: 'warn', detail: 'Not provided' })
     }
 
     // Licence photo uploaded
