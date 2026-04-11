@@ -388,7 +388,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                     <div key={type} className="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2">
                       <span className="text-xs text-text-muted capitalize">{type}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-text-primary">
+                        <span className="text-xs font-mono text-text-primary truncate max-w-[220px] block">
                           {`${(renter as any).docRef}-${renter.name.replace(/\s+/g, '-')}-${type}.jpg`}
                         </span>
                         <button
@@ -1338,6 +1338,9 @@ export default function RentersPage() {
                 <div className="min-w-0">
                   <p className="font-semibold text-text-primary text-sm truncate">{renter.name}</p>
                   <p className="text-text-muted text-xs mt-0.5">{renter.phone}</p>
+                {(renter as any).updatedAt && (renter as any).status === 'active' && (
+                  <p className="text-text-muted text-xs">Approved {new Date((renter as any).updatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                )}
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
                   <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${statusColors[renter.payway?.status || 'not_setup']}`}>
