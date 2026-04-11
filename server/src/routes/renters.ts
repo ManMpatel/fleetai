@@ -365,16 +365,6 @@ router.get('/:phone/verify', async (req: Request, res: Response) => {
       checks.push({ label: 'Passport number', status: 'warn', detail: 'Not provided' })
     }
 
-    // Licence photo uploaded
-    checks.push((renter.licencePhotoUrl || (renter as any).licencePhotoBase64)
-      ? { label: 'Licence photo', status: 'pass', detail: 'Uploaded' }
-      : { label: 'Licence photo', status: 'fail', detail: 'Not uploaded' })
-
-    // Selfie uploaded
-    checks.push(((renter as any).selfieUrl || (renter as any).selfieBase64)
-      ? { label: 'Selfie photo', status: 'pass', detail: 'Uploaded' }
-      : { label: 'Selfie photo', status: 'fail', detail: 'Not uploaded' })
-
     // BSB format
     if (renter.bsbNumber) {
       const bsb = decrypt(renter.bsbNumber)
@@ -404,17 +394,6 @@ router.get('/:phone/verify', async (req: Request, res: Response) => {
         : { label: 'Account number', status: 'warn', detail: 'Unusual format — verify manually' })
     } else {
       checks.push({ label: 'Account number', status: 'warn', detail: 'Not provided' })
-    }
-
-    // Plate in fleet
-    if ((renter as any).currentVehicle || renter.vehicleType) {
-      const Vehicle = (await import('../models/Vehicle')).default
-      const plate = renter.licenceNumber // placeholder — plate comes from form
-      // Check if any unassigned vehicle exists for this owner
-      const available = await Vehicle.findOne({ ownerId: req.ownerEmail, status: 'available' })
-      checks.push(available
-        ? { label: 'Fleet vehicles', status: 'pass', detail: 'Available vehicles exist for assignment' }
-        : { label: 'Fleet vehicles', status: 'warn', detail: 'No available vehicles — assign manually' })
     }
 
     const fails = checks.filter(c => c.status === 'fail').length
