@@ -378,19 +378,41 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                     <InfoRow label="DOB" value={renter.dateOfBirth} />
                     <InfoRow label="Licence" value={renter.licenceNumber} />
               {(renter as any).docRef && <InfoRow label="Doc Ref" value={(renter as any).docRef} />}
-              {(renter as any).selfieBase64 && (
-                <div className="mt-2">
-                  <p className="text-xs text-text-muted mb-1">Selfie</p>
-                  <img
-                    src={`data:image/jpeg;base64,${(renter as any).selfieBase64}`}
-                    className="w-16 h-16 rounded-full object-cover border border-border cursor-pointer hover:opacity-80"
-                    onClick={() => setLightbox(`data:image/jpeg;base64,${(renter as any).selfieBase64}`)}
-                  />
-                </div>
-              )}
                     <InfoRow label="Vehicle" value={renter.vehicleType} />
                     <InfoRow label="Emergency" value={renter.emergencyContactName} />
                     <InfoRow label="Emg. Phone" value={renter.emergencyContactPhone} />
+              {(renter as any).docRef && (
+                <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">Document Files</p>
+                  {['licence', 'passport'].map(type => (
+                    <div key={type} className="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2">
+                      <span className="text-xs text-text-muted capitalize">{type}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-text-primary">
+                          {`${(renter as any).docRef}-${renter.name.replace(/\s+/g, '-')}-${type}.jpg`}
+                        </span>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(`${(renter as any).docRef}-${renter.name.replace(/\s+/g, '-')}-${type}.jpg`)}
+                          className="text-[10px] text-accent border border-accent/30 rounded px-1.5 py-0.5 hover:bg-accent/10"
+                        >Copy</button>
+                      </div>
+                    </div>
+                  ))}
+                  {(renter as any).selfieBase64 && (
+                    <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border">
+                      <img
+                        src={`data:image/jpeg;base64,${(renter as any).selfieBase64}`}
+                        className="w-12 h-12 rounded-full object-cover border border-border cursor-pointer hover:opacity-80 shrink-0"
+                        onClick={() => setLightbox(`data:image/jpeg;base64,${(renter as any).selfieBase64}`)}
+                      />
+                      <div>
+                        <p className="text-xs font-medium text-text-primary">Selfie</p>
+                        <p className="text-xs text-text-muted">Stored securely — tap to enlarge</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
                   </div>
                 )}
               </div>
