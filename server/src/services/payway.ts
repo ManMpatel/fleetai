@@ -44,6 +44,7 @@ export async function createBankAccountToken(
       accountName,
     })
 
+    console.log(`📤 PayWay token request — BSB: ${params.get('bsb')}, Account: ${params.get('accountNumber')}, Name: ${params.get('accountName')}`)
     const res = await axios.post(
       `${PAYWAY_BASE}/single-use-tokens`,
       params.toString(),
@@ -53,7 +54,7 @@ export async function createBankAccountToken(
     console.log(`✅ PayWay token created: ${res.data.singleUseTokenId}`)
     return { success: true, token: res.data.singleUseTokenId }
   } catch (err: any) {
-    console.error('❌ PayWay token error:', err.response?.data || err.message)
+    console.error('❌ PayWay token error — full response:', JSON.stringify(err.response?.data || err.message))
     return { success: false, error: JSON.stringify(err.response?.data || err.message) }
   }
 }
@@ -102,6 +103,7 @@ export async function createPayWayCustomer(renter: {
       phoneNumber: renter.phone,
     })
 
+    console.log(`📤 PayWay create customer — customerNumber: ${customerId}, name: ${renter.name}, merchantId: ${merchantId}, bankAccountId: ${process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A'}`)
     const res = await axios.post(
       `${PAYWAY_BASE}/customers`,
       params.toString(),
@@ -109,10 +111,10 @@ export async function createPayWayCustomer(renter: {
     )
 
     const paywayCustomerId = res.data.customerNumber || customerId
-    console.log(`✅ PayWay customer created: ${paywayCustomerId}`)
+    console.log(`✅ PayWay customer created — customerNumber: ${paywayCustomerId}, summary: ${res.data.customerSummary || 'n/a'}`)
     return { success: true, customerId: paywayCustomerId }
   } catch (err: any) {
-    console.error('❌ PayWay createCustomer error:', err.response?.data || err.message)
+    console.error('❌ PayWay createCustomer error — full response:', JSON.stringify(err.response?.data || err.message))
     return { success: false, error: JSON.stringify(err.response?.data || err.message) }
   }
 }
@@ -140,18 +142,20 @@ export async function setupWeeklyDebit(
       nextPaymentDate: nextDate.toISOString().slice(0, 10),
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
+      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
     })
 
-    await axios.put(
+    console.log(`📤 PayWay schedule — customerId: ${customerId}, amount: $${weeklyAmount}, frequency: WEEKLY, nextDate: ${nextDate.toISOString().slice(0, 10)}`)
+    const schedRes = await axios.put(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
       params.toString(),
       { headers: getSecretAuthHeader() }
     )
 
-    console.log(`✅ PayWay weekly debit setup: ${customerId} $${weeklyAmount}/week`)
+    console.log(`✅ PayWay schedule set — response: ${JSON.stringify(schedRes.data)}`)
     return { success: true }
   } catch (err: any) {
-    console.error('❌ PayWay setupWeeklyDebit error:', err.response?.data || err.message)
+    console.error('❌ PayWay setupWeeklyDebit error — full response:', JSON.stringify(err.response?.data || err.message))
     return { success: false, error: JSON.stringify(err.response?.data || err.message) }
   }
 }
@@ -174,6 +178,7 @@ export async function pauseDebit(
       nextPaymentDate: '2099-12-31',
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
+      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
     })
 
     await axios.put(
@@ -208,6 +213,7 @@ export async function resumeDebit(
       nextPaymentDate: nextDate.toISOString().slice(0, 10),
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
+      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
     })
 
     await axios.put(

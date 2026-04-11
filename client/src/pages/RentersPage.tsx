@@ -17,16 +17,6 @@ const statusLabels = {
   not_setup: 'Not Setup',
 }
 
-const SCHEDULE_OPTIONS = [
-  { label: 'Every day', days: 1 },
-  { label: 'Every 3 days', days: 3 },
-  { label: 'Every 5 days', days: 5 },
-  { label: 'Every week', days: 7 },
-  { label: 'Every 2 weeks', days: 14 },
-  { label: 'Every 4 weeks', days: 28 },
-  { label: 'Custom', days: 0 },
-]
-
 function Toast({ message, type }: { message: string; type: 'success' | 'warning' }) {
   return (
     <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl shadow-lg text-sm font-medium ${
@@ -79,7 +69,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   renter: Renter
   onToast: (msg: string, type: 'success' | 'warning') => void
   onRefresh: () => void
-}) {
+}){
   const [tab, setTab] = useState<'details' | 'payments' | 'vehicle'>('details')
   const [editing, setEditing] = useState(false)
   const [editingBank, setEditingBank] = useState(false)
@@ -93,8 +83,6 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   const [serviceForm, setServiceForm] = useState({ serviceType: 'general', description: '', cost: '', notes: '' })
   const [confirm, setConfirm] = useState<{ show: boolean; action: string | null }>({ show: false, action: null })
   const [weeklyAmount, setWeeklyAmount] = useState(renter.payway?.weeklyAmount?.toString() || '')
-  const [selectedSchedule, setSelectedSchedule] = useState(7)
-  const [customDays, setCustomDays] = useState('')
   const [editingSchedule, setEditingSchedule] = useState(false)
   const [fleetVehicles, setFleetVehicles] = useState<any[]>([])
   const [fleetLoading, setFleetLoading] = useState(false)
@@ -201,7 +189,6 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   }
 
   const paywayStatus = renter.payway?.status || 'not_setup'
-  const days = selectedSchedule === 0 ? parseInt(customDays) || 7 : selectedSchedule
 
   async function savePersonal() {
     setSaving(true)
@@ -229,9 +216,9 @@ function RenterDetail({ renter, onToast, onRefresh }: {
     setActionLoading(true)
     try {
       await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/activate`, {
-        weeklyAmount: parseFloat(weeklyAmount), intervalDays: days,
+        weeklyAmount: parseFloat(weeklyAmount), intervalDays: 7,
       })
-      onToast(`✅ Auto-debit activated — $${weeklyAmount} every ${days} days`, 'success')
+      onToast(`✅ Auto-debit activated — $${weeklyAmount}/week`, 'success')
       onRefresh()
     } catch { onToast('❌ Failed to activate', 'warning') }
     finally { setActionLoading(false); setConfirm({ show: false, action: null }) }
@@ -264,7 +251,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
         weeklyAmount: parseFloat(weeklyAmount),
         intervalDays: days,
       })
-      onToast(`✅ Schedule updated — $${weeklyAmount} every ${days} days`, 'success')
+      onToast(`✅ Schedule updated — $${weeklyAmount}/week`, 'success')
       setEditingSchedule(false)
       onRefresh()
     } catch { 
@@ -292,9 +279,9 @@ function RenterDetail({ renter, onToast, onRefresh }: {
             'Resume auto-debit?'
           }
           message={
-            confirm.action === 'activate' ? `Charge ${renter.name} $${weeklyAmount} every ${days} day${days !== 1 ? 's' : ''}?` :
+            confirm.action === 'activate' ? `Charge ${renter.name} $${weeklyAmount} every week?` :
             confirm.action === 'pause' ? `Stop payments from ${renter.name}'s account?` :
-            confirm.action === 'update' ? `Change to $${weeklyAmount} every ${days} day${days !== 1 ? 's' : ''} for ${renter.name}?` :
+            confirm.action === 'update' ? `Change to $${weeklyAmount} weekly for ${renter.name}?` :
             `Restart payments from ${renter.name}'s account?`
           }
           confirmLabel={
@@ -673,37 +660,17 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                     <input type="number" placeholder="e.g. 150" value={weeklyAmount} onChange={e => setWeeklyAmount(e.target.value)}
                       className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
                   </div>
-                  <div>
-                    <label className="block text-xs text-text-muted mb-2">Charge every</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {SCHEDULE_OPTIONS.map(opt => (
-                        <button key={opt.days} onClick={() => setSelectedSchedule(opt.days)}
-                          className={`text-xs py-2 px-3 rounded-lg border transition-colors text-left ${
-                            selectedSchedule === opt.days ? 'bg-accent text-white border-accent' : 'bg-surface2 text-text-secondary border-border hover:border-accent/40'
-                          }`}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {selectedSchedule === 0 && (
-                    <div>
-                      <label className="block text-xs text-text-muted mb-1.5">Every how many days?</label>
-                      <input type="number" placeholder="e.g. 10" value={customDays} onChange={e => setCustomDays(e.target.value)}
-                        className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
-                    </div>
-                  )}
                   {weeklyAmount && (
-                    <div className="bg-accent-bg border border-accent/20 rounded-lg p-3 text-xs text-accent">
-                      Will charge <strong>${weeklyAmount}</strong> every <strong>{days} day{days !== 1 ? 's' : ''}</strong>
-                    </div>
-                  )}
-                  <button onClick={() => setConfirm({ show: true, action: 'activate' })}
-                    disabled={!weeklyAmount || actionLoading || (selectedSchedule === 0 && !customDays)}
+                        <div className="bg-accent-bg border border-accent/20 rounded-lg p-3 text-xs text-accent">
+                          Will change to <strong>${weeklyAmount}</strong> every <strong>week</strong>
+                        </div>
+                      )}
+                      <button
+                    onClick={() => setConfirm({ show: true, action: 'activate' })}
+                    disabled={!weeklyAmount || actionLoading}
                     className="w-full bg-green text-white text-sm font-medium py-3 rounded-lg disabled:opacity-50">
                     Activate Auto-Debit
                   </button>
-                </div>
               )}
 
               {paywayStatus === 'active' && (
@@ -745,35 +712,15 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         <input type="number" value={weeklyAmount} onChange={e => setWeeklyAmount(e.target.value)}
                           className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
                       </div>
-                      <div>
-                        <label className="block text-xs text-text-muted mb-2">Charge every</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {SCHEDULE_OPTIONS.map(opt => (
-                            <button key={opt.days} onClick={() => setSelectedSchedule(opt.days)}
-                              className={`text-xs py-2 px-3 rounded-lg border transition-colors text-left ${
-                                selectedSchedule === opt.days ? 'bg-accent text-white border-accent' : 'bg-surface2 text-text-secondary border-border hover:border-accent/40'
-                              }`}>
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {selectedSchedule === 0 && (
-                        <div>
-                          <label className="block text-xs text-text-muted mb-1.5">Every how many days?</label>
-                          <input type="number" placeholder="e.g. 10" value={customDays} onChange={e => setCustomDays(e.target.value)}
-                            className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
-                        </div>
-                      )}
                       {weeklyAmount && (
                         <div className="bg-accent-bg border border-accent/20 rounded-lg p-3 text-xs text-accent">
-                          Will change to <strong>${weeklyAmount}</strong> every <strong>{days} day{days !== 1 ? 's' : ''}</strong>
+                          Will change to <strong>${weeklyAmount}</strong> every <strong>week</strong>
                         </div>
                       )}
                       <div className="flex gap-2">
                         <button
                           onClick={() => setConfirm({ show: true, action: 'update' })}
-                          disabled={!weeklyAmount || actionLoading || (selectedSchedule === 0 && !customDays)}
+                          disabled={!weeklyAmount || actionLoading}
                           className="flex-1 bg-accent text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50"
                         >
                           Update Schedule
@@ -854,6 +801,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
         )}
       </div>
     </div>
+    
   )
 }
 
