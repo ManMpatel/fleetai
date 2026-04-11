@@ -224,7 +224,7 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     const nextDebit = new Date()
     nextDebit.setDate(nextDebit.getDate() + intervalDays)
 
-    renter.payway = { customerId: created.customerId, status: 'active', weeklyAmount, startDate: new Date(), nextDebitDate: nextDebit }
+    renter.payway = { customerId: created.customerId, accountToken: (created as any).accountToken || undefined, status: 'active', weeklyAmount, startDate: new Date(), nextDebitDate: nextDebit }
     await renter.save()
 
     await Notification.create({
@@ -275,6 +275,61 @@ router.post('/:phone/link-payway', async (req: Request, res: Response) => {
 
     res.json({ success: true, renter })
   } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/renters/:phone/charge-extra
+router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const { extraAmount, note } = req.body as { extraAmount: number; note: string }
+
+    if (!extraAmount || extraAmount <= 0) {
+      return res.status(400).json({ error: 'extraAmount is required' })
+    }
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+    if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer found' })
+    if (renter.payway.status !== 'active') return res.status(400).json({ error: 'Auto-debit is not active' })
+
+    const weeklyAmount = renter.payway.weeklyAmount || 0
+    const nextAmount = weeklyAmount + extraAmount
+
+    const { setupWeeklyDebit } = await import('../services/payway')
+    const params = new URLSearchParams({
+      frequency: 'WEEKLY',
+      nextPaymentDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      regularPrincipalAmount: weeklyAmount.toFixed(2),
+      nextPrincipalAmount: nextAmount.toFixed(2),
+      scheduleType: 'CONTINUE_UNTIL_FURTHER_NOTICE',
+    })
+
+    const axios = (await import('axios')).default
+    const secretKey = process.env.PAYWAY_SECRET_KEY || ''
+    await axios.put(
+      `https://api.payway.com.au/rest/v1/customers/${renter.payway.customerId}/schedule`,
+      params.toString(),
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }
+      }
+    )
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `Extra charge scheduled — ${renter.name}`,
+      description: `$${extraAmount} extra added to next debit. Total next charge: $${nextAmount}. Note: ${note || 'No note'}`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true, nextAmount, regularAmount: weeklyAmount })
+  } catch (err: any) {
+    console.error('❌ charge-extra error:', err.response?.data || err.message)
     res.status(500).json({ error: err.message })
   }
 })

@@ -39,7 +39,7 @@ export async function createBankAccountToken(
   try {
     const params = new URLSearchParams({
       paymentMethod: 'bankAccount',
-      bsb: bsb.replace(/[^0-9]/g, '').replace(/(\d{3})(\d{3})/, '$1-$2'),
+      bsb: bsb.replace(/[^0-9]/g, ''),
       accountNumber,
       accountName,
     })
@@ -67,7 +67,7 @@ export async function createPayWayCustomer(renter: {
   bsbNumber?: string
   accountNumber?: string
   accountHolderName?: string
-}): Promise<{ success: boolean; customerId?: string; error?: string }> {
+}): Promise<{ success: boolean; customerId?: string; accountToken?: string | null; error?: string }> {
   if (!isConfigured()) {
     console.log('⚠️  PayWay not configured — mock createCustomer for:', renter.phone)
     return { success: true, customerId: `MOCK_${renter.phone}` }
@@ -111,8 +111,9 @@ export async function createPayWayCustomer(renter: {
     )
 
     const paywayCustomerId = res.data.customerNumber || customerId
-    console.log(`✅ PayWay customer created — customerNumber: ${paywayCustomerId}, summary: ${res.data.customerSummary || 'n/a'}`)
-    return { success: true, customerId: paywayCustomerId }
+    const accountToken = res.data.paymentSources?.[0]?.accountToken || null
+    console.log(`✅ PayWay customer created — customerNumber: ${paywayCustomerId}, accountToken: ${accountToken}`)
+    return { success: true, customerId: paywayCustomerId, accountToken }
   } catch (err: any) {
     console.error('❌ PayWay createCustomer error — full response:', JSON.stringify(err.response?.data || err.message))
     return { success: false, error: JSON.stringify(err.response?.data || err.message) }

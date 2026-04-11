@@ -42,6 +42,7 @@ export interface IRenter extends Document {
 
   payway?: {
     customerId?: string
+    accountToken?: string
     status: 'active' | 'paused' | 'cancelled' | 'not_setup'
     weeklyAmount?: number
     startDate?: Date
@@ -110,7 +111,8 @@ const RenterSchema = new Schema<IRenter>(
     weeklyRate:     { type: Number },
 
     payway: {
-      customerId: { type: String },
+      customerId:   { type: String },
+      accountToken: { type: String },
       status: {
         type: String,
         enum: ['active', 'paused', 'cancelled', 'not_setup'],

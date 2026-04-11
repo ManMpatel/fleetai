@@ -82,7 +82,8 @@ export interface Renter {
   weeklyRate?: number
   payway?: {
     customerId?: string
-    status?: string
+    accountToken?: string
+    status?: 'not_setup' | 'active' | 'paused' | 'cancelled'
     weeklyAmount?: number
     startDate?: string
     nextDebitDate?: string

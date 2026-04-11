@@ -86,6 +86,9 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   const [editingSchedule, setEditingSchedule] = useState(false)
   const [linkMode, setLinkMode] = useState(false)
   const [linkCustomerId, setLinkCustomerId] = useState('')
+  const [showChargeExtra, setShowChargeExtra] = useState(false)
+  const [extraAmount, setExtraAmount] = useState('')
+  const [extraNote, setExtraNote] = useState('')
   const [fleetVehicles, setFleetVehicles] = useState<any[]>([])
   const [fleetLoading, setFleetLoading] = useState(false)
   const [vehicleSearch, setVehicleSearch] = useState('')
@@ -214,6 +217,21 @@ function RenterDetail({ renter, onToast, onRefresh }: {
     finally { setSaving(false) }
   }
   
+  async function handleChargeExtra() {
+    setActionLoading(true)
+    try {
+      const res = await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/charge-extra`, {
+        extraAmount: parseFloat(extraAmount),
+        note: extraNote,
+      })
+      onToast(`✅ Next debit will be $${res.data.nextAmount} (includes $${extraAmount} extra)`, 'success')
+      setShowChargeExtra(false)
+      setExtraAmount('')
+      setExtraNote('')
+    } catch { onToast('❌ Failed to schedule extra charge', 'warning') }
+    finally { setActionLoading(false) }
+  }
+
   async function handleLink() {
     setActionLoading(true)
     try {
@@ -746,6 +764,44 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                           >Edit</button>
                         </div>
                       </div>
+                      {showChargeExtra ? (
+                        <div className="space-y-2 bg-surface2 border border-border rounded-xl p-3">
+                          <p className="text-xs font-semibold text-text-primary">Schedule Extra Charge</p>
+                          <div>
+                            <label className="block text-xs text-text-muted mb-1">Extra amount ($)</label>
+                            <input type="number" placeholder="e.g. 50" value={extraAmount}
+                              onChange={e => setExtraAmount(e.target.value)}
+                              className="w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-text-muted mb-1">Reason (optional)</label>
+                            <input type="text" placeholder="e.g. Scratch on right panel" value={extraNote}
+                              onChange={e => setExtraNote(e.target.value)}
+                              className="w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                          </div>
+                          {extraAmount && (
+                            <div className="bg-amber-bg border border-amber/20 rounded-lg p-2 text-xs text-amber">
+                              Next debit will be <strong>${(parseFloat(extraAmount) + (renter.payway?.weeklyAmount || 0)).toFixed(2)}</strong> then back to <strong>${renter.payway?.weeklyAmount}/week</strong>
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <button onClick={handleChargeExtra}
+                              disabled={!extraAmount || actionLoading}
+                              className="flex-1 bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">
+                              {actionLoading ? 'Scheduling...' : 'Confirm Extra Charge'}
+                            </button>
+                            <button onClick={() => setShowChargeExtra(false)}
+                              className="px-3 py-2 text-xs text-text-secondary border border-border rounded-lg">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => setShowChargeExtra(true)}
+                          className="w-full bg-surface2 text-text-secondary border border-border text-xs font-medium py-2 rounded-lg hover:border-accent hover:text-accent">
+                          + Charge Extra on Next Debit
+                        </button>
+                      )}
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
                         {actionLoading ? 'Processing...' : 'Pause Auto-Debit'}
