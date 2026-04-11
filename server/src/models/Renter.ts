@@ -12,9 +12,10 @@ export interface IRenter extends Document {
   selfieUrl?: string
   passportPhotoUrl?: string
   passportNumber?: string
-  licencePhotoBase64?: string
-  selfieBase64?: string
-  passportPhotoBase64?: string
+  docRef?:               string
+  licencePhotoBase64?:   string
+  selfieBase64?:         string
+  passportPhotoBase64?:  string
   vehicleType?: 'scooter' | 'car'
   status?: 'pending' | 'active' | 'inactive'
   ownerId?: string
@@ -81,6 +82,7 @@ const RenterSchema = new Schema<IRenter>(
     licencePhotoUrl: { type: String },
     selfieUrl:            { type: String },
     passportPhotoUrl:     { type: String },
+    docRef:               { type: String, index: true },
     licencePhotoBase64:   { type: String },
     selfieBase64:         { type: String },
     passportPhotoBase64:  { type: String },

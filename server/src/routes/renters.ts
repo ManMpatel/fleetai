@@ -113,8 +113,8 @@ router.post('/', async (req: Request, res: Response) => {
     // Whitelist allowed fields — strip anything unexpected
     const allowed = ['name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'passportNumber',
       'vehicleType', 'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
-      'emergencyContactName', 'emergencyContactPhone', 'licencePhotoBase64', 'selfieBase64',
-      'passportPhotoBase64', 'ownerId', 'status']
+      'emergencyContactName', 'emergencyContactPhone', 'licencePhotoUrl', 'selfieUrl',
+      'licencePhotoBase64', 'selfieBase64', 'passportPhotoBase64', 'ownerId', 'status']
     Object.keys(body).forEach(k => { if (!allowed.includes(k)) delete body[k] })
 
     // Encrypt sensitive fields
@@ -125,6 +125,10 @@ router.post('/', async (req: Request, res: Response) => {
     if (body.bsbNumber) body.bsbNumber = encrypt(body.bsbNumber)
     if (body.accountNumber) body.accountNumber = encrypt(body.accountNumber)
     if (body.accountHolderName) body.accountHolderName = encrypt(body.accountHolderName)
+
+    const year = new Date().getFullYear()
+    const rand = String(Math.floor(10000 + Math.random() * 90000))
+    body.docRef = `FLT-${year}-${rand}`
 
     const renter = new Renter(body)
     await renter.save()
@@ -411,7 +415,7 @@ router.post('/:phone/approve', async (req: Request, res: Response) => {
     const phone  = decodeURIComponent(req.params.phone)
     const renter = await Renter.findOneAndUpdate(
       { phone, ownerId: req.ownerEmail },
-      { $set: { status: 'active' } },
+      { $set: { status: 'active' }, $unset: { licencePhotoBase64: '', passportPhotoBase64: '' } },
       { new: true }
     )
     if (!renter) return res.status(404).json({ error: 'Renter not found' })

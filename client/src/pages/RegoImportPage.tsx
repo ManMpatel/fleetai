@@ -20,6 +20,7 @@ interface RegoVehicle {
 
 interface ConfirmData {
   plate: string
+  model: string
   year: string
   regoExpiry: string
   notes: string
@@ -137,12 +138,13 @@ export default function RegoImportPage() {
       const result = data.results?.[0]
       if (result) {
         setConfirm({
-          plate: result.data?.plate || '',
-          year:  result.data?.year  || '',
-          regoExpiry: result.data?.regoExpiry || '',
-          notes: '',
-          photoBase64: forStorage,
-        })
+        plate: result.data?.plate || '',
+        model: result.data?.model || '',
+        year:  result.data?.year  || '',
+        regoExpiry: result.data?.regoExpiry || '',
+        notes: '',
+        photoBase64: forStorage,
+      })
       } else {
         showToast('❌ Failed to process photo — please try again')
       }
@@ -162,7 +164,7 @@ export default function RegoImportPage() {
     try {
       await axios.post(`${API}/api/fleet`, {
         plate: confirm.plate.toUpperCase(),
-        model: 'Unknown',
+        model: confirm.model || 'Unknown',
         year: parseInt(confirm.year) || new Date().getFullYear(),
         type: 'scooter',
         regoExpiry: confirm.regoExpiry,
@@ -479,6 +481,14 @@ export default function RegoImportPage() {
                 <input value={confirm.plate}
                   onChange={e => setConfirm(p => p ? { ...p, plate: e.target.value.toUpperCase() } : p)}
                   className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Model</label>
+                <input value={confirm.model}
+                  onChange={e => setConfirm(p => p ? { ...p, model: e.target.value } : p)}
+                  placeholder="e.g. Honda Duo"
+                  className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">

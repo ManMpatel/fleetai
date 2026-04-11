@@ -12,6 +12,7 @@ interface ClockRecord {
   employeeName: string
   type: 'in' | 'out'
   selfieUrl?: string
+  selfieBase64?: string
   time: string
 }
 
@@ -281,10 +282,15 @@ const [refreshing, setRefreshing] = useState(false)
                       <td className="px-5 py-3 text-text-primary font-medium">{fmt(r.time)}</td>
                       <td className="px-5 py-3 text-text-muted">{fmtDate(r.time)}</td>
                       <td className="px-5 py-3">
-                        {r.selfieUrl ? (
-                          <a href={r.selfieUrl} target="_blank" rel="noopener noreferrer" className="text-accent text-xs hover:underline">
-                            View photo →
-                          </a>
+                        {r.selfieBase64 ? (
+                          <img
+                            src={`data:image/jpeg;base64,${r.selfieBase64}`}
+                            alt="Selfie"
+                            className="w-10 h-10 rounded-full object-cover border border-border cursor-pointer hover:opacity-80"
+                            onClick={() => window.open(`data:image/jpeg;base64,${r.selfieBase64}`, '_blank')}
+                          />
+                        ) : r.selfieUrl ? (
+                          <a href={r.selfieUrl} target="_blank" rel="noopener noreferrer" className="text-accent text-xs hover:underline">View →</a>
                         ) : (
                           <span className="text-text-muted text-xs">—</span>
                         )}

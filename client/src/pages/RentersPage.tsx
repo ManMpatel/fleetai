@@ -377,6 +377,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                     <InfoRow label="Email" value={renter.email} />
                     <InfoRow label="DOB" value={renter.dateOfBirth} />
                     <InfoRow label="Licence" value={renter.licenceNumber} />
+              {(renter as any).docRef && <InfoRow label="Doc Ref" value={(renter as any).docRef} />}
                     <InfoRow label="Vehicle" value={renter.vehicleType} />
                     <InfoRow label="Emergency" value={renter.emergencyContactName} />
                     <InfoRow label="Emg. Phone" value={renter.emergencyContactPhone} />
@@ -1035,9 +1036,38 @@ export default function RentersPage() {
                 {/* Right — photos + verification */}
                 <div className="space-y-4">
                   <div>
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">
-                      Identity photos <span className="normal-case font-normal text-text-tertiary">(tap to enlarge)</span>
-                    </p>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Identity Photos</p>
+                      {(pendingModal as any).docRef && (
+                        <span className="text-xs font-mono bg-surface2 border border-border px-2 py-0.5 rounded text-text-primary">
+                          Ref: {(pendingModal as any).docRef}
+                        </span>
+                      )}
+                    </div>
+                    {((pendingModal as any).licencePhotoBase64 || (pendingModal as any).passportPhotoBase64) && (
+                      <button
+                        onClick={() => {
+                          const ref = (pendingModal as any).docRef || pendingModal.phone
+                          if ((pendingModal as any).licencePhotoBase64) {
+                            const a = document.createElement('a')
+                            a.href = `data:image/jpeg;base64,${(pendingModal as any).licencePhotoBase64}`
+                            a.download = `${ref}-licence.jpg`
+                            a.click()
+                          }
+                          if ((pendingModal as any).passportPhotoBase64) {
+                            setTimeout(() => {
+                              const a = document.createElement('a')
+                              a.href = `data:image/jpeg;base64,${(pendingModal as any).passportPhotoBase64}`
+                              a.download = `${ref}-passport.jpg`
+                              a.click()
+                            }, 500)
+                          }
+                        }}
+                        className="w-full mb-3 py-2 border border-accent text-accent text-xs font-medium rounded-lg hover:bg-accent/10 transition-colors"
+                      >
+                        ⬇ Download Documents ({(pendingModal as any).docRef || 'no ref'})
+                      </button>
+                    )}
                     <div className="grid grid-cols-3 gap-2">
                       {(() => {
                         const toUrl = (u?: string) => !u ? null : u.startsWith('http') ? u : `${import.meta.env.VITE_API_URL}${u}`

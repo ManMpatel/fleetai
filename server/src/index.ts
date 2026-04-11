@@ -19,6 +19,7 @@ import adminRoutes from './routes/admin'
 import searchRoutes from './routes/search'
 import serviceRecordRoutes from './routes/serviceRecords'
 import employeeRoutes from './routes/employees'
+import ClockRecord from './models/ClockRecord'
 import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
 
@@ -129,6 +130,19 @@ mongoose
     cron.schedule('0 8 * * *', () => {
     console.log('⏰ Running daily expiry check...')
     checkExpiringDates()
+  })
+
+  // Delete employee selfie photos older than 10 days — daily at 3am
+  cron.schedule('0 3 * * *', async () => {
+    try {
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - 10)
+      const result = await ClockRecord.updateMany(
+        { createdAt: { $lt: cutoff }, selfieBase64: { $exists: true } },
+        { $unset: { selfieBase64: '' } }
+      )
+      console.log(`🗑️ Cleared ${result.modifiedCount} old employee selfies`)
+    } catch (err) { console.error('Selfie cleanup error:', err) }
   })
 
   // Weekly backup — every Sunday at 2am Sydney time
