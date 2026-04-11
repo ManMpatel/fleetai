@@ -921,7 +921,7 @@ export default function RentersPage() {
 
       {/* Lightbox */}
       {lightbox && (
-        <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+        <div className="fixed inset-0 bg-black/90 z-[99999] flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
           <img src={lightbox} className="max-w-full max-h-full rounded-xl object-contain" onClick={e => e.stopPropagation()} />
           <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl">✕</button>
         </div>
@@ -1048,20 +1048,23 @@ export default function RentersPage() {
                       <button
                         onClick={() => {
                           const ref = (pendingModal as any).docRef || pendingModal.phone
-                          if ((pendingModal as any).licencePhotoBase64) {
-                            const a = document.createElement('a')
-                            a.href = `data:image/jpeg;base64,${(pendingModal as any).licencePhotoBase64}`
-                            a.download = `${ref}-licence.jpg`
-                            a.click()
-                          }
-                          if ((pendingModal as any).passportPhotoBase64) {
+                          const downloads = []
+                          if ((pendingModal as any).licencePhotoBase64)
+                            downloads.push({ data: (pendingModal as any).licencePhotoBase64, name: `${ref}-licence.jpg` })
+                          if ((pendingModal as any).selfieBase64)
+                            downloads.push({ data: (pendingModal as any).selfieBase64, name: `${ref}-selfie.jpg` })
+                          if ((pendingModal as any).passportPhotoBase64)
+                            downloads.push({ data: (pendingModal as any).passportPhotoBase64, name: `${ref}-passport.jpg` })
+                          downloads.forEach((d, i) => {
                             setTimeout(() => {
                               const a = document.createElement('a')
-                              a.href = `data:image/jpeg;base64,${(pendingModal as any).passportPhotoBase64}`
-                              a.download = `${ref}-passport.jpg`
+                              a.href = `data:image/jpeg;base64,${d.data}`
+                              a.download = d.name
+                              document.body.appendChild(a)
                               a.click()
-                            }, 500)
-                          }
+                              document.body.removeChild(a)
+                            }, i * 800)
+                          })
                         }}
                         className="w-full mb-3 py-2 border border-accent text-accent text-xs font-medium rounded-lg hover:bg-accent/10 transition-colors"
                       >

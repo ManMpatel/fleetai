@@ -350,12 +350,12 @@ router.get('/:phone/verify', async (req: Request, res: Response) => {
     }
 
     // Licence photo uploaded
-    checks.push(renter.licencePhotoUrl
+    checks.push((renter.licencePhotoUrl || (renter as any).licencePhotoBase64)
       ? { label: 'Licence photo', status: 'pass', detail: 'Uploaded' }
       : { label: 'Licence photo', status: 'fail', detail: 'Not uploaded' })
 
     // Selfie uploaded
-    checks.push((renter as any).selfieUrl
+    checks.push(((renter as any).selfieUrl || (renter as any).selfieBase64)
       ? { label: 'Selfie photo', status: 'pass', detail: 'Uploaded' }
       : { label: 'Selfie photo', status: 'fail', detail: 'Not uploaded' })
 
