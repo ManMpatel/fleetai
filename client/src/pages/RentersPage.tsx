@@ -826,22 +826,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                           className="bg-surface2 border border-border text-text-primary text-xs font-medium py-2.5 rounded-lg hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
                         >Push 2 weeks</button>
                       </div>
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm(`Remove ${renter.name} from PayWay vault? This stops all future debits permanently. Transaction history is kept in FleetAI.`)) return
-                          setActionLoading(true)
-                          try {
-                            await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/disable-payway`)
-                            onToast('✅ Removed from PayWay vault', 'success')
-                            onRefresh()
-                          } catch { onToast('❌ Failed to remove from vault', 'warning') }
-                          finally { setActionLoading(false) }
-                        }}
-                        disabled={actionLoading}
-                        className="w-full border border-red/20 text-red text-xs font-medium py-2 rounded-lg hover:bg-red-bg disabled:opacity-50 transition-colors"
-                      >
-                        Remove from PayWay vault
-                      </button>
+                
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
                         {actionLoading ? 'Processing...' : 'Pause Auto-Debit'}
