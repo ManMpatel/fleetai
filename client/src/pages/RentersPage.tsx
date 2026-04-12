@@ -91,6 +91,10 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   const [showChargeExtra, setShowChargeExtra] = useState(false)
   const [extraAmount, setExtraAmount] = useState('')
   const [extraNote, setExtraNote] = useState('')
+  const [showUpdateBank, setShowUpdateBank] = useState(false)
+  const [newBsb, setNewBsb] = useState('')
+  const [newAccount, setNewAccount] = useState('')
+  const [newHolder, setNewHolder] = useState('')
   const [fleetVehicles, setFleetVehicles] = useState<any[]>([])
   const [fleetLoading, setFleetLoading] = useState(false)
   const [vehicleSearch, setVehicleSearch] = useState('')
@@ -193,6 +197,21 @@ function RenterDetail({ renter, onToast, onRefresh }: {
     } catch {
       onToast('Failed to add service record', 'warning')
     }
+  }
+
+  async function handleUpdateBank() {
+    if (!newBsb || !newAccount || !newHolder) return
+    setActionLoading(true)
+    try {
+      await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/update-bank`, {
+        bsbNumber: newBsb, accountNumber: newAccount, accountHolderName: newHolder,
+      })
+      onToast('✅ Bank account updated in PayWay', 'success')
+      setShowUpdateBank(false)
+      setNewBsb(''); setNewAccount(''); setNewHolder('')
+      onRefresh()
+    } catch { onToast('❌ Failed to update bank account', 'warning') }
+    finally { setActionLoading(false) }
   }
 
   const paywayStatus = (renter.payway?.status || 'not_setup') as 'active' | 'paused' | 'cancelled' | 'not_setup'
@@ -808,10 +827,35 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         >Push 2 weeks</button>
                       </div>
 
-                      <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
-                        className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
-                        {actionLoading ? 'Processing...' : 'Pause Auto-Debit'}
-                      </button>
+                      {!showUpdateBank ? (
+                        <button onClick={() => setShowUpdateBank(true)}
+                          className="w-full border border-border text-text-muted text-xs font-medium py-2 rounded-lg hover:border-accent hover:text-accent transition-colors">
+                          Update bank account
+                        </button>
+                      ) : (
+                        <div className="border border-border rounded-lg p-3 space-y-2.5">
+                          <p className="text-xs font-semibold text-text-primary">New bank details</p>
+                          <div className="bg-amber-bg border border-amber/20 rounded-md p-2 text-xs text-amber">
+                            A new Direct Debit Request must be signed by the renter for the new account. Existing schedule continues automatically.
+                          </div>
+                          <input placeholder="BSB (e.g. 062-000)" value={newBsb} onChange={e => setNewBsb(e.target.value)}
+                            className="w-full bg-surface2 border border-border text-text-primary text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                          <input placeholder="Account number" value={newAccount} onChange={e => setNewAccount(e.target.value)}
+                            className="w-full bg-surface2 border border-border text-text-primary text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                          <input placeholder="Account holder name" value={newHolder} onChange={e => setNewHolder(e.target.value)}
+                            className="w-full bg-surface2 border border-border text-text-primary text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+                          <div className="flex gap-2">
+                            <button onClick={handleUpdateBank} disabled={!newBsb || !newAccount || !newHolder || actionLoading}
+                              className="flex-1 bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">
+                              {actionLoading ? 'Updating...' : 'Update in PayWay'}
+                            </button>
+                            <button onClick={() => setShowUpdateBank(false)}
+                              className="px-3 py-2 text-xs text-text-secondary border border-border rounded-lg">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {!showChargeExtra ? (
                         <button onClick={() => setShowChargeExtra(true)}

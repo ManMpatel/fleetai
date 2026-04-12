@@ -16,6 +16,7 @@ import {
   refundTransaction,
   pushNextPayment,
   retryFailedPayment,
+  updateBankAccount,
 } from '../services/payway'
 
 const router = Router()
@@ -398,6 +399,49 @@ router.post('/:phone/refund-transaction', async (req: Request, res: Response) =>
       type: 'info',
       title: `Refund processed — ${renter.name}`,
       description: `$${amount} refunded for transaction ${transactionId}.`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/renters/:phone/update-bank
+router.post('/:phone/update-bank', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const { bsbNumber, accountNumber, accountHolderName, bankName } = req.body
+
+    if (!bsbNumber || !accountNumber || !accountHolderName) {
+      return res.status(400).json({ error: 'bsbNumber, accountNumber and accountHolderName are required' })
+    }
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+    if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer — activate debit first' })
+
+    const result = await updateBankAccount(
+      renter.payway.customerId,
+      bsbNumber.replace(/[^0-9]/g, ''),
+      accountNumber,
+      accountHolderName
+    )
+    if (!result.success) return res.status(400).json({ error: result.error || 'Bank update failed' })
+
+    // Update encrypted bank details in MongoDB
+    if (bankName) renter.bankName = encrypt(bankName)
+    renter.bsbNumber = encrypt(bsbNumber)
+    renter.accountNumber = encrypt(accountNumber)
+    renter.accountHolderName = encrypt(accountHolderName)
+    await renter.save()
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `Bank account updated — ${renter.name}`,
+      description: `New bank details saved and updated in PayWay. Schedule continues unchanged.`,
       actionRequired: false,
     })
 

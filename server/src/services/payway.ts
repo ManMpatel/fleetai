@@ -274,6 +274,41 @@ export async function resumeDebit(
   }
 }
 
+// ── Update bank account on existing customer ──────────────
+export async function updateBankAccount(
+  customerId: string,
+  bsb: string,
+  accountNumber: string,
+  accountName: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isConfigured()) {
+    console.log(`⚠️  PayWay not configured — mock updateBankAccount for ${customerId}`)
+    return { success: true }
+  }
+  try {
+    const tokenResult = await createBankAccountToken(bsb, accountNumber, accountName)
+    if (!tokenResult.success || !tokenResult.token) {
+      return { success: false, error: tokenResult.error }
+    }
+    const params = new URLSearchParams({
+      singleUseTokenId: tokenResult.token,
+      bankAccountId: process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A',
+    })
+    console.log(`📤 PayWay update bank account — customerId: ${customerId}`)
+    await axios.put(
+      `${PAYWAY_BASE}/customers/${customerId}/payment-setup`,
+      params.toString(),
+      { headers: getSecretAuthHeader() }
+    )
+    console.log(`✅ PayWay bank account updated for ${customerId}`)
+    return { success: true }
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message
+    console.error('❌ PayWay updateBankAccount error:', msg)
+    return { success: false, error: msg }
+  }
+}
+
 // ── Retry a failed payment ────────────────────────────────
 export async function retryFailedPayment(
   customerId: string,
