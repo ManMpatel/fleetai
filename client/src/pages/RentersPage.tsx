@@ -799,33 +799,16 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={async () => {
-                            setActionLoading(true)
-                            try {
-                              const res = await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/push-payment`, { weeks: 1 })
-                              onToast(`✅ Next debit pushed to ${res.data.newDate}`, 'success')
-                              onRefresh()
-                            } catch { onToast('❌ Failed to push — may be too close to debit date', 'warning') }
-                            finally { setActionLoading(false) }
-                          }}
-                          disabled={actionLoading}
-                          className="bg-surface2 border border-border text-text-primary text-xs font-medium py-2.5 rounded-lg hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
-                        >Push 1 week</button>
-                        <button
-                          onClick={async () => {
-                            setActionLoading(true)
-                            try {
-                              const res = await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/push-payment`, { weeks: 2 })
-                              onToast(`✅ Next debit pushed to ${res.data.newDate}`, 'success')
-                              onRefresh()
-                            } catch { onToast('❌ Failed to push — may be too close to debit date', 'warning') }
-                            finally { setActionLoading(false) }
-                          }}
-                          disabled={actionLoading}
-                          className="bg-surface2 border border-border text-text-primary text-xs font-medium py-2.5 rounded-lg hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
-                        >Push 2 weeks</button>
+                      <div className="relative">
+                        <div className="absolute inset-0 z-10 flex items-center justify-end pr-3 rounded-lg">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted opacity-40">
+                            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                          </svg>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 opacity-40 pointer-events-none" style={{ filter: 'blur(0.3px)' }}>
+                          <button className="bg-surface2 border border-border text-text-primary text-xs font-medium py-2.5 rounded-lg">Push 1 week</button>
+                          <button className="bg-surface2 border border-border text-text-primary text-xs font-medium py-2.5 rounded-lg">Push 2 weeks</button>
+                        </div>
                       </div>
                 
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
