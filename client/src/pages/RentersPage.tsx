@@ -30,7 +30,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
   confirmColor: string; onConfirm: () => void; onCancel: () => void
 }) {
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center px-4">
+    
       <div className="bg-surface border border-border rounded-2xl p-6 w-full max-w-sm shadow-2xl">
         <h3 className="text-base font-bold text-text-primary mb-2">{title}</h3>
         <p className="text-sm text-text-secondary mb-6">{message}</p>
@@ -38,7 +38,6 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
           <button onClick={onConfirm} className={`flex-1 text-white text-sm font-medium py-2.5 rounded-lg ${confirmColor}`}>{confirmLabel}</button>
           <button onClick={onCancel} className="flex-1 bg-surface2 text-text-secondary text-sm font-medium py-2.5 rounded-lg border border-border">Cancel</button>
         </div>
-      </div>
     </div>
   )
 }
@@ -776,48 +775,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                           >Edit</button>
                         </div>
                       </div>
-                      {showChargeExtra ? (
-                        <div className="space-y-2 bg-surface2 border border-border rounded-xl p-3">
-                          <p className="text-xs font-semibold text-text-primary">Schedule Extra Charge</p>
-                          <div>
-                            <label className="block text-xs text-text-muted mb-1">Extra amount ($)</label>
-                            <input type="number" placeholder="e.g. 50" value={extraAmount}
-                              onChange={e => setExtraAmount(e.target.value)}
-                              className="w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-text-muted mb-1">Reason (optional)</label>
-                            <input type="text" placeholder="e.g. Scratch on right panel" value={extraNote}
-                              onChange={e => setExtraNote(e.target.value)}
-                              className="w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
-                          </div>
-                          {extraAmount && (
-                            <div className="bg-amber-bg border border-amber/20 rounded-lg p-2 text-xs text-amber">
-                              Next debit will be <strong>${(parseFloat(extraAmount) + (renter.payway?.weeklyAmount || 0)).toFixed(2)}</strong> then back to <strong>${renter.payway?.weeklyAmount}/week</strong>
-                            </div>
-                          )}
-                          <div className="flex gap-2">
-                            <button onClick={handleChargeExtra}
-                              disabled={!extraAmount || actionLoading}
-                              className="flex-1 bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">
-                              {actionLoading ? 'Scheduling...' : 'Confirm Extra Charge'}
-                            </button>
-                            <button onClick={() => setShowChargeExtra(false)}
-                              className="px-3 py-2 text-xs text-text-secondary border border-border rounded-lg">
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button disabled
-                          className="w-full bg-surface2 text-text-muted border border-border text-xs font-medium py-2 rounded-lg opacity-50 pointer-events-none flex items-center justify-between px-3"
-                          style={{ filter: 'blur(0.4px)' }}>
-                          <span>+ Charge Extra on Next Debit</span>
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                          </svg>
-                        </button>
-                      )}
+                      
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
                         {actionLoading ? 'Processing...' : 'Pause Auto-Debit'}
