@@ -163,6 +163,46 @@ export async function setupWeeklyDebit(
   }
 }
 
+// ── Push next payment date forward ────────────────────────
+export async function pushNextPayment(
+  customerId: string,
+  weeklyAmount: number,
+  weeks: number
+): Promise<{ success: boolean; newDate?: string; error?: string }> {
+  if (!isConfigured()) {
+    console.log(`⚠️  PayWay not configured — mock push ${weeks} week(s) for ${customerId}`)
+    return { success: true, newDate: 'mock-date' }
+  }
+  try {
+    const nextDate = new Date()
+    nextDate.setDate(nextDate.getDate() + weeks * 7)
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const dd = String(nextDate.getDate()).padStart(2, '0')
+    const mon = MONTHS[nextDate.getMonth()]
+    const yyyy = nextDate.getFullYear()
+    const formatted = `${dd} ${mon} ${yyyy}`
+
+    const params = new URLSearchParams({
+      frequency: 'weekly',
+      nextPaymentDate: formatted,
+      regularPrincipalAmount: weeklyAmount.toFixed(2),
+      nextPrincipalAmount: weeklyAmount.toFixed(2),
+    })
+    console.log(`📤 PayWay push ${weeks}wk — customerId: ${customerId}, newDate: ${formatted}`)
+    await axios.put(
+      `${PAYWAY_BASE}/customers/${customerId}/schedule`,
+      params.toString(),
+      { headers: getSecretAuthHeader() }
+    )
+    console.log(`✅ PayWay next payment pushed to ${formatted}`)
+    return { success: true, newDate: formatted }
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message
+    console.error('❌ PayWay push error:', msg)
+    return { success: false, error: msg }
+  }
+}
+
 // ── Pause auto-debit ──────────────────────────────────────
 
 export async function pauseDebit(

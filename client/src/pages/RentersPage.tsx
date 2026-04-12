@@ -778,7 +778,36 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                           >Edit</button>
                         </div>
                       </div>
-                      
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={async () => {
+                            setActionLoading(true)
+                            try {
+                              const res = await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/push-payment`, { weeks: 1 })
+                              onToast(`✅ Next debit pushed to ${res.data.newDate}`, 'success')
+                              onRefresh()
+                            } catch { onToast('❌ Failed to push — may be too close to debit date', 'warning') }
+                            finally { setActionLoading(false) }
+                          }}
+                          disabled={actionLoading}
+                          className="bg-surface2 border border-border text-text-primary text-xs font-medium py-2.5 rounded-lg hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
+                        >Push 1 week</button>
+                        <button
+                          onClick={async () => {
+                            setActionLoading(true)
+                            try {
+                              const res = await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/push-payment`, { weeks: 2 })
+                              onToast(`✅ Next debit pushed to ${res.data.newDate}`, 'success')
+                              onRefresh()
+                            } catch { onToast('❌ Failed to push — may be too close to debit date', 'warning') }
+                            finally { setActionLoading(false) }
+                          }}
+                          disabled={actionLoading}
+                          className="bg-surface2 border border-border text-text-primary text-xs font-medium py-2.5 rounded-lg hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
+                        >Push 2 weeks</button>
+                      </div>
+
                       <button onClick={() => setConfirm({ show: true, action: 'pause' })} disabled={actionLoading}
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
                         {actionLoading ? 'Processing...' : 'Pause Auto-Debit'}

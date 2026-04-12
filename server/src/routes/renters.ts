@@ -14,6 +14,7 @@ import {
   getPaymentHistory,
   voidTransaction,
   refundTransaction,
+  pushNextPayment,
 } from '../services/payway'
 
 const router = Router()
@@ -350,6 +351,96 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// POST /api/renters/:phone/void-transaction
+router.post('/:phone/void-transaction', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const { transactionId } = req.body as { transactionId: string }
+    if (!transactionId) return res.status(400).json({ error: 'transactionId is required' })
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+
+    const result = await voidTransaction(transactionId)
+    if (!result.success) return res.status(400).json({ error: result.error || 'Void failed' })
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `Transaction voided — ${renter.name}`,
+      description: `Transaction ${transactionId} voided successfully.`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/renters/:phone/refund-transaction
+router.post('/:phone/refund-transaction', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const { transactionId, amount } = req.body as { transactionId: string; amount: number }
+    if (!transactionId || !amount) return res.status(400).json({ error: 'transactionId and amount are required' })
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+
+    const result = await refundTransaction(transactionId, amount)
+    if (!result.success) return res.status(400).json({ error: result.error || 'Refund failed' })
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `Refund processed — ${renter.name}`,
+      description: `$${amount} refunded for transaction ${transactionId}.`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+
+// POST /api/renters/:phone/push-payment
+router.post('/:phone/push-payment', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const { weeks } = req.body as { weeks: number }
+    if (!weeks || ![1, 2].includes(weeks)) return res.status(400).json({ error: 'weeks must be 1 or 2' })
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+    if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer found' })
+    if (renter.payway.status !== 'active') return res.status(400).json({ error: 'Debit is not active' })
+
+    const result = await pushNextPayment(renter.payway.customerId, renter.payway.weeklyAmount || 0, weeks)
+    if (!result.success) return res.status(400).json({ error: result.error || 'Push failed' })
+
+    const newDate = new Date()
+    newDate.setDate(newDate.getDate() + weeks * 7)
+    renter.payway.nextDebitDate = newDate
+    await renter.save()
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `Payment pushed ${weeks} week${weeks > 1 ? 's' : ''} — ${renter.name}`,
+      description: `Next debit moved to ${result.newDate}`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true, newDate: result.newDate })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/renters/:phone/pause
 router.post('/:phone/pause', async (req: Request, res: Response) => {
   try {
