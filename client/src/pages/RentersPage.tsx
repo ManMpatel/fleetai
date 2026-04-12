@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore } from '../store/useStore'
 import type { Renter } from '../types'
 import axios from 'axios'
@@ -29,8 +30,8 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
   title: string; message: string; confirmLabel: string
   confirmColor: string; onConfirm: () => void; onCancel: () => void
 }) {
-  return (
-    
+  return createPortal(
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center px-4">
       <div className="bg-surface border border-border rounded-2xl p-6 w-full max-w-sm shadow-2xl">
         <h3 className="text-base font-bold text-text-primary mb-2">{title}</h3>
         <p className="text-sm text-text-secondary mb-6">{message}</p>
@@ -38,7 +39,9 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
           <button onClick={onConfirm} className={`flex-1 text-white text-sm font-medium py-2.5 rounded-lg ${confirmColor}`}>{confirmLabel}</button>
           <button onClick={onCancel} className="flex-1 bg-surface2 text-text-secondary text-sm font-medium py-2.5 rounded-lg border border-border">Cancel</button>
         </div>
-    </div>
+      </div>
+    </div>,
+    document.body
   )
 }
 
