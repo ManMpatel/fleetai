@@ -49,6 +49,13 @@ export interface IRenter extends Document {
     extraCharges?: Array<{ amount: number; note?: string; date: Date }>
     startDate?: Date
     nextDebitDate?: Date
+    activity?: Array<{
+      type: 'info' | 'error' | 'success' | 'warning'
+      message: string
+      detail?: string
+      expiresAt?: Date
+      createdAt: Date
+    }>
   }
 
   rentalHistory: Array<{
@@ -125,6 +132,13 @@ const RenterSchema = new Schema<IRenter>(
       extraCharges: [{ amount: { type: Number }, note: { type: String }, date: { type: Date } }],
       startDate:    { type: Date },
       nextDebitDate:{ type: Date },
+      activity: [{
+        type:      { type: String, enum: ['info','error','success','warning'] },
+        message:   { type: String },
+        detail:    { type: String },
+        expiresAt: { type: Date },
+        createdAt: { type: Date, default: Date.now },
+      }],
     },
 
     rentalHistory: [RentalRecordSchema],

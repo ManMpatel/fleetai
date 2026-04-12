@@ -229,7 +229,8 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     const nextDebit = new Date()
     nextDebit.setDate(nextDebit.getDate() + intervalDays)
 
-    renter.payway = { customerId: created.customerId, accountToken: (created as any).accountToken || undefined, status: 'active', weeklyAmount, startDate: new Date(), nextDebitDate: nextDebit }
+    renter.payway = { customerId: created.customerId, accountToken: (created as any).accountToken || undefined, status: 'active', weeklyAmount, startDate: new Date(), nextDebitDate: nextDebit, activity: [] }
+    renter.payway!.activity!.push({ type: 'success', message: `Auto-debit activated — $${weeklyAmount}/week`, createdAt: new Date() })
     await renter.save()
 
     await Notification.create({
@@ -337,6 +338,15 @@ router.post('/:phone/charge-extra', async (req: Request, res: Response) => {
     renter.payway!.pendingExtraAmount = totalExtra
     if (!renter.payway!.extraCharges) renter.payway!.extraCharges = []
     renter.payway!.extraCharges.push({ amount: extraAmount, note: note || '', date: new Date() })
+    if (!renter.payway!.activity) renter.payway!.activity = []
+    const extraExpiry = new Date(); extraExpiry.setDate(extraExpiry.getDate() + 7)
+    renter.payway!.activity!.push({
+      type: 'warning',
+      message: `$${extraAmount} extra scheduled`,
+      detail: `${note || 'No reason given'} — added to next debit`,
+      expiresAt: extraExpiry,
+      createdAt: new Date(),
+    })
     await renter.save()
 
     await Notification.create({
@@ -501,6 +511,14 @@ router.post('/:phone/push-payment', async (req: Request, res: Response) => {
     const newDate = new Date()
     newDate.setDate(newDate.getDate() + weeks * 7)
     renter.payway.nextDebitDate = newDate
+    if (!renter.payway.activity) renter.payway.activity = []
+    renter.payway.activity.push({
+      type: 'info',
+      message: `Pushed ${weeks} week${weeks > 1 ? 's' : ''}`,
+      detail: `Next debit moved to ${result.newDate}`,
+      expiresAt: newDate,
+      createdAt: new Date(),
+    })
     await renter.save()
 
     await Notification.create({
@@ -527,6 +545,8 @@ router.post('/:phone/pause', async (req: Request, res: Response) => {
 
     await pauseDebit(renter.payway.customerId, renter.payway.weeklyAmount || 10)
     renter.payway.status = 'paused'
+    if (!renter.payway.activity) renter.payway.activity = []
+    renter.payway.activity.push({ type: 'info', message: 'Auto-debit paused', detail: 'Resume anytime from the dashboard', createdAt: new Date() })
     await renter.save()
 
     await Notification.create({
