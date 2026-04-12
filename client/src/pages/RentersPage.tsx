@@ -832,6 +832,45 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
                         {actionLoading ? 'Processing...' : 'Pause Auto-Debit'}
                       </button>
+
+                      {!showChargeExtra ? (
+                        <button onClick={() => setShowChargeExtra(true)}
+                          className="w-full border border-dashed border-border text-text-muted text-sm py-2.5 rounded-lg hover:border-accent hover:text-accent transition-colors">
+                          + Charge extra on next debit
+                        </button>
+                      ) : (
+                        <div className="border border-amber/30 rounded-lg p-3 space-y-3">
+                          <div className="bg-amber-bg border border-amber/20 rounded-md p-2.5">
+                            <p className="text-xs text-amber font-semibold">⚠️ 2-day notice required by law</p>
+                            <p className="text-xs text-amber/80 mt-1 leading-relaxed">Australian law requires you notify the renter at least 2 business days before debiting a higher amount. Confirm you have already notified them before proceeding.</p>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-text-muted mb-1.5">Extra amount ($)</label>
+                            <input type="number" placeholder="e.g. 50" value={extraAmount} onChange={e => setExtraAmount(e.target.value)}
+                              className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-text-muted mb-1.5">Reason (optional)</label>
+                            <input type="text" placeholder="e.g. Damage repair" value={extraNote} onChange={e => setExtraNote(e.target.value)}
+                              className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                          </div>
+                          {extraAmount && parseFloat(extraAmount) > 0 && (
+                            <div className="bg-accent-bg border border-accent/20 rounded-md p-2.5 text-xs text-accent">
+                              Next debit: <strong>${((renter.payway?.weeklyAmount || 0) + parseFloat(extraAmount)).toFixed(2)}</strong> (${renter.payway?.weeklyAmount} + ${extraAmount} extra)
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <button onClick={handleChargeExtra} disabled={!extraAmount || parseFloat(extraAmount) <= 0 || actionLoading}
+                              className="flex-1 bg-accent text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
+                              {actionLoading ? 'Setting...' : 'Confirm Extra Charge'}
+                            </button>
+                            <button onClick={() => { setShowChargeExtra(false); setExtraAmount(''); setExtraNote('') }}
+                              className="px-4 py-2.5 text-sm text-text-secondary border border-border rounded-lg hover:bg-surface2">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="space-y-3">
@@ -889,15 +928,38 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                       <span>{payments.length} payments</span>
                       <span className="font-medium text-text-primary">Total: ${payments.reduce((s, p) => s + (p.amount || 0), 0).toFixed(2)}</span>
                     </div>
+                    {payments.some(p => p.responseCode === '2' || p.responseCode === '3') && (
+                      <div className="mb-3 bg-red-50 border border-red/30 rounded-lg p-3">
+                        <p className="text-xs font-semibold text-red mb-1">🚨 Recover vehicle immediately</p>
+                        <p className="text-xs text-red/80">
+                          {payments.find(p => p.responseCode === '2')
+                            ? 'Renter has instructed their bank to stop these debits. Contact the renter and recover the vehicle now.'
+                            : "Renter's bank account is closed. Contact the renter and recover the vehicle now."}
+                        </p>
+                      </div>
+                    )}
                     {payments.map((p, i) => {
-                      const ok = p.status === 'approved'
+                      const code = String(p.responseCode || '')
+                      const ok = p.status === 'approved' || code === '08' || code === '00'
+                      const isTerminal = code === '2' || code === '3'
+                      const isInsufficient = code === '03'
+                      const statusIcon = ok ? '✓' : isTerminal ? '🚨' : '✗'
+                      const statusClass = ok ? 'bg-green-bg text-green' : 'bg-red-bg text-red'
+                      const detail = isTerminal
+                        ? (code === '2' ? 'Renter stopped — recover vehicle' : 'Account closed — recover vehicle')
+                        : isInsufficient ? 'Insufficient funds — retry when resolved' : ''
                       return (
-                        <div key={i} className="flex justify-between py-1.5 border-b border-border last:border-0 text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${ok ? 'bg-green-bg text-green' : 'bg-red-bg text-red'}`}>{ok ? '✓' : '✗'}</span>
-                            <span className="text-text-muted text-xs">{p.date ? new Date(p.date).toLocaleDateString('en-AU') : '—'}</span>
+                        <div key={i} className="py-2 border-b border-border last:border-0">
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusClass}`}>{statusIcon}</span>
+                              <span className="text-text-muted text-xs">{p.date ? new Date(p.date).toLocaleDateString('en-AU') : '—'}</span>
+                            </div>
+                            <span className={`text-sm font-semibold ${ok ? 'text-text-primary' : 'text-red'}`}>${Number(p.amount || 0).toFixed(2)}</span>
                           </div>
-                          <span className={`font-semibold ${ok ? 'text-text-primary' : 'text-red'}`}>${Number(p.amount || 0).toFixed(2)}</span>
+                          {detail && (
+                            <p className={`text-[10px] mt-0.5 ml-7 ${isTerminal ? 'text-red font-medium' : 'text-amber-500'}`}>{detail}</p>
+                          )}
                         </div>
                       )
                     })}

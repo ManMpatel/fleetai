@@ -290,15 +290,33 @@ export default function OnboardPage() {
           </Section>
 
           {/* Terms & Conditions */}
-          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-3">Privacy & Terms</h3>
-            <p className="text-xs text-gray-500 mb-3 leading-relaxed">
-              Your driver's licence and passport photos are collected solely to verify your identity for rental purposes. 
-              Photos are stored securely and encrypted. They will be permanently deleted once your rental has ended and 
-              30 days have passed with no outstanding fines on your rental vehicle. Your personal details are retained 
-              for record-keeping as required by Australian law. You may request access to or deletion of your information 
-              at any time.
-            </p>
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm space-y-4">
+            <h3 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2">Privacy & Terms</h3>
+
+            <div>
+              <p className="text-xs font-semibold text-gray-700 mb-1">Privacy Policy</p>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Your driver's licence and passport photos are collected solely to verify your identity for rental purposes.
+                Photos are stored securely and encrypted. They will be permanently deleted once your rental has ended and
+                30 days have passed with no outstanding fines on your rental vehicle. Your personal details are retained
+                for record-keeping as required by Australian law. You may request access to or deletion of your information at any time.
+              </p>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <p className="text-xs font-semibold text-amber-800 mb-1.5">Direct Debit Request (DDR) Authority</p>
+              <p className="text-xs text-amber-700 leading-relaxed mb-2">
+                By submitting this form, you authorise the rental business to debit your nominated bank account via
+                the Bulk Electronic Clearing System (BECS) for the agreed rental amount on a recurring basis.
+              </p>
+              <ul className="space-y-1 text-xs text-amber-700">
+                <li>• A <strong>$10 dishonour fee</strong> applies for each failed or returned payment</li>
+                <li>• You will receive at least <strong>2 business days notice</strong> before any increase in debit amount</li>
+                <li>• Debits continue until you notify the business in writing to cancel</li>
+                <li>• Disputes must be lodged within <strong>120 days</strong> of the debit date</li>
+              </ul>
+            </div>
+
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -307,11 +325,11 @@ export default function OnboardPage() {
                 className="mt-0.5 w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
               />
               <span className="text-xs text-gray-700">
-                I have read and agree to the above privacy policy and consent to the collection and storage of my identity documents for rental verification purposes.
+                I have read and agree to the above privacy policy and direct debit authority, and consent to the
+                collection and storage of my identity documents for rental verification purposes.
               </span>
             </label>
           </div>
-
           {error && (
             <div className="bg-red-50 border border-red-400 text-red-700 text-sm rounded-lg px-4 py-3 font-medium">{error}</div>
           )}
