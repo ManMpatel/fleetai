@@ -846,7 +846,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         className="w-full bg-amber-bg text-amber border border-amber/20 text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
                         {actionLoading ? 'Processing...' : 'Pause Auto-Debit'}
                       </button>
-                      
+
                       {!showUpdateBank ? (
                         <button onClick={() => setShowUpdateBank(true)}
                           className="w-full border border-border text-text-muted text-xs font-medium py-2 rounded-lg hover:border-accent hover:text-accent transition-colors">
@@ -942,18 +942,6 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                       </div>
                     </div>
                   )}
-                </div>
-              )}
-              {paywayStatus === 'paused' && (
-                <div className="space-y-3">
-                  <div className="bg-amber-bg border border-amber/20 rounded-lg p-3">
-                    <p className="text-xs text-amber font-semibold mb-1">⏸️ Paused</p>
-                    {renter.payway?.weeklyAmount && <p className="text-sm text-text-primary">Resumes at ${renter.payway.weeklyAmount}/charge</p>}
-                  </div>
-                  <button onClick={() => setConfirm({ show: true, action: 'resume' })} disabled={actionLoading}
-                    className="w-full bg-green text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
-                    {actionLoading ? 'Processing...' : 'Resume Auto-Debit'}
-                  </button>
                 </div>
               )}
             </div>

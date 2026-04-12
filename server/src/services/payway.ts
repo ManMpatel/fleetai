@@ -274,49 +274,7 @@ export async function resumeDebit(
   }
 }
 
-// ── Disable/delete customer from PayWay vault ─────────────
-export async function disableCustomer(
-  customerId: string
-): Promise<{ success: boolean; error?: string }> {
-  if (!isConfigured()) {
-    console.log(`⚠️  PayWay not configured — mock disable for ${customerId}`)
-    return { success: true }
-  }
-  try {
-    // Step 1 — stop the schedule first (PayWay blocks delete if schedule active)
-    console.log(`📤 PayWay stop schedule — customerId: ${customerId}`)
-    try {
-      await axios.delete(
-        `${PAYWAY_BASE}/customers/${customerId}/schedule`,
-        {
-          headers: {
-            Authorization: `Basic ${Buffer.from(`${process.env.PAYWAY_SECRET_KEY || ''}:`).toString('base64')}`,
-          }
-        }
-      )
-      console.log(`✅ PayWay schedule stopped: ${customerId}`)
-    } catch (schedErr: any) {
-      console.log(`⚠️  Schedule stop failed (may not exist): ${schedErr.message}`)
-    }
 
-    // Step 2 — delete the customer
-    console.log(`📤 PayWay delete customer — customerId: ${customerId}`)
-    await axios.delete(
-      `${PAYWAY_BASE}/customers/${customerId}`,
-      {
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${process.env.PAYWAY_SECRET_KEY || ''}:`).toString('base64')}`,
-        }
-      }
-    )
-    console.log(`✅ PayWay customer deleted: ${customerId}`)
-    return { success: true }
-  } catch (err: any) {
-    const msg = err.response?.data?.message || err.message
-    console.error('❌ PayWay disableCustomer error:', msg)
-    return { success: false, error: msg }
-  }
-}
 
 // ── Update bank account on existing customer ──────────────
 export async function updateBankAccount(
