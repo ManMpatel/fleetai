@@ -12,6 +12,8 @@ import {
   pauseDebit,
   resumeDebit,
   getPaymentHistory,
+  voidTransaction,
+  refundTransaction,
 } from '../services/payway'
 
 const router = Router()

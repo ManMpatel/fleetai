@@ -923,11 +923,74 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         <p className="text-xs font-semibold text-red mb-1">🚨 Recover vehicle immediately</p>
                         <p className="text-xs text-red/80">
                           {payments.find(p => p.responseCode === '2')
-                            ? 'Renter has instructed their bank to stop these debits. Contact the renter and recover the vehicle now.'
-                            : "Renter's bank account is closed. Contact the renter and recover the vehicle now."}
+                            ? 'Renter has instructed their bank to stop these debits.'
+                            : "Renter's bank account is closed."}
+                          {' '}Contact the renter and recover the vehicle now.
                         </p>
                       </div>
                     )}
+                    {payments.map((p, i) => {
+                      const code = String(p.responseCode || '')
+                      const ok = p.status === 'approved' || code === '08' || code === '00'
+                      const isTerminal = code === '2' || code === '3'
+                      const isInsufficient = code === '03'
+                      const statusLabel = ok ? 'Approved' : isTerminal ? 'Terminal' : 'Declined'
+                      const statusClass = ok
+                        ? 'bg-green-bg text-green'
+                        : isTerminal ? 'bg-red-bg text-red font-semibold'
+                        : 'bg-amber-bg text-amber'
+                      const detail = isTerminal
+                        ? (code === '2' ? 'Renter stopped debits — recover vehicle' : 'Account closed — recover vehicle')
+                        : isInsufficient ? 'Insufficient funds' : ''
+                      return (
+                        <div key={i} className="py-2.5 border-b border-border last:border-0">
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusClass}`}>{statusLabel}</span>
+                                <span className="text-text-muted text-xs">{p.date ? new Date(p.date).toLocaleDateString('en-AU') : '—'}</span>
+                              </div>
+                              {detail && <p className={`text-[10px] mt-0.5 ${isTerminal ? 'text-red font-medium' : 'text-amber'}`}>{detail}</p>}
+                              {p.transactionId && (
+                                <div className="flex gap-2 mt-1.5">
+                                  {p.isVoidable && (
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/void-transaction`, { transactionId: p.transactionId })
+                                          onToast('✅ Transaction voided', 'success')
+                                          onRefresh()
+                                        } catch { onToast('❌ Void failed — may be past cutoff (6pm Sydney)', 'warning') }
+                                      }}
+                                      className="text-[10px] px-2 py-1 rounded border border-red/30 text-red bg-red-bg hover:bg-red/10"
+                                    >Void</button>
+                                  )}
+                                  {p.isRefundable && (
+                                    <button
+                                      onClick={async () => {
+                                        const amt = window.prompt(`Refund amount (max $${p.amount}):`, String(p.amount))
+                                        if (!amt) return
+                                        try {
+                                          await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/refund-transaction`, { transactionId: p.transactionId, amount: parseFloat(amt) })
+                                          onToast(`✅ $${amt} refunded`, 'success')
+                                          onRefresh()
+                                        } catch { onToast('❌ Refund failed', 'warning') }
+                                      }}
+                                      className="text-[10px] px-2 py-1 rounded border border-accent/30 text-accent bg-accent-bg hover:bg-accent/10"
+                                    >Refund</button>
+                                  )}
+                                  {!p.isVoidable && !p.isRefundable && ok && (
+                                    <span className="text-[10px] text-text-muted italic">Settled — no actions</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <span className={`text-sm font-semibold ${ok ? 'text-text-primary' : 'text-red'}`}>${Number(p.amount || 0).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  
                     {payments.map((p, i) => {
                       const code = String(p.responseCode || '')
                       const ok = p.status === 'approved' || code === '08' || code === '00'

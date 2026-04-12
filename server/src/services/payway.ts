@@ -234,6 +234,62 @@ export async function resumeDebit(
   }
 }
 
+
+// ── Void a transaction ────────────────────────────────────
+export async function voidTransaction(
+  transactionId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isConfigured()) {
+    console.log(`⚠️  PayWay not configured — mock void for ${transactionId}`)
+    return { success: true }
+  }
+  try {
+    console.log(`📤 PayWay void — transactionId: ${transactionId}`)
+    await axios.post(
+      `${PAYWAY_BASE}/transactions/${transactionId}/void`,
+      '',
+      { headers: getSecretAuthHeader() }
+    )
+    console.log(`✅ PayWay void success: ${transactionId}`)
+    return { success: true }
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message
+    console.error('❌ PayWay void error:', msg)
+    return { success: false, error: msg }
+  }
+}
+
+// ── Refund a transaction ──────────────────────────────────
+export async function refundTransaction(
+  transactionId: string,
+  amount: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!isConfigured()) {
+    console.log(`⚠️  PayWay not configured — mock refund for ${transactionId}`)
+    return { success: true }
+  }
+  try {
+    console.log(`📤 PayWay refund — transactionId: ${transactionId}, amount: $${amount}`)
+    const params = new URLSearchParams({
+      transactionType: 'refund',
+      parentTransactionId: transactionId,
+      principalAmount: amount.toFixed(2),
+    })
+    await axios.post(
+      `${PAYWAY_BASE}/transactions`,
+      params.toString(),
+      { headers: getSecretAuthHeader() }
+    )
+    console.log(`✅ PayWay refund success: ${transactionId} $${amount}`)
+    return { success: true }
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message
+    console.error('❌ PayWay refund error:', msg)
+    return { success: false, error: msg }
+  }
+}
+
+
 // ── Get payment history ───────────────────────────────────
 export async function getPaymentHistory(
   customerId: string
@@ -258,10 +314,14 @@ export async function getPaymentHistory(
     )
     const raw = res.data.data || []
     const payments = raw.map((t: any) => ({
+      transactionId: t.transactionId || null,
       date: t.transactionTime || t.settlementDate || null,
       amount: t.principalAmount || 0,
-      status: t.responseCode === '00' || t.responseCode === '08' ? 'approved' : 'declined',
+      status: t.status || (t.responseCode === '00' || t.responseCode === '08' ? 'approved' : 'declined'),
+      responseCode: t.responseCode || null,
       description: t.responseText || 'Direct debit',
+      isVoidable: t.voidable ?? false,
+      isRefundable: t.refundable ?? false,
     }))
     return { success: true, payments }
   } catch (err: any) {
