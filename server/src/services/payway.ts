@@ -286,7 +286,11 @@ export async function disableCustomer(
     console.log(`📤 PayWay disable customer — customerId: ${customerId}`)
     await axios.delete(
       `${PAYWAY_BASE}/customers/${customerId}`,
-      { headers: getSecretAuthHeader() }
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${process.env.PAYWAY_SECRET_KEY || ''}:`).toString('base64')}`,
+        }
+      }
     )
     console.log(`✅ PayWay customer disabled: ${customerId}`)
     return { success: true }
