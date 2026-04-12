@@ -139,7 +139,7 @@ export default function RegoImportPage() {
       if (result) {
         setConfirm({
         plate: result.data?.plate || '',
-        model: result.data?.model || '',
+        model: [result.data?.make, result.data?.model].filter(Boolean).join(' ') || '',
         year:  result.data?.year  || '',
         regoExpiry: result.data?.regoExpiry || '',
         notes: '',

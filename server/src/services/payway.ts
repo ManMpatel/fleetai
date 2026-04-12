@@ -99,7 +99,6 @@ export async function createPayWayCustomer(renter: {
       customerName: renter.name,
       emailAddress: renter.email || '',
       sendEmailReceipts: 'false',
-      phoneNumber: renter.phone,
     })
 
     console.log(`📤 PayWay create customer — customerNumber: ${customerId}, name: ${renter.name}, merchantId: ${merchantId}, bankAccountId: ${process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A'}`)
