@@ -17,6 +17,7 @@ import {
   pushNextPayment,
   retryFailedPayment,
   updateBankAccount,
+  disableCustomer,
 } from '../services/payway'
 
 const router = Router()
@@ -399,6 +400,37 @@ router.post('/:phone/refund-transaction', async (req: Request, res: Response) =>
       type: 'info',
       title: `Refund processed — ${renter.name}`,
       description: `$${amount} refunded for transaction ${transactionId}.`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/renters/:phone/disable-payway
+router.post('/:phone/disable-payway', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+    if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer found' })
+
+    const result = await disableCustomer(renter.payway.customerId)
+
+    // Even if PayWay fails (e.g. already deleted), clear in MongoDB
+    renter.payway.status = 'cancelled'
+    renter.payway.customerId = undefined
+    await renter.save()
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `PayWay vault cleared — ${renter.name}`,
+      description: result.success
+        ? 'Customer removed from PayWay vault. All scheduled debits stopped.'
+        : `MongoDB cleared but PayWay returned: ${result.error}`,
       actionRequired: false,
     })
 

@@ -274,6 +274,29 @@ export async function resumeDebit(
   }
 }
 
+// ── Disable/delete customer from PayWay vault ─────────────
+export async function disableCustomer(
+  customerId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isConfigured()) {
+    console.log(`⚠️  PayWay not configured — mock disable for ${customerId}`)
+    return { success: true }
+  }
+  try {
+    console.log(`📤 PayWay disable customer — customerId: ${customerId}`)
+    await axios.delete(
+      `${PAYWAY_BASE}/customers/${customerId}`,
+      { headers: getSecretAuthHeader() }
+    )
+    console.log(`✅ PayWay customer disabled: ${customerId}`)
+    return { success: true }
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message
+    console.error('❌ PayWay disableCustomer error:', msg)
+    return { success: false, error: msg }
+  }
+}
+
 // ── Update bank account on existing customer ──────────────
 export async function updateBankAccount(
   customerId: string,
