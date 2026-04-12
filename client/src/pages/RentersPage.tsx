@@ -702,6 +702,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
 
         {/* ── Payments tab ── */}
         {tab === 'payments' && (
+          <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             {/* Auto-debit control */}
             <div className="bg-surface border border-border rounded-xl p-5">
@@ -943,10 +944,46 @@ function RenterDetail({ renter, onToast, onRefresh }: {
               )}
             </div>
 
-            {/* History */}
-            <div className="space-y-4">
-              <div className="bg-surface border border-border rounded-xl p-4">
-                <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Payment History</h3>
+            {/* PayWay Activity Log */}
+            <div className="bg-surface border border-border rounded-xl p-5">
+              <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-4">PayWay Activity</h3>
+              {(() => {
+                const acts = ((renter.payway as any)?.activity || [])
+                  .filter((a: any) => !a.expiresAt || new Date(a.expiresAt) > new Date())
+                  .slice().reverse()
+                if (acts.length === 0) return <p className="text-xs text-text-muted text-center py-6">No activity yet</p>
+                return (
+                  <div className="divide-y divide-border">
+                    {acts.map((a: any, i: number) => (
+                      <div key={i} className="py-2.5 flex items-start gap-2.5">
+                        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                          a.type === 'success' ? 'bg-green' :
+                          a.type === 'error' ? 'bg-red' :
+                          a.type === 'warning' ? 'bg-amber' : 'bg-accent'
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-text-primary">{a.message}</p>
+                          {a.detail && <p className="text-xs text-text-muted mt-0.5">{a.detail}</p>}
+                          {a.expiresAt && (
+                            <p className="text-[10px] text-text-muted mt-0.5 italic">
+                              Clears after {new Date(a.expiresAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                            </p>
+                          )}
+                          <p className="text-[10px] text-text-muted mt-0.5">
+                            {new Date(a.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+
+          {/* Payment History — full width */}
+          <div className="bg-surface border border-border rounded-xl p-5">
+              <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Payment History</h3>
                 {paymentsLoading ? (
                   <p className="text-sm text-text-muted text-center py-4">Loading...</p>
                 ) : payments.length === 0 ? (
@@ -1090,7 +1127,6 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                 </div>
               )}
             </div>
-          </div>
         )}
       </div>
     </div>
