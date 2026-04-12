@@ -15,6 +15,7 @@ import {
   voidTransaction,
   refundTransaction,
   pushNextPayment,
+  retryFailedPayment,
 } from '../services/payway'
 
 const router = Router()
@@ -406,6 +407,35 @@ router.post('/:phone/refund-transaction', async (req: Request, res: Response) =>
   }
 })
 
+// POST /api/renters/:phone/retry-payment
+router.post('/:phone/retry-payment', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const DISHONOUR_FEE = 10
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+    if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer found' })
+
+    const weeklyAmount = renter.payway.weeklyAmount || 0
+    const retryAmount = weeklyAmount + DISHONOUR_FEE
+
+    const result = await retryFailedPayment(renter.payway.customerId, retryAmount)
+    if (!result.success) return res.status(400).json({ error: result.error || 'Retry failed' })
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `Payment retried — ${renter.name}`,
+      description: `$${retryAmount} charged (includes $${DISHONOUR_FEE} dishonour fee). Original: $${weeklyAmount}.`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true, retryAmount, dishonourFee: DISHONOUR_FEE })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // POST /api/renters/:phone/push-payment
 router.post('/:phone/push-payment', async (req: Request, res: Response) => {

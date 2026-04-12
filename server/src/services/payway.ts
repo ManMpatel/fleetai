@@ -274,6 +274,42 @@ export async function resumeDebit(
   }
 }
 
+// ── Retry a failed payment ────────────────────────────────
+export async function retryFailedPayment(
+  customerId: string,
+  amount: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!isConfigured()) {
+    console.log(`⚠️  PayWay not configured — mock retry for ${customerId} $${amount}`)
+    return { success: true }
+  }
+  try {
+    const idempotencyKey = `retry-${customerId}-${Date.now()}`
+    const params = new URLSearchParams({
+      customerNumber: customerId,
+      principalAmount: amount.toFixed(2),
+      currency: 'aud',
+      orderNumber: idempotencyKey.slice(0, 20),
+    })
+    console.log(`📤 PayWay retry — customerId: ${customerId}, amount: $${amount}`)
+    await axios.post(
+      `${PAYWAY_BASE}/transactions`,
+      params.toString(),
+      {
+        headers: {
+          ...getSecretAuthHeader(),
+          'Idempotency-Key': idempotencyKey,
+        }
+      }
+    )
+    console.log(`✅ PayWay retry success — $${amount} for ${customerId}`)
+    return { success: true }
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message
+    console.error('❌ PayWay retry error:', msg)
+    return { success: false, error: msg }
+  }
+}
 
 // ── Void a transaction ────────────────────────────────────
 export async function voidTransaction(

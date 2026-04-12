@@ -943,6 +943,21 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                               {detail && <p className={`text-[10px] mt-0.5 ${isTerminal ? 'text-red font-medium' : 'text-amber'}`}>{detail}</p>}
                               {p.transactionId && (
                                 <div className="flex gap-2 mt-1.5">
+                                  {!ok && !p.isVoidable && !p.isRefundable && (
+                                    <button
+                                      onClick={async () => {
+                                        if (!window.confirm(`Retry $${(p.amount + 10).toFixed(2)} (inc. $10 dishonour fee)?`)) return
+                                        setActionLoading(true)
+                                        try {
+                                          await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/retry-payment`)
+                                          onToast(`✅ Retry of $${(p.amount + 10).toFixed(2)} sent`, 'success')
+                                          onRefresh()
+                                        } catch { onToast('❌ Retry failed', 'warning') }
+                                        finally { setActionLoading(false) }
+                                      }}
+                                      className="text-[10px] px-2 py-1 rounded border border-amber/30 text-amber bg-amber-bg hover:bg-amber/10"
+                                    >Retry +$10 fee</button>
+                                  )}
                                   {p.isVoidable && (
                                     <button
                                       onClick={async () => {
