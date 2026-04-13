@@ -152,6 +152,21 @@ router.put('/:phone', async (req: Request, res: Response) => {
     const phone = decodeURIComponent(req.params.phone)
     const body  = { ...req.body }
 
+    // Track address changes
+    const existing = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    const historyEntries: any[] = []
+    if (existing && body.address) {
+      const a = existing.address as any
+      const fields: [string, string][] = [
+        ['Street', 'street'], ['City', 'city'], ['State', 'state'], ['Postcode', 'postcode']
+      ]
+      for (const [label, key] of fields) {
+        if (body.address[key] && body.address[key] !== a?.[key]) {
+          historyEntries.push({ field: label, oldValue: a?.[key] || '—', newValue: body.address[key] })
+        }
+      }
+    }
+
     if (body.licenceNumber) { body.licenceNumberHash = hash(body.licenceNumber); body.licenceNumber = encrypt(body.licenceNumber) }
     if (body.passportNumber) { body.passportNumberHash = hash(body.passportNumber); body.passportNumber = encrypt(body.passportNumber) }
     if (body.dateOfBirth) body.dateOfBirth = encrypt(body.dateOfBirth)
@@ -162,7 +177,10 @@ router.put('/:phone', async (req: Request, res: Response) => {
 
     const renter = await Renter.findOneAndUpdate(
       { phone, ownerId: req.ownerEmail },
-      { $set: body },
+      {
+        $set: body,
+        ...(historyEntries.length > 0 ? { $push: { changeHistory: { $each: historyEntries } } } : {})
+      },
       { new: true, runValidators: true }
     ).populate('currentVehicle', 'plate model type status')
     if (!renter) return res.status(404).json({ error: 'Renter not found' })

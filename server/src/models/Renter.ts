@@ -67,6 +67,13 @@ export interface IRenter extends Document {
     totalWeeks?: number
     totalAmount?: number
   }>
+
+  changeHistory?: Array<{
+    field: string
+    oldValue: string
+    newValue: string
+    changedAt: Date
+  }>
 }
 
 const RentalRecordSchema = new Schema({
@@ -142,6 +149,13 @@ const RenterSchema = new Schema<IRenter>(
     },
 
     rentalHistory: [RentalRecordSchema],
+
+    changeHistory: [{
+      field:     { type: String },
+      oldValue:  { type: String },
+      newValue:  { type: String },
+      changedAt: { type: Date, default: Date.now },
+    }],
   },
   { timestamps: true }
 )

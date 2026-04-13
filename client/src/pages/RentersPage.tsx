@@ -216,13 +216,23 @@ function RenterDetail({ renter, onToast, onRefresh }: {
 
   const paywayStatus = (renter.payway?.status || 'not_setup') as 'active' | 'paused' | 'cancelled' | 'not_setup'
 
+  const [showAddressHistory, setShowAddressHistory] = useState(false)
+
   async function savePersonal() {
     setSaving(true)
     try {
-      await axios.put(`/api/renters/${encodeURIComponent(renter.phone)}`, { ...personalForm, address: addressForm })
+      await axios.put(`/api/renters/${encodeURIComponent(renter.phone)}`, {
+        ...personalForm,
+        address: {
+          street: (addressForm as any).addressStreet || (addressForm as any).street,
+          city: (addressForm as any).addressCity || (addressForm as any).city,
+          state: (addressForm as any).addressState || (addressForm as any).state,
+          postcode: (addressForm as any).addressPostcode || (addressForm as any).postcode,
+        }
+      })
       onToast('✅ Details updated', 'success')
       setEditing(false)
-      onRefresh()
+      await onRefresh()
     } catch { onToast('❌ Failed to save', 'warning') }
     finally { setSaving(false) }
   }
@@ -387,9 +397,46 @@ function RenterDetail({ renter, onToast, onRefresh }: {
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-surface border border-border rounded-xl p-4">
                 <div className="flex justify-between mb-3">
-                  <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">Personal</h3>
-                  {!editing && <button onClick={() => setEditing(true)} className="text-xs text-accent font-medium">Edit</button>}
+                  <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">Address</h3>
+                  <div className="flex items-center gap-2">
+                    {((renter as any).changeHistory?.length > 0) && (
+                      <button onClick={() => setShowAddressHistory(true)}
+                        className="text-xs font-semibold text-text-muted border border-border rounded px-1.5 py-0.5 hover:text-accent hover:border-accent transition-colors">
+                        H
+                      </button>
+                    )}
+                    {!editing && <button onClick={() => setEditing(true)} className="text-xs text-accent font-medium">Edit</button>}
+                  </div>
                 </div>
+
+                {/* Address History Modal */}
+                {showAddressHistory && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowAddressHistory(false)}>
+                    <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 p-5" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-bold text-text-primary">Address Change History</h3>
+                        <button onClick={() => setShowAddressHistory(false)} className="text-text-muted hover:text-text-primary text-lg leading-none">✕</button>
+                      </div>
+                      {(renter as any).changeHistory?.length > 0 ? (
+                        <div className="space-y-2 max-h-72 overflow-y-auto">
+                          {[...(renter as any).changeHistory].reverse().map((h: any, i: number) => (
+                            <div key={i} className="text-xs border-b border-border pb-2 last:border-0">
+                              <div className="flex justify-between mb-0.5">
+                                <span className="font-semibold text-text-primary">{h.field}</span>
+                                <span className="text-text-muted">{new Date(h.changedAt).toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                              </div>
+                              <span className="text-text-muted">{h.oldValue}</span>
+                              <span className="text-text-muted mx-1">→</span>
+                              <span className="text-text-primary">{h.newValue}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-text-muted">No changes recorded yet.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {editing ? (
                   <div className="space-y-2">
                     <EditField label="Full Name" value={personalForm.name} onChange={v => setPersonalForm(p => ({ ...p, name: v }))} />
