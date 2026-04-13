@@ -78,8 +78,24 @@ export default function OnboardPage() {
     passportNumber: '',
   })
 
+  const [bankErrors, setBankErrors] = useState<{ bsb?: string; account?: string }>({})
+
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
-    setForm(p => ({ ...p, [e.target.name]: e.target.value }))
+    const { name, value } = e.target
+    if (name === 'bsbNumber') {
+      // Strip non-digits, max 6, auto-insert dash after 3rd digit
+      const digits = value.replace(/\D/g, '').slice(0, 6)
+      const formatted = digits.length > 3 ? `${digits.slice(0, 3)}-${digits.slice(3)}` : digits
+      setForm(p => ({ ...p, bsbNumber: formatted }))
+      setBankErrors(p => ({ ...p, bsb: digits.length === 6 ? undefined : digits.length > 0 ? 'BSB must be 6 digits (e.g. 062-000)' : undefined }))
+    } else if (name === 'accountNumber') {
+      // Strip spaces and non-digits
+      const digits = value.replace(/\D/g, '').slice(0, 9)
+      setForm(p => ({ ...p, accountNumber: digits }))
+      setBankErrors(p => ({ ...p, account: digits.length >= 6 ? undefined : digits.length > 0 ? 'Account number must be 6–9 digits' : undefined }))
+    } else {
+      setForm(p => ({ ...p, [name]: value }))
+    }
   }
 
   function handleFileChange(
@@ -104,6 +120,9 @@ export default function OnboardPage() {
     if (!passportFile) { setError('Please upload your passport photo'); return }
     if (!form.passportNumber.trim()) { setError('Please enter your passport number'); return }
     if (!termsAccepted) { setError('Please accept the terms and conditions to proceed'); return }
+    const bsbDigits = form.bsbNumber.replace(/\D/g, '')
+    if (bsbDigits.length !== 6) { setError('BSB must be exactly 6 digits (e.g. 062-000)'); return }
+    if (form.accountNumber.length < 6 || form.accountNumber.length > 9) { setError('Account number must be 6–9 digits'); return }
     setSubmitting(true)
     setError('')
 
@@ -279,8 +298,18 @@ export default function OnboardPage() {
           <Section title="Bank Account (for direct debit)">
             <Field label="Bank Name *" name="bankName" value={form.bankName} onChange={handleChange} required />
             <Field label="Name as per Bank *" name="accountHolderName" value={form.accountHolderName} onChange={handleChange} required />
-            <Field label="BSB No. *" name="bsbNumber" placeholder="000-000" value={form.bsbNumber} onChange={handleChange} required />
-            <Field label="Account Number *" name="accountNumber" value={form.accountNumber} onChange={handleChange} required />
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">BSB No. *</label>
+              <input name="bsbNumber" value={form.bsbNumber} onChange={handleChange} placeholder="000-000" inputMode="numeric"
+                className={`w-full bg-gray-50 border text-gray-900 text-sm rounded-lg px-3 py-2.5 focus:outline-none ${bankErrors.bsb ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-indigo-400'}`} />
+              {bankErrors.bsb && <p className="text-red-600 text-xs mt-1 font-medium">{bankErrors.bsb}</p>}
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Account Number *</label>
+              <input name="accountNumber" value={form.accountNumber} onChange={handleChange} placeholder="6–9 digits" inputMode="numeric"
+                className={`w-full bg-gray-50 border text-gray-900 text-sm rounded-lg px-3 py-2.5 focus:outline-none ${bankErrors.account ? 'border-red-400 focus:border-red-400' : 'border-gray-200 focus:border-indigo-400'}`} />
+              {bankErrors.account && <p className="text-red-600 text-xs mt-1 font-medium">{bankErrors.account}</p>}
+            </div>
           </Section>
 
           {/* Emergency Contact */}
