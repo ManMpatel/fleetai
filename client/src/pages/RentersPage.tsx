@@ -217,6 +217,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
   const paywayStatus = (renter.payway?.status || 'not_setup') as 'active' | 'paused' | 'cancelled' | 'not_setup'
 
   const [showAddressHistory, setShowAddressHistory] = useState(false)
+const [editingAddress, setEditingAddress] = useState(false)
 
   async function savePersonal() {
     setSaving(true)
@@ -232,6 +233,24 @@ function RenterDetail({ renter, onToast, onRefresh }: {
       })
       onToast('✅ Details updated', 'success')
       setEditing(false)
+      await onRefresh()
+    } catch { onToast('❌ Failed to save', 'warning') }
+    finally { setSaving(false) }
+  }
+
+  async function saveAddress() {
+    setSaving(true)
+    try {
+      await axios.put(`/api/renters/${encodeURIComponent(renter.phone)}`, {
+        address: {
+          street: (addressForm as any).street,
+          city: (addressForm as any).city,
+          state: (addressForm as any).state,
+          postcode: (addressForm as any).postcode,
+        }
+      })
+      onToast('✅ Address updated', 'success')
+      setEditingAddress(false)
       await onRefresh()
     } catch { onToast('❌ Failed to save', 'warning') }
     finally { setSaving(false) }
@@ -405,7 +424,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                         H
                       </button>
                     )}
-                    {!editing && <button onClick={() => setEditing(true)} className="text-xs text-accent font-medium">Edit</button>}
+                    {!editingAddress && <button onClick={() => setEditingAddress(true)} className="text-xs text-accent font-medium">Edit</button>}
                   </div>
                 </div>
 
@@ -454,8 +473,8 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                     <EditField label="Emergency Contact" value={personalForm.emergencyContactName} onChange={v => setPersonalForm(p => ({ ...p, emergencyContactName: v }))} />
                     <EditField label="Emergency Phone" value={personalForm.emergencyContactPhone} onChange={v => setPersonalForm(p => ({ ...p, emergencyContactPhone: v }))} />
                     <div className="flex gap-2 pt-1">
-                      <button onClick={savePersonal} disabled={saving} className="flex-1 bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
-                      <button onClick={() => setEditing(false)} className="flex-1 bg-surface2 text-text-secondary text-xs py-2 rounded-lg border border-border">Cancel</button>
+                      <button onClick={saveAddress} disabled={saving} className="flex-1 bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
+                      <button onClick={() => setEditingAddress(false)} className="flex-1 bg-surface2 text-text-secondary text-xs py-2 rounded-lg border border-border">Cancel</button>
                     </div>
                   </div>
                 ) : (
@@ -512,7 +531,7 @@ function RenterDetail({ renter, onToast, onRefresh }: {
                     <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">Address</h3>
                     {!editing && <button onClick={() => setEditing(true)} className="text-xs text-accent font-medium">Edit</button>}
                   </div>
-                  {editing ? (
+                  {editingAddress ? (
                     <div className="space-y-2">
                       <EditField label="Street" value={addressForm.street} onChange={v => setAddressForm(p => ({ ...p, street: v }))} />
                       <EditField label="City" value={addressForm.city} onChange={v => setAddressForm(p => ({ ...p, city: v }))} />
