@@ -4,6 +4,7 @@ import mongoose from 'mongoose'
 import dotenv from 'dotenv'
 import path from 'path'
 import cron from 'node-cron'
+import { pauseDebit } from './services/payway'
 
 import fleetRoutes from './routes/fleet'
 import notificationRoutes from './routes/notifications'
@@ -22,6 +23,7 @@ import employeeRoutes from './routes/employees'
 import ClockRecord from './models/ClockRecord'
 import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
+import Renter from './models/Renter'
 
 dotenv.config()
 
@@ -121,6 +123,18 @@ mongoose
     })
 
     // ── Cron jobs ─────────────────────────────────────────
+
+    // Re-pause all paused renters monthly (prevents PayWay 364-day auto-resume)
+cron.schedule('0 3 1 * *', async () => {
+  console.log('🔄 Re-pausing all paused renters...')
+  const paused = await Renter.find({ 'payway.status': 'paused', 'payway.customerId': { $exists: true } })
+  for (const renter of paused) {
+    await pauseDebit(renter.payway!.customerId!, renter.payway!.weeklyAmount || 10)
+    console.log(`✅ Re-paused: ${renter.name}`)
+  }
+  console.log(`✅ Done — ${paused.length} renters re-paused`)
+})
+
     // Gmail not configured — skipping cron
 // cron.schedule('0 * * * *', async () => {
 //   await checkGmailForFines()
@@ -159,9 +173,3 @@ mongoose
     process.exit(1)
   })
 
-
-
-
-  
-
-  // hii
