@@ -215,10 +215,14 @@ export async function pauseDebit(
   }
 
   try {
-    // PayWay doesn't have a "pause" — we set next payment far in future
+    // PayWay doesn't have a "pause" — we set next payment ~1 year ahead (max allowed)
+    const pauseDate = new Date()
+    pauseDate.setDate(pauseDate.getDate() + 364)
+    const PAUSE_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const pauseStr = `${String(pauseDate.getDate()).padStart(2, '0')} ${PAUSE_MONTHS[pauseDate.getMonth()]} ${pauseDate.getFullYear()}`
     const params = new URLSearchParams({
       frequency: 'weekly',
-      nextPaymentDate: '31 Dec 2099',
+      nextPaymentDate: pauseStr,
       regularPrincipalAmount: weeklyAmount.toFixed(2),
       nextPrincipalAmount: weeklyAmount.toFixed(2),
     })
