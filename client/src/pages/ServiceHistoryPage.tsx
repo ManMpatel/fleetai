@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import axios from 'axios'
+import { useAuth0 } from '@auth0/auth0-react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
@@ -27,6 +28,7 @@ interface ServiceRecord {
 }
 
 export default function ServiceHistoryPage() {
+  const { user } = useAuth0()
   const [query, setQuery] = useState('')
   const [records, setRecords] = useState<ServiceRecord[]>([])
   const [loading, setLoading] = useState(false)
@@ -38,9 +40,8 @@ export default function ServiceHistoryPage() {
     setLoading(true)
     setSearched(true)
     try {
-      const ownerEmail = axios.defaults.headers.common['x-owner-email'] as string
       const { data } = await axios.get(`${API}/api/employees/service-records`, {
-        params: { ownerId: ownerEmail, plate: query.trim().toUpperCase() }
+        params: { ownerId: user?.email, plate: query.trim().toUpperCase() }
       })
       setRecords(data || [])
     } catch {
