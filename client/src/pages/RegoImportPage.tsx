@@ -77,6 +77,7 @@ export default function RegoImportPage() {
   const [editVehicle, setEditVehicle] = useState<RegoVehicle | null>(null)
   const [editYear, setEditYear] = useState('')
   const [showManual, setShowManual] = useState(false)
+  const [manualError, setManualError] = useState('')
   const [manual, setManual] = useState({ plate: '', year: '', regoExpiry: '', notes: '' })
   const [photoModal, setPhotoModal] = useState<string | null>(null)
 
@@ -387,7 +388,12 @@ export default function RegoImportPage() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4">
           <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6">
             <h2 className="text-base font-semibold text-text-primary mb-1">Add rego manually</h2>
-            <p className="text-text-muted text-xs mb-5">Enter the rego details by hand.</p>
+            <p className="text-text-muted text-xs mb-4">Enter the rego details by hand.</p>
+            {manualError && (
+              <div className="mb-4 px-3 py-2.5 bg-red-50 border border-red-300 rounded-lg text-red-700 text-xs font-medium">
+                {manualError}
+              </div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Plate number *</label>
@@ -416,7 +422,7 @@ export default function RegoImportPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowManual(false)}
+              <button onClick={() => { setShowManual(false); setManualError('') }}
                 className="flex-1 py-2.5 border border-border rounded-xl text-sm text-text-secondary hover:border-accent transition-colors">
                 Cancel
               </button>
@@ -439,7 +445,12 @@ export default function RegoImportPage() {
                     setShowManual(false)
                     fetchVehicles()
                   } catch (err: any) {
-                    showToast(`❌ ${err.response?.data?.error || 'Failed to save'}`)
+                    const msg = err.response?.data?.error || ''
+                    if (msg.toLowerCase().includes('duplicate') || msg.toLowerCase().includes('dup key') || msg.toLowerCase().includes('already exists')) {
+                      setManualError(`Plate "${manual.plate.toUpperCase()}" already exists. Please change the plate number or add a different rego.`)
+                    } else {
+                      showToast(`❌ ${msg || 'Failed to save'}`)
+                    }
                   }
                   setSaving(false)
                 }}
