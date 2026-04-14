@@ -157,6 +157,23 @@ export default function OnboardPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    // If ownerEmail is empty, try to re-resolve slug before giving up
+    if (!ownerEmail && phone) {
+      try {
+        const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/auth/resolve/${phone}`)
+        setOwnerEmail(res.data.email)
+      } catch {
+        setError('This form link is invalid. Please ask the owner to resend the link.')
+        return
+      }
+    }
+
+    if (!ownerEmail) {
+      setError('This form link is invalid. Please ask the owner to resend the link.')
+      return
+    }
+
     if (!licenceFile) { setError('Please upload your licence photo'); return }
     if (!selfieFile) { setError('Please upload a selfie photo'); return }
     if (!passportFile) { setError('Please upload your passport photo'); return }
