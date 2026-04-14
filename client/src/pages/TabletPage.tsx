@@ -66,6 +66,7 @@ export default function TabletPage() {
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'custom'>('today')
   const [customDate, setCustomDate] = useState('')
   const [search, setSearch] = useState('')
+  const [expandedRecord, setExpandedRecord] = useState<string | null>(null)
 
   const [serviceForm, setServiceForm] = useState({
     vehicleCategory: 'rental', vehicleType: 'scooter', plate: '',
@@ -428,13 +429,7 @@ export default function TabletPage() {
                     <TField label="Customer Name" value={serviceForm.customerName} T={T} onChange={v => setServiceForm(f => ({ ...f, customerName: v }))} />
                     <TField label="Customer Phone" value={serviceForm.customerPhone} T={T} type="tel" onChange={v => setServiceForm(f => ({ ...f, customerPhone: v }))} />
                   </div>
-                  <div>
-                    <label className={`block text-xs ${T.muted} mb-1.5`}>Service Type</label>
-                    <select value={serviceForm.serviceType} onChange={e => setServiceForm(f => ({ ...f, serviceType: e.target.value }))}
-                      className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-indigo-500 ${T.select}`}>
-                      {SERVICE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                    </select>
-                  </div>
+                  
                   <div>
                     <label className={`block text-xs ${T.muted} mb-1.5`}>Description *</label>
                     <textarea value={serviceForm.description} onChange={e => setServiceForm(f => ({ ...f, description: e.target.value }))}
@@ -505,17 +500,48 @@ export default function TabletPage() {
               <div className="space-y-2">
                 {filteredRecords.map(r => (
                   <div key={r._id} className={`rounded-xl overflow-hidden ${T.card}`}>
-                    <div className="px-4 py-3 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`font-mono text-xs px-1.5 py-0.5 rounded ${T.card}`}>{r.plate}</span>
-                          <span className="text-sm font-medium">{SERVICE_TYPES.find(s => s.value === r.serviceType)?.label || r.serviceType}</span>
+                    <div className="px-4 py-3 cursor-pointer" onClick={() => setExpandedRecord(expandedRecord === r._id ? null : r._id)}>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`font-mono text-xs px-1.5 py-0.5 rounded ${T.card}`}>{r.plate}</span>
+                            <span className="text-sm font-medium">{SERVICE_TYPES.find(s => s.value === r.serviceType)?.label || r.serviceType}</span>
+                          </div>
+                          <p className={`text-xs ${T.muted} mt-0.5`}>
+                            {r.employeeName} · {r.customerName || '—'} · {fmtDate(r.date)} · {fmtTime(r.date)}
+                          </p>
                         </div>
-                        <p className={`text-xs ${T.muted} mt-0.5`}>
-                          {r.employeeName} · {r.customerName || '—'} · {fmtTime(r.date)}
-                        </p>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {r.cost ? <p className="text-sm font-semibold text-indigo-400">${r.cost}</p> : null}
+                          <span className={`text-xs ${T.muted}`}>{expandedRecord === r._id ? '▲' : '▼'}</span>
+                        </div>
                       </div>
-                      {r.cost ? <p className="text-sm font-semibold text-indigo-400 flex-shrink-0">${r.cost}</p> : null}
+
+                      {expandedRecord === r._id && (
+                        <div className={`mt-3 pt-3 border-t ${T.border} space-y-1.5`}>
+                          {r.description && (
+                            <div>
+                              <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide`}>Description</p>
+                              <p className="text-sm mt-0.5">{r.description}</p>
+                            </div>
+                          )}
+                          <div className="grid grid-cols-2 gap-3 mt-2">
+                            {r.customerName && (
+                              <div>
+                                <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide`}>Customer</p>
+                                <p className="text-sm mt-0.5">{r.customerName}</p>
+                                {r.customerPhone && <p className={`text-xs ${T.muted}`}>{r.customerPhone}</p>}
+                              </div>
+                            )}
+                            {(r as any).kilometres && (
+                              <div>
+                                <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide`}>Kilometres</p>
+                                <p className="text-sm mt-0.5">{(r as any).kilometres} km</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
