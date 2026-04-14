@@ -5,7 +5,7 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 type Screen = 'home' | 'pin' | 'selfie' | 'service-form' | 'success'
 type Action = 'in' | 'out' | 'service'
-type NavPage = 'home' | 'services'
+type NavPage = 'home' | 'services' | 'history'
 
 interface Employee { _id: string; name: string }
 interface ServiceRecord {
@@ -273,14 +273,22 @@ export default function TabletPage() {
           </svg>
           <span style={{ fontSize: 9, color: navPage === 'services' ? T.sidebarIconActive : 'rgba(255,255,255,0.4)' }}>Services</span>
         </button>
-      </div>
+      {/* History nav */}
+        <button onClick={() => setNavPage('history')}
+          className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors ${navPage === 'history' ? 'bg-indigo-500/25' : 'hover:bg-white/8'}`}>
+          <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke={navPage === 'history' ? T.sidebarIconActive : T.sidebarIcon} strokeWidth={2}>
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+          </svg>
+          <span style={{ fontSize: 9, color: navPage === 'history' ? T.sidebarIconActive : 'rgba(255,255,255,0.4)' }}>History</span>
+        </button>
+        </div>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Top bar */}
         <div className={`flex items-center justify-between px-5 py-3.5 border-b ${T.border} flex-shrink-0`}>
-          <p className={`text-sm font-medium ${T.text}`}>{navPage === 'home' ? 'Employee Portal' : 'Service History'}</p>
+          <p className={`text-sm font-medium ${T.text}`}>{navPage === 'home' ? 'Employee Portal' : navPage === 'services' ? 'Service History' : 'Service Search'}</p>
           <div className="flex items-center gap-3">
             <button onClick={toggleTheme} className={`w-8 h-8 rounded-xl flex items-center justify-center text-base ${T.toggleBg}`}>
               {dark ? '☀️' : '🌙'}
@@ -518,11 +526,86 @@ export default function TabletPage() {
           </div>
         )}
 
+      {/* ── HISTORY PAGE ── */}
+        {navPage === 'history' && (
+          <HistorySearchPage ownerId={ownerId} T={T} />
+        )}
+
       </div>
     </div>
   )
 }
 
+function HistorySearchPage({ ownerId, T }: { ownerId: string; T: Record<string, any> }) {
+  const [plate, setPlate] = useState('')
+  const [records, setRecords] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [searched, setSearched] = useState(false)
+
+  const SERVICE_LABELS: Record<string, string> = {
+    oil_change: 'Oil Change', tyres: 'Tyres', brakes: 'Brakes', general: 'General Service', other: 'Other'
+  }
+
+  async function search() {
+    if (!plate.trim()) return
+    setLoading(true); setSearched(true)
+    try {
+      const { data } = await axios.get(`${API}/api/employees/service-records`, {
+        params: { ownerId, plate: plate.trim().toUpperCase() }
+      })
+      setRecords(data || [])
+    } catch { setRecords([]) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="flex gap-2 mb-4">
+        <input
+          value={plate}
+          onChange={e => setPlate(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === 'Enter' && search()}
+          placeholder="Enter plate e.g. ABC123..."
+          className={`flex-1 border rounded-xl px-3 py-3 text-sm font-mono focus:outline-none focus:border-indigo-500 ${T.input}`}
+        />
+        <button onClick={search} disabled={loading}
+          className="px-5 py-3 bg-indigo-500 text-white rounded-xl text-sm font-medium disabled:opacity-50">
+          {loading ? '...' : 'Search'}
+        </button>
+      </div>
+
+      {searched && !loading && records.length === 0 && (
+        <div className={`rounded-xl p-8 text-center ${T.card}`}>
+          <p className={`text-sm ${T.muted}`}>No service records for <span className="font-mono">{plate}</span></p>
+        </div>
+      )}
+
+      {records.length > 0 && (
+        <div className="space-y-2">
+          <p className={`text-xs ${T.muted} mb-3`}>{records.length} records for <span className="font-mono">{plate}</span></p>
+          {records.map(r => (
+            <div key={r._id} className={`rounded-xl px-4 py-3 ${T.card}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{SERVICE_LABELS[r.serviceType] || r.serviceType}</p>
+                  <p className={`text-xs ${T.muted} mt-0.5`}>{r.description}</p>
+                  <p className={`text-xs ${T.muted} mt-1`}>
+                    {r.employeeName && `👤 ${r.employeeName}`}
+                    {r.kilometres && ` · 📍 ${r.kilometres} km`}
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  {r.cost != null && <p className="text-sm font-semibold text-indigo-400">${r.cost}</p>}
+                  <p className={`text-xs ${T.muted} mt-0.5`}>{new Date(r.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 function Clock({ dark }: { dark: boolean }) {
   const [time, setTime] = useState(new Date())
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t) }, [])

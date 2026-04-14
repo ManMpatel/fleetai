@@ -13,6 +13,7 @@ import RegoImportPage from './pages/RegoImportPage'
 import { useAuth0 } from '@auth0/auth0-react'
 import TabletPage from './pages/TabletPage'
 import StaffPage from './pages/StaffPage'
+import ServiceHistoryPage from './pages/ServiceHistoryPage'
 
 
 function LoginPage() {

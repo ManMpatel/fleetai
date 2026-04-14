@@ -4,9 +4,7 @@ import ClockRecord from '../models/ClockRecord'
 import { requireOwner } from '../middleware/ownerAuth'
 import multer from 'multer'
 
-
 const router = Router()
-
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -131,13 +129,15 @@ router.post('/log-service', async (req: Request, res: Response) => {
 // GET /api/employees/service-records — tablet fetches service records by ownerId + date
 router.get('/service-records', async (req: Request, res: Response) => {
   try {
-    const { ownerId, date, from, to } = req.query
+    const { ownerId, date, from, to, plate } = req.query
     if (!ownerId) return res.status(400).json({ error: 'ownerId required' })
 
     const ServiceRecord = (await import('../models/ServiceRecord')).default
     const filter: any = { ownerId }
 
-    if (from && to) {
+    if (plate) {
+      filter.plate = (plate as string).toUpperCase()
+    } else if (from && to) {
       const start = new Date(from as string); start.setHours(0,0,0,0)
       const end = new Date(to as string); end.setHours(23,59,59,999)
       filter.date = { $gte: start, $lte: end }
