@@ -65,11 +65,7 @@ export default function TabletPage() {
   // Services page state
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'custom'>('today')
   const [customDate, setCustomDate] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'done'>('all')
   const [search, setSearch] = useState('')
-  const [editingRecord, setEditingRecord] = useState<ServiceRecord | null>(null)
-  const [editForm, setEditForm] = useState<Partial<ServiceRecord>>({})
-  const [savingEdit, setSavingEdit] = useState(false)
 
   const [serviceForm, setServiceForm] = useState({
     vehicleCategory: 'rental', vehicleType: 'scooter', plate: '',
@@ -216,42 +212,10 @@ export default function TabletPage() {
     finally { setSubmitting(false) }
   }
 
-  async function markDone(record: ServiceRecord) {
-    try {
-      const { data } = await axios.patch(`${API}/api/employees/service-records/${record._id}`, { ownerId, status: 'done' })
-      setAllRecords(prev => prev.map(r => r._id === record._id ? data : r))
-    } catch { alert('Failed to mark as done') }
-  }
-
-  async function saveEdit() {
-    if (!editingRecord || !ownerId) return
-    setSavingEdit(true)
-    try {
-      const { data } = await axios.patch(`${API}/api/employees/service-records/${editingRecord._id}`, { ownerId, ...editForm })
-      setAllRecords(prev => prev.map(r => r._id === editingRecord._id ? data : r))
-      setEditingRecord(null)
-    } catch { alert('Failed to save') }
-    finally { setSavingEdit(false) }
-  }
-
-  async function markDoneFromEdit() {
-    if (!editingRecord || !ownerId) return
-    setSavingEdit(true)
-    try {
-      const { data } = await axios.patch(`${API}/api/employees/service-records/${editingRecord._id}`, { ownerId, ...editForm, status: 'done' })
-      setAllRecords(prev => prev.map(r => r._id === editingRecord._id ? data : r))
-      setEditingRecord(null)
-    } catch { alert('Failed to mark as done') }
-    finally { setSavingEdit(false) }
-  }
 
   const todayRecords = allRecords.filter(r => isToday(r.date))
   const filteredRecords = allRecords
-    .filter(r => statusFilter === 'all' || r.status === statusFilter)
     .filter(r => !search || r.plate.toLowerCase().includes(search.toLowerCase()) || (r.customerName || '').toLowerCase().includes(search.toLowerCase()))
-
-  const pendingToday = todayRecords.filter(r => r.status === 'pending').length
-  const doneToday = todayRecords.filter(r => r.status === 'done').length
 
   const d = dark
   const T = {
@@ -350,27 +314,16 @@ export default function TabletPage() {
 
                 {todayRecords.length > 0 && (
                   <div className={`mt-4 rounded-2xl overflow-hidden ${T.card}`}>
-                    <div className={`px-4 py-2.5 border-b ${T.border} flex items-center justify-between`}>
+                    <div className={`px-4 py-2.5 border-b ${T.border}`}>
                       <p className="text-sm font-medium">Today's services ({todayRecords.length})</p>
-                      <div className="flex gap-2 text-xs">
-                        <span className="text-amber-500">{pendingToday} pending</span>
-                        <span className="text-green-500">{doneToday} done</span>
-                      </div>
                     </div>
                     {todayRecords.slice(0, 4).map(r => (
                       <div key={r._id} className={`px-4 py-2.5 border-b ${T.border} last:border-0 flex items-center gap-3`}>
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.status === 'pending' ? 'bg-amber-400' : 'bg-green-500'}`} />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{r.plate} · {SERVICE_TYPES.find(s => s.value === r.serviceType)?.label}</p>
                           <p className={`text-xs ${T.muted}`}>{fmtTime(r.date)}</p>
                         </div>
                         {r.cost ? <p className="text-sm font-medium text-indigo-400">${r.cost}</p> : null}
-                        {r.status === 'pending' && (
-                          <button onClick={() => markDone(r)}
-                            className="text-xs bg-green-100 text-green-700 border border-green-300 px-2.5 py-1 rounded-lg">
-                            Done
-                          </button>
-                        )}
                       </div>
                     ))}
                     {todayRecords.length > 4 && (
@@ -506,17 +459,11 @@ export default function TabletPage() {
           <div className="flex-1 overflow-y-auto px-5 py-4">
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              {[
-                { label: 'Today total', value: todayRecords.length, color: '' },
-                { label: 'Pending', value: pendingToday, color: 'text-amber-500' },
-                { label: 'Done', value: doneToday, color: 'text-green-500' },
-              ].map(s => (
-                <div key={s.label} className={`rounded-xl p-3 text-center ${T.card}`}>
-                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                  <p className={`text-xs ${T.muted} mt-1`}>{s.label}</p>
-                </div>
-              ))}
+            <div className="mb-4">
+              <div className={`rounded-xl p-3 text-center ${T.card}`}>
+                <p className="text-2xl font-bold">{todayRecords.length}</p>
+                <p className={`text-xs ${T.muted} mt-1`}>Today total</p>
+              </div>
             </div>
 
             {/* Date filter */}
@@ -536,20 +483,8 @@ export default function TabletPage() {
                 className={`text-xs px-3 py-1.5 rounded-full border focus:outline-none ${T.border} ${T.select} ${dateFilter === 'custom' ? 'border-indigo-400' : ''}`} />
             </div>
 
-            {/* Status filter + search */}
+            {/* Search */}
             <div className="flex gap-2 mb-4">
-              <div className="flex gap-1">
-                {(['all', 'pending', 'done'] as const).map(f => (
-                  <button key={f} onClick={() => setStatusFilter(f)}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
-                      statusFilter === f
-                        ? 'bg-indigo-500/20 border-indigo-400 text-indigo-400'
-                        : `border ${T.border} ${T.muted}`
-                    }`}>
-                    {f}
-                  </button>
-                ))}
-              </div>
               <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="Search plate or customer..."
                 className={`flex-1 text-xs px-3 py-1.5 rounded-full border focus:outline-none ${T.input} ${T.border}`} />
@@ -563,90 +498,23 @@ export default function TabletPage() {
                 {filteredRecords.map(r => (
                   <div key={r._id} className={`rounded-xl overflow-hidden ${T.card}`}>
                     <div className="px-4 py-3 flex items-center gap-3">
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${r.status === 'pending' ? 'bg-amber-400' : 'bg-green-500'}`} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`font-mono text-xs px-1.5 py-0.5 rounded ${T.card}`}>{r.plate}</span>
                           <span className="text-sm font-medium">{SERVICE_TYPES.find(s => s.value === r.serviceType)?.label || r.serviceType}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                            {r.status}
-                          </span>
                         </div>
                         <p className={`text-xs ${T.muted} mt-0.5`}>
                           {r.employeeName} · {r.customerName || '—'} · {fmtTime(r.date)}
-                          {r.completedAt ? ` · done ${fmtTime(r.completedAt)}` : ''}
                         </p>
                       </div>
                       {r.cost ? <p className="text-sm font-semibold text-indigo-400 flex-shrink-0">${r.cost}</p> : null}
                     </div>
-                    {r.status === 'pending' && (
-                      <div className={`px-4 py-2 border-t ${T.border} flex gap-2`} style={{ background: dark ? 'rgba(255,255,255,0.03)' : '#f9f9f9' }}>
-                        <button onClick={() => { setEditingRecord(r); setEditForm({ ...r }) }}
-                          className={`text-xs px-3 py-1.5 rounded-lg border ${T.border} ${T.muted} hover:opacity-80`}>
-                          Edit
-                        </button>
-                        <button onClick={() => markDone(r)}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-green-100 text-green-700 border border-green-300 hover:bg-green-200">
-                          Mark as Done
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Edit modal */}
-            {editingRecord && (
-              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                <div className={`w-full max-w-md rounded-2xl overflow-hidden ${dark ? 'bg-gray-900' : 'bg-white'} border ${T.border}`}>
-                  <div className={`px-5 py-4 border-b ${T.border} flex items-center justify-between`}>
-                    <h3 className="text-base font-semibold">Edit Service Record</h3>
-                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Pending</span>
-                  </div>
-                  <div className="px-5 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
-                    <div>
-                      <label className={`block text-xs ${T.muted} mb-1`}>Service Type</label>
-                      <select value={editForm.serviceType || ''} onChange={e => setEditForm(f => ({ ...f, serviceType: e.target.value as any }))}
-                        className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.select}`}>
-                        {SERVICE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={`block text-xs ${T.muted} mb-1`}>Description</label>
-                      <textarea value={editForm.description || ''} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                        rows={2} className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none resize-none ${T.input}`} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className={`block text-xs ${T.muted} mb-1`}>Cost ($)</label>
-                        <input type="number" value={editForm.cost || ''} onChange={e => setEditForm(f => ({ ...f, cost: parseFloat(e.target.value) || undefined }))}
-                          className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.input}`} />
-                      </div>
-                      <div>
-                        <label className={`block text-xs ${T.muted} mb-1`}>Customer Name</label>
-                        <input value={editForm.customerName || ''} onChange={e => setEditForm(f => ({ ...f, customerName: e.target.value }))}
-                          className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.input}`} />
-                      </div>
-                    </div>
-                    <div>
-                      <label className={`block text-xs ${T.muted} mb-1`}>Notes</label>
-                      <input value={editForm.notes || ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
-                        className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.input}`} />
-                    </div>
-                  </div>
-                  <div className={`px-5 py-3 border-t ${T.border} flex gap-2`}>
-                    <button onClick={() => setEditingRecord(null)} className={`px-4 py-2 text-sm rounded-xl border ${T.border} ${T.muted}`}>Cancel</button>
-                    <button onClick={saveEdit} disabled={savingEdit} className="px-4 py-2 text-sm rounded-xl bg-indigo-500 text-white disabled:opacity-50 flex-1">
-                      {savingEdit ? 'Saving...' : 'Save changes'}
-                    </button>
-                    <button onClick={markDoneFromEdit} disabled={savingEdit} className="px-4 py-2 text-sm rounded-xl bg-green-500 text-white disabled:opacity-50">
-                      Mark Done ✓
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+            
           </div>
         )}
 
