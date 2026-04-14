@@ -158,19 +158,19 @@ function generateDDR(renter: any) {
 
   // Credit card number - individual boxes
   doc.text('Credit Card Number:', L, y)
-  let cx = 75
+  let cx = 62
   for (let i = 0; i < 16; i++) {
-    doc.rect(cx, y - 5, 6, 7)
-    cx += 7
+    doc.rect(cx, y - 5, 7, 7)
+    cx += 8
   }
   y += lineH
 
   doc.text('Expiry Date:', L, y)
-  doc.rect(90, y - 5, 8, 7); doc.text('M', 91.5, y)
-  doc.rect(99, y - 5, 8, 7); doc.text('M', 100.5, y)
-  doc.text('/', 109, y)
-  doc.rect(113, y - 5, 8, 7); doc.text('Y', 114.5, y)
-  doc.rect(122, y - 5, 8, 7); doc.text('Y', 123.5, y)
+  doc.rect(62, y - 5, 8, 7); doc.text('M', 63.5, y)
+  doc.rect(71, y - 5, 8, 7); doc.text('M', 72.5, y)
+  doc.text('/', 81, y)
+  doc.rect(85, y - 5, 8, 7); doc.text('Y', 86.5, y)
+  doc.rect(94, y - 5, 8, 7); doc.text('Y', 95.5, y)
   y += lineH
 
   field('Cardholder Name:', '')
