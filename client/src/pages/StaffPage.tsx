@@ -48,7 +48,7 @@ export default function StaffPage() {
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([])
   const [loading, setLoading]           = useState(true)
   const [tab, setTab] = useState<'clock' | 'service'>('clock')
-  const [svcFilter, setSvcFilter] = useState<'all' | 'pending' | 'done'>('all')
+  
 
   // form
   const [showForm, setShowForm]   = useState(false)
@@ -226,16 +226,7 @@ const [refreshing, setRefreshing] = useState(false)
               {t === 'clock' ? `Clock Log (${clockRecords.length})` : `Service Records (${serviceRecords.length})`}
             </button>
           ))}
-          {tab === 'service' && (
-            <div className="flex items-center gap-1 ml-2 py-2">
-              {(['all','pending','done'] as const).map(f => (
-                <button key={f} onClick={() => setSvcFilter(f)}
-                  className={`text-xs px-2.5 py-1 rounded-full capitalize transition-colors ${
-                    svcFilter === f ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary'
-                  }`}>{f}</button>
-              ))}
-            </div>
-          )}
+          
           <div className="ml-auto flex items-center pr-3">
             <button
               onClick={() => fetchAll(true)}
@@ -306,18 +297,8 @@ const [refreshing, setRefreshing] = useState(false)
         {/* Service tab */}
         {tab === 'service' && (
           <div>
-            <div className="flex gap-2 px-5 py-2.5 border-b border-border">
-              {(['all','pending','done'] as const).map(f => (
-                <button key={f} onClick={() => setSvcFilter(f)}
-                  className={`text-xs px-3 py-1 rounded-full capitalize transition-colors border ${
-                    svcFilter === f ? 'bg-accent text-white border-accent' : 'border-border text-text-muted hover:text-text-primary'
-                  }`}>
-                  {f} ({f === 'pending' ? serviceRecords.filter(r => !r.status || r.status === 'pending').length : f === 'done' ? serviceRecords.filter(r => r.status === 'done').length : serviceRecords.length})
-                </button>
-              ))}
-            </div>
             {(() => {
-              const filtered = serviceRecords.filter(r => svcFilter === 'all' || (svcFilter === 'pending' ? (!r.status || r.status === 'pending') : r.status === svcFilter))
+              const filtered = serviceRecords
               return filtered.length === 0 ? (
                 <div className="py-12 text-center text-text-muted text-sm">No service records found.</div>
               ) : (
@@ -325,7 +306,7 @@ const [refreshing, setRefreshing] = useState(false)
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border">
-                        {['Employee', 'Plate', 'Service', 'Customer', 'Cost', 'Status', 'Date'].map(h => (
+                        {['Employee', 'Plate', 'Service', 'Customer', 'Cost', 'Date'].map(h => (
                           <th key={h} className="px-5 py-3 text-left text-xs text-text-muted font-medium">{h}</th>
                         ))}
                       </tr>
@@ -354,11 +335,6 @@ const [refreshing, setRefreshing] = useState(false)
                           </td>
                           <td className="px-5 py-3 text-text-primary font-medium">
                             {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}
-                          </td>
-                          <td className="px-5 py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${(!r.status || r.status === 'pending') ? 'bg-amber-500/10 text-amber-500' : 'bg-green-500/10 text-green-500'}`}>
-                              {r.status || 'pending'}
-                            </span>
                           </td>
                           <td className="px-5 py-3 text-text-muted">{fmtDate(r.date)}</td>
                         </tr>
