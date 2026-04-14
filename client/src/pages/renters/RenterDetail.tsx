@@ -124,17 +124,17 @@ function generateDDR(renter: any) {
   // First signature box
   doc.setFontSize(10); doc.setFont('helvetica', 'normal')
   doc.text('Signature:', L, y)
-  doc.rect(50, y - 5, 70, 14)
+  doc.rect(65, y - 5, 60, 14)
   const sig = (renter as any).signatureBase64
   if (sig) {
     try {
       const sigData = sig.startsWith('data:')
         ? sig
         : `data:image/png;base64,${sig}`
-      doc.addImage(sigData, 'PNG', 51, y - 4, 68, 12)
+      doc.addImage(sigData, 'PNG', 66, y - 4, 58, 12)
     } catch {}
   }
-  doc.text('Date:', 130, y)
+  doc.text('Date:', 135, y)
   doc.rect(145, y - 5, 45, 7)
   const approvalDate = (renter as any).updatedAt
     ? new Date((renter as any).updatedAt).toLocaleDateString('en-AU')
@@ -144,41 +144,42 @@ function generateDDR(renter: any) {
 
   // Second signature box
   doc.text('Signature:', L, y)
-  doc.rect(50, y - 5, 70, 14)
-  doc.text('Date:', 130, y)
+  doc.rect(65, y - 5, 60, 14)
+  doc.text('Date:', 135, y)
   doc.rect(145, y - 5, 45, 7)
   y += 20
 
   para('If debiting from a joint bank account, both signatures are required.')
-  y += 4
+  y += 6
 
   // Credit card section
   para('[ ] I request to arrange for funds to be debited from my nominated credit card according to the schedule specified above and attached Direct Debit Service Agreement.')
-  y += 3
+  y += 5
 
-  // Credit card number - individual boxes
+  // Credit card number - individual boxes grouped by 4
   doc.text('Credit Card Number:', L, y)
-  let cx = 62
+  let cx = 65
   for (let i = 0; i < 16; i++) {
     doc.rect(cx, y - 5, 7, 7)
-    cx += 8
+    cx += 7
+    if ((i + 1) % 4 === 0 && i !== 15) cx += 4
   }
-  y += lineH
+  y += lineH + 3
 
   doc.text('Expiry Date:', L, y)
-  doc.rect(62, y - 5, 8, 7); doc.text('M', 63.5, y)
-  doc.rect(71, y - 5, 8, 7); doc.text('M', 72.5, y)
-  doc.text('/', 81, y)
-  doc.rect(85, y - 5, 8, 7); doc.text('Y', 86.5, y)
-  doc.rect(94, y - 5, 8, 7); doc.text('Y', 95.5, y)
-  y += lineH
+  doc.rect(65, y - 5, 8, 7); doc.text('M', 66.5, y)
+  doc.rect(73, y - 5, 8, 7); doc.text('M', 74.5, y)
+  doc.text('/', 83, y)
+  doc.rect(87, y - 5, 8, 7); doc.text('Y', 88.5, y)
+  doc.rect(95, y - 5, 8, 7); doc.text('Y', 96.5, y)
+  y += lineH + 3
 
   field('Cardholder Name:', '')
-  y += 2
+  y += 4
 
   doc.text('Signature:', L, y)
-  doc.rect(50, y - 5, 70, 14)
-  doc.text('Date:', 130, y)
+  doc.rect(65, y - 5, 60, 14)
+  doc.text('Date:', 135, y)
   doc.rect(145, y - 5, 45, 7)
   y += 22
 
