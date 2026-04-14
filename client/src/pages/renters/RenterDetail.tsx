@@ -123,18 +123,30 @@ function generateDDR(renter: any) {
 
   // Signature box
   doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-  doc.text('Signature:', L, y); doc.rect(50, y - 5, 80, 22)
+  // First signature box (renter's signature)
+  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+  doc.text('Signature:', L, y)
+  doc.rect(50, y - 5, 80, 18)
   if (renter.signatureBase64) {
     try {
       const sigData = renter.signatureBase64.startsWith('data:')
         ? renter.signatureBase64
         : `data:image/png;base64,${renter.signatureBase64}`
-      doc.addImage(sigData, 'PNG', 51, y - 4, 78, 20)
+      doc.addImage(sigData, 'PNG', 51, y - 4, 78, 16)
     } catch {}
   }
-  doc.text('Date:', 140, y); doc.rect(155, y - 5, 35, 7)
+  doc.text('Date:', 140, y)
+  doc.rect(155, y - 5, 35, 9)
   doc.text(new Date().toLocaleDateString('en-AU'), 157, y)
-  y += 30
+  y += 24
+
+  // Second signature box (for joint accounts)
+  doc.text('Signature:', L, y)
+  doc.rect(50, y - 5, 80, 18)
+  doc.text('Date:', 140, y)
+  doc.rect(155, y - 5, 35, 9)
+  y += 24
+
   para('If debiting from a joint bank account, both signatures are required.')
   y += 6
   para(`[ ] I request to arrange for funds to be debited from my nominated credit card according to the schedule specified above and attached Direct Debit Service Agreement.`)
