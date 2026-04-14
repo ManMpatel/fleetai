@@ -4,6 +4,7 @@ import type { Renter } from '../../types'
 import axios from 'axios'
 import RenterDetailPayments from './RenterDetailPayments'
 import RenterDetailVehicle from './RenterDetailVehicle'
+import { jsPDF } from 'jspdf'
 
 function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, onCancel }: {
   title: string; message: string; confirmLabel: string
@@ -51,6 +52,76 @@ const statusColors = {
 }
 const statusLabels = {
   active: 'Active', paused: 'Paused', cancelled: 'Cancelled', not_setup: 'Not Setup',
+}
+
+function generateDDR(renter: any) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const W = 210, margin = 20, lineH = 8
+  let y = 20
+
+  const line = () => { doc.setDrawColor(180); doc.line(margin, y, W - margin, y); y += 2 }
+  const text = (t: string, x = margin, size = 10, bold = false) => {
+    doc.setFontSize(size); doc.setFont('helvetica', bold ? 'bold' : 'normal')
+    doc.text(t, x, y); y += lineH
+  }
+  const field = (label: string, value: string) => {
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+    doc.text(label, margin, y)
+    doc.setDrawColor(150); doc.rect(70, y - 5, W - margin - 70, 7)
+    doc.text(value || '', 72, y); y += lineH
+  }
+
+  doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+  doc.text('Direct Debit Request (DDR)', W / 2, y, { align: 'center' }); y += 10
+  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+  doc.text('You may contact us as follows:   Mail: Sydney, NSW', margin, y); y += 6
+  doc.text('All communication should include your Customer Number.', margin, y); y += 10
+
+  text('PART A - Your Details', margin, 12, true); line(); y += 2
+  field('Customer Name:', renter.name || '')
+  field('Phone Number:', renter.phone || '')
+  field('Email Address:', renter.email || '')
+  field('Address:', renter.address?.street || '')
+  field('', renter.address?.city || '')
+  doc.text('State:', margin, y)
+  doc.rect(70, y - 5, 40, 7); doc.text(renter.address?.state || '', 72, y)
+  doc.text('Postcode:', 120, y)
+  doc.rect(145, y - 5, 30, 7); doc.text(renter.address?.postcode || '', 147, y)
+  y += lineH + 6
+
+  text('PART B - Schedule', margin, 12, true); line(); y += 2
+  text('Payments will be debited on the due date.'); y += 4
+
+  text('PART C - Payment Amounts', margin, 12, true); line(); y += 2
+  text('Payments amount will be debited in full.'); y += 8
+
+  text('PART D - Cheque/Savings Account Authorisation', margin, 12, true); line(); y += 2
+  const authText = `I/We request and authorise the debit to my nominated account. This debit will be made through the Bulk Electronic Clearing System (BECS) and will be subject to the terms and conditions of the Direct Debit Request Service Agreement.`
+  const split = doc.splitTextToSize(authText, W - margin * 2)
+  doc.setFontSize(9); doc.text(split, margin, y); y += split.length * 5 + 4
+
+  field('Financial Institution:', renter.bankName || '')
+  field('Account Name:', renter.accountHolderName || '')
+  field('BSB No.:', renter.bsbNumber || '')
+  field('Account Number:', renter.accountNumber ? '****' + renter.accountNumber.slice(-3) : '')
+  y += 4
+
+  const authText2 = `I/We request and authorise. By signing and/or providing a valid instruction in respect to this Direct Debit Request, you have understood and agreed to the terms and conditions.`
+  const split2 = doc.splitTextToSize(authText2, W - margin * 2)
+  doc.setFontSize(9); doc.text(split2, margin, y); y += split2.length * 5 + 6
+
+  doc.text('Signature:', margin, y)
+  doc.rect(50, y - 5, 80, 20)
+  if (renter.signatureBase64) {
+    try { doc.addImage(renter.signatureBase64, 'PNG', 51, y - 4, 78, 18) } catch {}
+  }
+  doc.text('Date:', 140, y)
+  doc.rect(155, y - 5, 35, 7)
+  doc.text(new Date().toLocaleDateString('en-AU'), 157, y)
+  y += 25
+  doc.text('If debiting from a joint bank account, both signatures are required.', margin, y)
+
+  doc.save(`DDR_${renter.name?.replace(/\s+/g, '_')}_${renter.phone}.pdf`)
 }
 
 export default function RenterDetail({ renter, onToast, onRefresh }: {
@@ -289,7 +360,13 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
               <div className="bg-surface border border-border rounded-xl p-4">
                 <div className="flex justify-between mb-3">
                   <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">Personal</h3>
-                  {!editing && <button onClick={() => setEditing(true)} className="text-xs text-accent font-medium">Edit</button>}
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => generateDDR(renter)}
+                      className="text-xs bg-accent text-white px-2.5 py-1 rounded-lg font-medium hover:bg-accent/90 transition-colors">
+                      ↓ DDR
+                    </button>
+                    {!editing && <button onClick={() => setEditing(true)} className="text-xs text-accent font-medium">Edit</button>}
+                  </div>
                 </div>
                 {editing ? (
                   <div className="space-y-2">
