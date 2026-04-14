@@ -123,42 +123,65 @@ function generateDDR(renter: any) {
 
   // Signature box
   doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-  // First signature box (renter's signature)
+  // First signature box
   doc.setFontSize(10); doc.setFont('helvetica', 'normal')
   doc.text('Signature:', L, y)
-  doc.rect(50, y - 5, 80, 18)
+  doc.rect(50, y - 5, 70, 14)
   if (renter.signatureBase64) {
     try {
       const sigData = renter.signatureBase64.startsWith('data:')
         ? renter.signatureBase64
         : `data:image/png;base64,${renter.signatureBase64}`
-      doc.addImage(sigData, 'PNG', 51, y - 4, 78, 16)
+      doc.addImage(sigData, 'PNG', 51, y - 4, 68, 12)
     } catch {}
   }
-  doc.text('Date:', 140, y)
-  doc.rect(155, y - 5, 35, 9)
-  doc.text(new Date().toLocaleDateString('en-AU'), 157, y)
-  y += 24
+  doc.text('Date:', 130, y)
+  doc.rect(145, y - 5, 45, 7)
+  y += 20
 
-  // Second signature box (for joint accounts)
+  // Second signature box
   doc.text('Signature:', L, y)
-  doc.rect(50, y - 5, 80, 18)
-  doc.text('Date:', 140, y)
-  doc.rect(155, y - 5, 35, 9)
-  y += 24
+  doc.rect(50, y - 5, 70, 14)
+  doc.text('Date:', 130, y)
+  doc.rect(145, y - 5, 45, 7)
+  y += 20
 
   para('If debiting from a joint bank account, both signatures are required.')
-  y += 6
-  para(`[ ] I request to arrange for funds to be debited from my nominated credit card according to the schedule specified above and attached Direct Debit Service Agreement.`)
   y += 4
-  field('Credit Card Number:', '')
-  field('Expiry Date (MM/YY):', '')
+
+  // Credit card section
+  para('[ ] I request to arrange for funds to be debited from my nominated credit card according to the schedule specified above and attached Direct Debit Service Agreement.')
+  y += 3
+
+  // Credit card number - individual boxes
+  doc.text('Credit Card Number:', L, y)
+  let cx = 90
+  for (let i = 0; i < 16; i++) {
+    doc.rect(cx, y - 5, 5.5, 7)
+    cx += 6
+  }
+  y += lineH
+
+  doc.text('Expiry Date:', L, y)
+  doc.rect(90, y - 5, 8, 7); doc.text('M', 91.5, y)
+  doc.rect(99, y - 5, 8, 7); doc.text('M', 100.5, y)
+  doc.text('/', 109, y)
+  doc.rect(113, y - 5, 8, 7); doc.text('Y', 114.5, y)
+  doc.rect(122, y - 5, 8, 7); doc.text('Y', 123.5, y)
+  y += lineH
+
   field('Cardholder Name:', '')
-  doc.text('Signature:', L, y); doc.rect(50, y - 5, 80, 15)
-  doc.text('Date:', 140, y); doc.rect(155, y - 5, 35, 7)
+  y += 2
+
+  doc.text('Signature:', L, y)
+  doc.rect(50, y - 5, 70, 14)
+  doc.text('Date:', 130, y)
+  doc.rect(145, y - 5, 45, 7)
   y += 22
+
   txt('Completed Application', L, 11, 'bold'); hline(); y += 2
-  para('Return your completed application by mail to:\n    Mail: Sydney, NSW')
+  para('Return your completed application by mail to:')
+  para('    Mail: Sydney, NSW')
 
   // ── PAGE 3 ──
   newPage()
