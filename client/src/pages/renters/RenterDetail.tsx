@@ -74,7 +74,7 @@ function generateDDR(renter: any) {
   const para = (t: string, size = 9) => {
     doc.setFontSize(size); doc.setFont('helvetica', 'normal')
     const lines = doc.splitTextToSize(t, R - L)
-    doc.text(lines, L, y); y += lines.length * (size * 0.4) + 3
+    doc.text(lines, L, y); y += lines.length * 5 + 2
   }
   const section = (title: string) => {
     y += 2; doc.setFillColor(240, 240, 240)
@@ -111,7 +111,7 @@ function generateDDR(renter: any) {
   // ── PAGE 2 ──
   newPage()
   txt('PART D - Cheque/Savings Account Authorisation', L, 12, 'bold'); hline(); y += 2
-  para(`☐ I/We request and authorise to arrange, through its own financial institution, a debit to your nominated account any amount deemed payable by you. This debit or charge will be made through the Bulk Electronic Clearing System (BECS) from your account held at the financial institution you have nominated below and will be subject to the terms and conditions of the Direct Debit Request Service Agreement.`)
+  para(`[ ] I/We request and authorise to arrange, through its own financial institution, a debit to your nominated account any amount deemed payable by you. This debit or charge will be made through the Bulk Electronic Clearing System (BECS) from your account held at the financial institution you have nominated below and will be subject to the terms and conditions of the Direct Debit Request Service Agreement.`)
   y += 4
   field('Financial Institution:', renter.bankName || '')
   field('Account Name:', renter.accountHolderName || '')
@@ -125,14 +125,19 @@ function generateDDR(renter: any) {
   doc.setFontSize(10); doc.setFont('helvetica', 'normal')
   doc.text('Signature:', L, y); doc.rect(50, y - 5, 80, 22)
   if (renter.signatureBase64) {
-    try { doc.addImage(renter.signatureBase64, 'PNG', 51, y - 4, 78, 20) } catch {}
+    try {
+      const sigData = renter.signatureBase64.startsWith('data:')
+        ? renter.signatureBase64
+        : `data:image/png;base64,${renter.signatureBase64}`
+      doc.addImage(sigData, 'PNG', 51, y - 4, 78, 20)
+    } catch {}
   }
   doc.text('Date:', 140, y); doc.rect(155, y - 5, 35, 7)
   doc.text(new Date().toLocaleDateString('en-AU'), 157, y)
   y += 30
   para('If debiting from a joint bank account, both signatures are required.')
   y += 6
-  para(`☐ I request to arrange for funds to be debited from my nominated credit card according to the schedule specified above and attached Direct Debit Service Agreement.`)
+  para(`[ ] I request to arrange for funds to be debited from my nominated credit card according to the schedule specified above and attached Direct Debit Service Agreement.`)
   y += 4
   field('Credit Card Number:', '')
   field('Expiry Date (MM/YY):', '')
