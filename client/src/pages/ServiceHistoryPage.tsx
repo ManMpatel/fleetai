@@ -2,8 +2,6 @@ import { useState } from 'react'
 import axios from 'axios'
 import { useAuth0 } from '@auth0/auth0-react'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 function fmt(d: string) {
   const dt = new Date(d)
@@ -40,7 +38,7 @@ export default function ServiceHistoryPage() {
     setLoading(true)
     setSearched(true)
     try {
-      const { data } = await axios.get(`${API}/api/employees/service-records`, {
+      const { data } = await axios.get(`/api/employees/service-records`, {
         params: { ownerId: user?.email, plate: query.trim().toUpperCase() }
       })
       setRecords(data || [])
