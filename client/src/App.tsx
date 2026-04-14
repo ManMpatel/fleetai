@@ -203,6 +203,7 @@ export default function App() {
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/staff" element={<StaffPage />} />
+                <Route path="/service-history" element={<ServiceHistoryPage />} />
                 <Route path="/rego-import" element={<RegoImportPage />} />
                 <Route path="/tablet/:slug" element={<TabletPage />} />
               </Routes>

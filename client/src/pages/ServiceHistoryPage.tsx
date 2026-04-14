@@ -38,8 +38,8 @@ export default function ServiceHistoryPage() {
     setLoading(true)
     setSearched(true)
     try {
-      const { data } = await axios.get(`/api/employees/service-records`, {
-        params: { ownerId: user?.email, plate: query.trim().toUpperCase() }
+      const { data } = await axios.get(`/api/service-records`, {
+        params: { plate: query.trim().toUpperCase() }
       })
       setRecords(data || [])
     } catch {
