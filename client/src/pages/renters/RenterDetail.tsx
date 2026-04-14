@@ -56,72 +56,173 @@ const statusLabels = {
 
 function generateDDR(renter: any) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-  const W = 210, margin = 20, lineH = 8
-  let y = 20
+  const W = 210, L = 20, R = 190, lineH = 7
+  let y = 0
 
-  const line = () => { doc.setDrawColor(180); doc.line(margin, y, W - margin, y); y += 2 }
-  const text = (t: string, x = margin, size = 10, bold = false) => {
-    doc.setFontSize(size); doc.setFont('helvetica', bold ? 'bold' : 'normal')
-    doc.text(t, x, y); y += lineH
+  const newPage = () => { doc.addPage(); y = 20 }
+  const hline = () => { doc.setDrawColor(150); doc.line(L, y, R, y); y += 3 }
+  const txt = (t: string, x = L, size = 10, style: 'normal'|'bold'|'italic' = 'normal') => {
+    doc.setFontSize(size); doc.setFont('helvetica', style); doc.text(t, x, y); y += lineH
   }
   const field = (label: string, value: string) => {
     doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-    doc.text(label, margin, y)
-    doc.setDrawColor(150); doc.rect(70, y - 5, W - margin - 70, 7)
-    doc.text(value || '', 72, y); y += lineH
+    doc.text(label, L, y)
+    doc.setDrawColor(150); doc.rect(65, y - 5, R - 65, 7)
+    if (value) doc.text(value, 67, y)
+    y += lineH
+  }
+  const para = (t: string, size = 9) => {
+    doc.setFontSize(size); doc.setFont('helvetica', 'normal')
+    const lines = doc.splitTextToSize(t, R - L)
+    doc.text(lines, L, y); y += lines.length * (size * 0.4) + 3
+  }
+  const section = (title: string) => {
+    y += 2; doc.setFillColor(240, 240, 240)
+    doc.rect(L, y - 4, R - L, 8, 'F')
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold')
+    doc.text(title, L + 2, y + 1); y += 8
   }
 
+  // ── PAGE 1 ──
+  y = 25
   doc.setFontSize(14); doc.setFont('helvetica', 'bold')
   doc.text('Direct Debit Request (DDR)', W / 2, y, { align: 'center' }); y += 10
-  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-  doc.text('You may contact us as follows:   Mail: Sydney, NSW', margin, y); y += 6
-  doc.text('All communication should include your Customer Number.', margin, y); y += 10
+  para('You may contact us as follows:'); y -= 3
+  txt('Mail:    Sydney, NSW', L + 10)
+  para('All communication addressed to us should include your Customer Number.'); y += 4
 
-  text('PART A - Your Details', margin, 12, true); line(); y += 2
+  txt('PART A - Your Details', L, 12, 'bold'); hline(); y += 2
   field('Customer Name:', renter.name || '')
   field('Phone Number:', renter.phone || '')
   field('Email Address:', renter.email || '')
   field('Address:', renter.address?.street || '')
   field('', renter.address?.city || '')
-  doc.text('State:', margin, y)
-  doc.rect(70, y - 5, 40, 7); doc.text(renter.address?.state || '', 72, y)
-  doc.text('Postcode:', 120, y)
-  doc.rect(145, y - 5, 30, 7); doc.text(renter.address?.postcode || '', 147, y)
+  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+  doc.text('State:', L, y); doc.rect(65, y - 5, 35, 7); doc.text(renter.address?.state || '', 67, y)
+  doc.text('Postcode:', 108, y); doc.rect(128, y - 5, 27, 7); doc.text(renter.address?.postcode || '', 130, y)
   y += lineH + 6
 
-  text('PART B - Schedule', margin, 12, true); line(); y += 2
-  text('Payments will be debited on the due date.'); y += 4
+  txt('PART B - Schedule', L, 12, 'bold'); hline(); y += 2
+  para('Payments will be debited on the due date.'); y += 6
 
-  text('PART C - Payment Amounts', margin, 12, true); line(); y += 2
-  text('Payments amount will be debited in full.'); y += 8
+  txt('PART C - Payment Amounts', L, 12, 'bold'); hline(); y += 2
+  para('Payments amount will be debited in full.')
 
-  text('PART D - Cheque/Savings Account Authorisation', margin, 12, true); line(); y += 2
-  const authText = `I/We request and authorise the debit to my nominated account. This debit will be made through the Bulk Electronic Clearing System (BECS) and will be subject to the terms and conditions of the Direct Debit Request Service Agreement.`
-  const split = doc.splitTextToSize(authText, W - margin * 2)
-  doc.setFontSize(9); doc.text(split, margin, y); y += split.length * 5 + 4
-
+  // ── PAGE 2 ──
+  newPage()
+  txt('PART D - Cheque/Savings Account Authorisation', L, 12, 'bold'); hline(); y += 2
+  para(`☐ I/We request and authorise to arrange, through its own financial institution, a debit to your nominated account any amount deemed payable by you. This debit or charge will be made through the Bulk Electronic Clearing System (BECS) from your account held at the financial institution you have nominated below and will be subject to the terms and conditions of the Direct Debit Request Service Agreement.`)
+  y += 4
   field('Financial Institution:', renter.bankName || '')
   field('Account Name:', renter.accountHolderName || '')
   field('BSB No.:', renter.bsbNumber || '')
-  field('Account Number:', renter.accountNumber ? '****' + renter.accountNumber.slice(-3) : '')
+  field('Account Number:', renter.accountNumber || '')
+  y += 4
+  para(`I/We request and authorise Acknowledgement. By signing and/or providing us with a valid instruction in respect to your Direct Debit Request, you have understood and agreed to the terms and conditions governing the debit arrangements as set out in this Request and in your Direct Debit Request Service Agreement.`)
   y += 4
 
-  const authText2 = `I/We request and authorise. By signing and/or providing a valid instruction in respect to this Direct Debit Request, you have understood and agreed to the terms and conditions.`
-  const split2 = doc.splitTextToSize(authText2, W - margin * 2)
-  doc.setFontSize(9); doc.text(split2, margin, y); y += split2.length * 5 + 6
-
-  doc.text('Signature:', margin, y)
-  doc.rect(50, y - 5, 80, 20)
+  // Signature box
+  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+  doc.text('Signature:', L, y); doc.rect(50, y - 5, 80, 22)
   if (renter.signatureBase64) {
-    try { doc.addImage(renter.signatureBase64, 'PNG', 51, y - 4, 78, 18) } catch {}
+    try { doc.addImage(renter.signatureBase64, 'PNG', 51, y - 4, 78, 20) } catch {}
   }
-  doc.text('Date:', 140, y)
-  doc.rect(155, y - 5, 35, 7)
+  doc.text('Date:', 140, y); doc.rect(155, y - 5, 35, 7)
   doc.text(new Date().toLocaleDateString('en-AU'), 157, y)
-  y += 25
-  doc.text('If debiting from a joint bank account, both signatures are required.', margin, y)
+  y += 30
+  para('If debiting from a joint bank account, both signatures are required.')
+  y += 6
+  para(`☐ I request to arrange for funds to be debited from my nominated credit card according to the schedule specified above and attached Direct Debit Service Agreement.`)
+  y += 4
+  field('Credit Card Number:', '')
+  field('Expiry Date (MM/YY):', '')
+  field('Cardholder Name:', '')
+  doc.text('Signature:', L, y); doc.rect(50, y - 5, 80, 15)
+  doc.text('Date:', 140, y); doc.rect(155, y - 5, 35, 7)
+  y += 22
+  txt('Completed Application', L, 11, 'bold'); hline(); y += 2
+  para('Return your completed application by mail to:\n    Mail: Sydney, NSW')
 
-  doc.save(`DDR_${renter.name?.replace(/\s+/g, '_')}_${renter.phone}.pdf`)
+  // ── PAGE 3 ──
+  newPage()
+  txt('Customer Direct Debit Request (DDR) Service Agreement', L, 13, 'bold'); y += 4
+  para(`This is your Direct Debit Service Agreement (the Debit User). It explains what your obligations are when undertaking a Direct Debit arrangement with us. It also details what our obligations are to you as your Direct Debit provider.`)
+  para('Please keep this agreement for future reference. It forms part of the terms and conditions of your Direct Debit Request (DDR) and should be read in conjunction with your DDR authorisation.'); y += 4
+
+  section('Definitions'); y += 2
+  const defs = [
+    ['account', 'means the account held at your financial institution from which we are authorised to arrange for funds to be debited.'],
+    ['agreement', 'means this Direct Debit Request Service Agreement between you and us.'],
+    ['banking day', 'means a day other than a Saturday or a Sunday or a public holiday listed throughout Australia.'],
+    ['debit day', 'means the day that payment by you to us is due.'],
+    ['debit payment', 'means a particular transaction where a debit is made.'],
+    ['Direct Debit Request', 'means the written, verbal or online request between us and you to debit funds from your account.'],
+    ['us or we', 'means the Debit User you have authorised by requesting a Direct Debit Request.'],
+    ['you', 'means the customer who has authorised the Direct Debit Request.'],
+    ['your financial institution', 'means the financial institution at which you hold the account you have authorised us to debit.'],
+  ]
+  defs.forEach(([term, def]) => {
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.text(term, L, y)
+    doc.setFont('helvetica', 'normal')
+    const lines = doc.splitTextToSize(def, R - L - 35)
+    doc.text(lines, L + 35, y); y += Math.max(lineH, lines.length * 4)
+  })
+  y += 4
+  section('Debiting your account'); y += 2
+  para('By submitting a Direct Debit Request, you have authorised us to arrange for funds to be debited from your account. The Direct Debit Request and this agreement set out the terms of the arrangement between us and you.')
+  para('We will only arrange for funds to be debited from your account as authorised in the Direct Debit Request.')
+  para('or')
+  para('We will only arrange for funds to be debited from your account if we have sent to the email/address nominated by you in the Direct Debit Request, a billing advice which specifies the amount payable by you to us and when it is due.')
+  para('If the debit day falls on a day that is not a banking day, we may direct your financial institution to debit your account on the following banking day. If you are unsure about which day your account has or will be debited you should ask your financial institution.')
+
+  // ── PAGE 4 ──
+  newPage()
+  section('Amendments by us'); y += 2
+  para('We may vary any details of this Agreement or a Direct Debit Request at any time by giving you at least thirty (30) days written notice sent to the preferred email or address you have given us in the Direct Debit Request.'); y += 4
+
+  section('How to cancel or change direct debits'); y += 2
+  para('You can:')
+  para('(a) cancel or suspend the Direct Debit Request; or')
+  para('(b) change, stop or defer an individual debit payment')
+  para('at any time by giving at least 7 days notice.')
+  para('To do so, contact us at: Sydney, NSW')
+  para('or by telephoning us during business hours.')
+  para('You can also contact your own financial institution, which must act promptly on your instructions.'); y += 4
+
+  section('Your obligations'); y += 2
+  para('It is your responsibility to ensure that there are sufficient clear funds available in your account to allow a debit payment to be made in accordance with the Direct Debit Request.')
+  para('If there are insufficient clear funds in your account to meet a debit payment:')
+  para('(a) you may be charged a fee and/or interest by your financial institution;')
+  para('(b) we may charge you reasonable costs incurred by us on account of there being insufficient funds; and')
+  para('(c) you must arrange for the debit payment to be made by another method or arrange for sufficient clear funds to be in your account by an agreed time so that we can process the debit payment.')
+  para('You should check your account statement to verify that the amounts debited from your account are correct.')
+
+  // ── PAGE 5 ──
+  newPage()
+  section('Dispute'); y += 2
+  para('If you believe that there has been an error in debiting your account, you should notify us directly and confirm that notice in writing with us as soon as possible so that we can resolve your query more quickly. Alternatively you can contact your financial institution for assistance.')
+  para('If we conclude as a result of our investigations that your account has been incorrectly debited we will respond to your query by arranging for your financial institution to adjust your account (including interest and charges) accordingly. We will also notify you in writing of the amount by which your account has been adjusted.')
+  para('If we conclude as a result of our investigations that your account has not been incorrectly debited we will respond to your query by providing you with reasons and any evidence for this finding in writing.'); y += 4
+
+  section('Accounts'); y += 2
+  para('You should check:')
+  para('(a) with your financial institution whether direct debiting is available from your account as direct debiting is not available on all accounts offered by financial institutions.')
+  para('(b) your account details which you have provided to us are correct by checking them against a recent account statement; and')
+  para('(c) with your financial institution before completing the Direct Debit Request if you have any queries about how to complete the Direct Debit Request.'); y += 4
+
+  section('Confidentiality'); y += 2
+  para('We will keep any information (including your account details) in your Direct Debit Request confidential. We will make reasonable efforts to keep any such information that we have about you secure and to ensure that any of our employees or agents who have access to information about you do not make any unauthorised use, modification, reproduction or disclosure of that information.')
+  para('We will only disclose information that we have about you: to the extent specifically required by law; or for the purposes of this agreement (including disclosing information in connection with any query or claim).'); y += 4
+
+  section('Contacting each other'); y += 2
+  para('If you wish to notify us in writing about anything relating to this agreement, you should write to:')
+  para(`Email: ${renter.email || ''}`)
+  para('Mail: Sydney, NSW')
+  para('You may telephone us during business hours.')
+  para('All communication addressed to us should include your Customer Number.')
+  para('We will notify you by sending a notice to the preferred address or email you have given us in the Direct Debit Request. Any notice will be deemed to have been received on the second banking day after sending.')
+
+  doc.save(`DDR_${(renter.name || 'renter').replace(/\s+/g, '_')}_${renter.phone}.pdf`)
 }
 
 export default function RenterDetail({ renter, onToast, onRefresh }: {
