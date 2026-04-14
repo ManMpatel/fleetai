@@ -121,22 +121,25 @@ function generateDDR(renter: any) {
   para(`I/We request and authorise Acknowledgement. By signing and/or providing us with a valid instruction in respect to your Direct Debit Request, you have understood and agreed to the terms and conditions governing the debit arrangements as set out in this Request and in your Direct Debit Request Service Agreement.`)
   y += 4
 
-  // Signature box
-  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
   // First signature box
   doc.setFontSize(10); doc.setFont('helvetica', 'normal')
   doc.text('Signature:', L, y)
   doc.rect(50, y - 5, 70, 14)
-  if (renter.signatureBase64) {
+  const sig = (renter as any).signatureBase64
+  if (sig) {
     try {
-      const sigData = renter.signatureBase64.startsWith('data:')
-        ? renter.signatureBase64
-        : `data:image/png;base64,${renter.signatureBase64}`
+      const sigData = sig.startsWith('data:')
+        ? sig
+        : `data:image/png;base64,${sig}`
       doc.addImage(sigData, 'PNG', 51, y - 4, 68, 12)
     } catch {}
   }
   doc.text('Date:', 130, y)
   doc.rect(145, y - 5, 45, 7)
+  const approvalDate = (renter as any).updatedAt
+    ? new Date((renter as any).updatedAt).toLocaleDateString('en-AU')
+    : new Date().toLocaleDateString('en-AU')
+  doc.text(approvalDate, 147, y)
   y += 20
 
   // Second signature box
@@ -155,10 +158,10 @@ function generateDDR(renter: any) {
 
   // Credit card number - individual boxes
   doc.text('Credit Card Number:', L, y)
-  let cx = 90
+  let cx = 75
   for (let i = 0; i < 16; i++) {
-    doc.rect(cx, y - 5, 5.5, 7)
-    cx += 6
+    doc.rect(cx, y - 5, 6, 7)
+    cx += 7
   }
   y += lineH
 
