@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef  } from 'react'
 import { useParams } from 'react-router-dom'
 import axios from 'axios'
+
 
 async function compressToBase64(file: File, maxWidth: number, quality: number): Promise<string> {
   return new Promise(resolve => {
@@ -25,6 +26,9 @@ export default function OnboardPage() {
   const [submitted, setSubmitted] = useState(false)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [signatureData, setSignatureData] = useState('')
+  const [isSigning, setIsSigning] = useState(false)
+  const signatureRef = useRef<HTMLCanvasElement>(null)
   const [error, setError] = useState('')
   const [licenceFile, setLicenceFile] = useState<File | null>(null)
   const [licencePreview, setLicencePreview] = useState('')
@@ -36,6 +40,7 @@ export default function OnboardPage() {
   const [ownerEmail, setOwnerEmail] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [slugError, setSlugError] = useState(false)
+  
 
   useEffect(() => {
     // phone param might be a slug (no digits) or actual phone number
@@ -113,13 +118,57 @@ export default function OnboardPage() {
     reader.readAsDataURL(file)
   }
 
+  function getPos(canvas: HTMLCanvasElement, clientX: number, clientY: number) {
+    const rect = canvas.getBoundingClientRect()
+    return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) }
+  }
+
+  function startDraw(e: React.MouseEvent | React.TouchEvent) {
+    const canvas = signatureRef.current; if (!canvas) return
+    setIsSigning(true)
+    const ctx = canvas.getContext('2d')!
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    const pos = getPos(canvas, clientX, clientY)
+    ctx.beginPath(); ctx.moveTo(pos.x, pos.y)
+  }
+
+  function draw(e: React.MouseEvent | React.TouchEvent) {
+    if (!isSigning) return
+    const canvas = signatureRef.current; if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    const pos = getPos(canvas, clientX, clientY)
+    ctx.lineTo(pos.x, pos.y); ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke()
+  }
+
+  function endDraw() {
+    setIsSigning(false)
+    const canvas = signatureRef.current; if (!canvas) return
+    setSignatureData(canvas.toDataURL('image/png'))
+  }
+
+  function clearSignature() {
+    const canvas = signatureRef.current; if (!canvas) return
+    canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+    setSignatureData('')
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!licenceFile) { setError('Please upload your licence photo'); return }
     if (!selfieFile) { setError('Please upload a selfie photo'); return }
     if (!passportFile) { setError('Please upload your passport photo'); return }
     if (!form.passportNumber.trim()) { setError('Please enter your passport number'); return }
-    if (!termsAccepted) { setError('Please accept the terms and conditions to proceed'); return }
+    if (!termsAccepted) {
+      setError('Please accept the terms and conditions.')
+      return
+    }
+    if (!signatureData) {
+      setError('Please provide your signature before submitting.')
+      return
+    }
     const bsbDigits = form.bsbNumber.replace(/\D/g, '')
     if (bsbDigits.length !== 6) { setError('BSB must be exactly 6 digits (e.g. 062-000)'); return }
     if (form.accountNumber.length < 6 || form.accountNumber.length > 9) { setError('Account number must be 6–9 digits'); return }
@@ -160,6 +209,7 @@ export default function OnboardPage() {
         accountNumber: form.accountNumber,
         emergencyContactName: form.emergencyContactName,
         emergencyContactPhone: form.emergencyContactPhone,
+        signatureBase64: signatureData,
       })
 
       setSubmitted(true)
@@ -317,6 +367,35 @@ export default function OnboardPage() {
             <Field label="Contact Name *" name="emergencyContactName" value={form.emergencyContactName} onChange={handleChange} required />
             <Field label="Contact Phone *" name="emergencyContactPhone" type="tel" value={form.emergencyContactPhone} onChange={handleChange} required />
           </Section>
+
+          {/* Signature */}
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm space-y-3">
+            <h3 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2">Signature *</h3>
+            <p className="text-xs text-gray-500">Please sign below using your finger or mouse.</p>
+            <div className="relative border-2 border-dashed border-gray-200 rounded-xl overflow-hidden bg-gray-50" style={{ touchAction: 'none' }}>
+              <canvas
+                ref={signatureRef}
+                width={600}
+                height={180}
+                className="w-full"
+                style={{ cursor: 'crosshair' }}
+                onMouseDown={startDraw}
+                onMouseMove={draw}
+                onMouseUp={endDraw}
+                onMouseLeave={endDraw}
+                onTouchStart={e => { e.preventDefault(); startDraw(e) }}
+                onTouchMove={e => { e.preventDefault(); draw(e) }}
+                onTouchEnd={endDraw}
+              />
+              {!signatureData && (
+                <p className="absolute inset-0 flex items-center justify-center text-gray-300 text-sm pointer-events-none">Sign here</p>
+              )}
+            </div>
+            <button type="button" onClick={clearSignature}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors">
+              ✕ Clear signature
+            </button>
+          </div>
 
           {/* Terms & Conditions */}
           <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm space-y-4">
