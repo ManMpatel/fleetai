@@ -71,6 +71,7 @@ export default function RegoImportPage() {
   const [activeTab, setActiveTab] = useState<RegoStatus>('in_stock')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [confirm, setConfirm] = useState<ConfirmData | null>(null)
+  const [confirmError, setConfirmError] = useState('')
   const [scanning, setScanning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
@@ -163,7 +164,7 @@ export default function RegoImportPage() {
     }
     const plateUp = confirm.plate.toUpperCase()
     if (vehicles.some(v => v.plate === plateUp)) {
-      showToast(`❌ Plate "${plateUp}" already exists in your fleet`)
+      setConfirmError(`Plate "${plateUp}" already exists. Please change the plate number or add a different rego.`)
       return
     }
     setSaving(true)
@@ -494,13 +495,18 @@ export default function RegoImportPage() {
               <h2 className="text-base font-semibold text-text-primary">Confirm rego details</h2>
               <span className="text-xs bg-accent-bg text-accent px-2 py-0.5 rounded-full">Gemini read</span>
             </div>
-            <p className="text-text-muted text-xs mb-5">Check the details — edit anything wrong before saving.</p>
+            <p className="text-text-muted text-xs mb-4">Check the details — edit anything wrong before saving.</p>
+            {confirmError && (
+              <div className="mb-4 px-3 py-2.5 bg-red-50 border border-red-300 rounded-lg text-red-700 text-xs font-medium">
+                {confirmError}
+              </div>
+            )}
 
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">Plate number</label>
                 <input value={confirm.plate}
-                  onChange={e => setConfirm(p => p ? { ...p, plate: e.target.value.toUpperCase() } : p)}
+                  onChange={e => { setConfirmError(''); setConfirm(p => p ? { ...p, plate: e.target.value.toUpperCase() } : p) }}
                   className="w-full bg-surface2 border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
                 />
               </div>
