@@ -41,19 +41,10 @@ router.post('/', async (req: Request, res: Response) => {
     const plate = req.body.plate?.toUpperCase()
     if (!plate) return res.status(400).json({ error: 'Plate is required' })
 
-    // Check if plate already exists — if so, just update rego expiry
+    // Block duplicate plates — only Edit button can update existing rego
     const existing = await Vehicle.findOne({ plate, ownerId: req.ownerEmail })
     if (existing) {
-      const updated = await Vehicle.findOneAndUpdate(
-        { plate, ownerId: req.ownerEmail },
-        { $set: {
-          regoExpiry: req.body.regoExpiry,
-          ...(req.body.model && { model: req.body.model }),
-          ...(req.body.year && { year: req.body.year }),
-        }},
-        { new: true }
-      )
-      return res.status(200).json({ ...updated?.toObject(), _updated: true })
+      return res.status(409).json({ error: `Plate "${plate}" already exists. Please change the plate number or add a different rego.` })
     }
 
     const vehicle = new Vehicle({ ...req.body, plate, ownerId: req.ownerEmail })
