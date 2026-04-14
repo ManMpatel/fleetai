@@ -227,7 +227,7 @@ export default function OnboardPage() {
         emergencyContactName: form.emergencyContactName,
         emergencyContactPhone: form.emergencyContactPhone,
         signatureBase64: signatureData,
-      })
+      }, { headers: { 'x-owner-email': ownerEmail } })
 
       setSubmitted(true)
     } catch (err: any) {
