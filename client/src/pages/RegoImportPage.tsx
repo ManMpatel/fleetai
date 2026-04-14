@@ -161,6 +161,11 @@ export default function RegoImportPage() {
     if (!confirm?.plate || !confirm?.regoExpiry) {
       showToast('❌ Plate and expiry are required'); return
     }
+    const plateUp = confirm.plate.toUpperCase()
+    if (vehicles.some(v => v.plate === plateUp)) {
+      showToast(`❌ Plate "${plateUp}" already exists in your fleet`)
+      return
+    }
     setSaving(true)
     try {
       await axios.post(`${API}/api/fleet`, {
@@ -430,6 +435,11 @@ export default function RegoImportPage() {
                 disabled={saving}
                 onClick={async () => {
                   if (!manual.plate || !manual.regoExpiry) { showToast('❌ Plate and expiry required'); return }
+                  const plateUp = manual.plate.toUpperCase()
+                  if (vehicles.some(v => v.plate === plateUp)) {
+                    setManualError(`Plate "${plateUp}" already exists. Please change the plate number or add a different rego.`)
+                    return
+                  }
                   setSaving(true)
                   try {
                     await axios.post(`${API}/api/fleet`, {
