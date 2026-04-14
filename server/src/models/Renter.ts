@@ -35,6 +35,7 @@ export interface IRenter extends Document {
 
   emergencyContactName?: string
   emergencyContactPhone?: string
+  signatureBase64?: string
 
   currentVehicle?: mongoose.Types.ObjectId
   rentStartDate?: Date
@@ -121,6 +122,7 @@ const RenterSchema = new Schema<IRenter>(
     accountNumber:        { type: String },
     emergencyContactName: { type: String },
     emergencyContactPhone:{ type: String },
+    signatureBase64:      { type: String },
 
     currentVehicle: { type: Schema.Types.ObjectId, ref: 'Vehicle', default: null },
     rentStartDate:  { type: Date },
