@@ -123,11 +123,8 @@ function ShareLinks() {
         ))}
       </div>
     )}
-          {!slug && (
-            <p className="text-xs text-amber text-center">Set your short name above to enable copy</p>
-          )}
-        </div>
-      )}
+    </div>
+  )}
    
     
 
