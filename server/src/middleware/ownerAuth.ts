@@ -109,8 +109,30 @@ export async function resolveSlug(req: Request, res: Response) {
   try {
     const owner = await Owner.findOne({ slug: req.params.slug })
     if (!owner) return res.status(404).json({ error: 'Invalid link' })
-    res.json({ email: owner.email, name: owner.name })
+    res.json({ email: owner.email, name: (owner as any).businessName || owner.name })
   } catch (err) {
     res.status(500).json({ error: 'Failed to resolve slug' })
+  }
+}export async function getBusinessName(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const owner = await Owner.findOne({ email })
+    res.json({ businessName: (owner as any)?.businessName || '' })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get business name' })
+  }
+}
+
+export async function setBusinessName(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const { businessName } = req.body
+    if (!businessName?.trim()) return res.status(400).json({ error: 'Business name required' })
+    await Owner.findOneAndUpdate({ email }, { businessName: businessName.trim() })
+    res.json({ businessName: businessName.trim() })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save business name' })
   }
 }

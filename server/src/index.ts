@@ -21,7 +21,7 @@ import searchRoutes from './routes/search'
 import serviceRecordRoutes from './routes/serviceRecords'
 import employeeRoutes from './routes/employees'
 import ClockRecord from './models/ClockRecord'
-import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug } from './middleware/ownerAuth'
+import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug, getBusinessName, setBusinessName } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
 import Renter from './models/Renter'
 
@@ -96,6 +96,8 @@ app.get('/api/auth/status', getOwnerStatus)
 app.get('/api/auth/slug', getOwnerSlug)
 app.post('/api/auth/slug', setOwnerSlug)
 app.get('/api/auth/resolve/:slug', resolveSlug)
+app.get('/api/auth/business-name', getBusinessName)
+app.post('/api/auth/business-name', setBusinessName)
 
 // Health check
 app.get('/api/health', (_req, res) => {
