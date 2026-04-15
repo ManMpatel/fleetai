@@ -101,6 +101,21 @@ function ShareLinks() {
             {bizSaved ? '✓' : bizSaving ? '...' : 'Save'}
           </button>
         </div>
+        <div className="flex gap-2 items-center">
+          <input
+            value={slug}
+            onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+            placeholder="Short URL e.g. dasiboys"
+            className="flex-1 text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent"
+          />
+          <button
+            onClick={saveSlug}
+            disabled={saving || !slug.trim()}
+            className="px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
+          >
+            {saved ? '✓' : saving ? '...' : 'Save'}
+          </button>
+        </div>
         {[
           { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: 'https://fleetai.co.in/tablet' },
           { type: 'onboard', label: 'Onboard form', sub: 'Send link to new renters', icon: '👤', url: `https://fleetai.co.in/onboard/${slug}` },
