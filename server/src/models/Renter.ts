@@ -90,7 +90,7 @@ const RentalRecordSchema = new Schema({
 const RenterSchema = new Schema<IRenter>(
   {
     name:            { type: String, required: true },
-    phone:           { type: String, required: true, unique: true, trim: true },
+    phone:           { type: String, required: true, trim: true },
     email:           { type: String },
     dateOfBirth:     { type: String },
     licenceNumber:      { type: String },
@@ -161,5 +161,5 @@ const RenterSchema = new Schema<IRenter>(
   },
   { timestamps: true }
 )
-
+RenterSchema.index({ phone: 1, ownerId: 1 }, { unique: true })
 export default mongoose.model<IRenter>('Renter', RenterSchema)
