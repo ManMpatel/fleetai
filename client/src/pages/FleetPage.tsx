@@ -15,6 +15,9 @@ function ShareLinks() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  const [businessName, setBusinessName] = useState('')
+  const [bizSaving, setBizSaving] = useState(false)
+  const [bizSaved, setBizSaved] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
   const BASE = 'https://fleetai.co.in'
@@ -23,6 +26,9 @@ function ShareLinks() {
     if (!user?.email) return
     axios.get(`${API}/api/auth/slug`, { headers: { 'x-owner-email': user.email } })
       .then(r => { if (r.data.slug) setSlug(r.data.slug) })
+      .catch(() => {})
+    axios.get(`${API}/api/auth/business-name`, { headers: { 'x-owner-email': user.email } })
+      .then(r => { if (r.data.businessName) setBusinessName(r.data.businessName) })
       .catch(() => {})
   }, [user?.email])
 
@@ -33,6 +39,15 @@ function ShareLinks() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+  async function saveBizName() {
+    if (!businessName.trim() || !user?.email) return
+    setBizSaving(true)
+    try {
+      await axios.post(`${API}/api/auth/business-name`, { businessName }, { headers: { 'x-owner-email': user.email } })
+      setBizSaved(true); setTimeout(() => setBizSaved(false), 2000)
+    } catch {}
+    setBizSaving(false)
+  }
 
   async function saveSlug() {
     if (!slug.trim() || !user?.email) return
@@ -71,6 +86,21 @@ function ShareLinks() {
       {open && (
       <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
         <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
+        <div className="flex gap-2 items-center">
+          <input
+            value={businessName}
+            onChange={e => setBusinessName(e.target.value)}
+            placeholder="Business name on onboard form"
+            className="flex-1 text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent"
+          />
+          <button
+            onClick={saveBizName}
+            disabled={bizSaving || !businessName.trim()}
+            className="px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
+          >
+            {bizSaved ? '✓' : bizSaving ? '...' : 'Save'}
+          </button>
+        </div>
         {[
           { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: 'https://fleetai.co.in/tablet' },
           { type: 'onboard', label: 'Onboard form', sub: 'Send link to new renters', icon: '👤', url: `https://fleetai.co.in/onboard/${slug}` },
