@@ -169,4 +169,50 @@ Important: Always set confident to true and always return your best guess even i
   }
 })
 
+// POST /api/upload/read-rego — single file alias for read-rego-bulk
+router.post('/read-rego', async (req: Request, res: Response) => {
+  try {
+    const { files } = req.body as { files: { name: string; base64: string; mimeType: string }[] }
+    if (!files?.length) return res.status(400).json({ error: 'No files provided' })
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+    const prompt = `You are reading an Australian vehicle registration document or certificate. This may be a photo of a physical paper taken with a phone — it may be slightly blurry or at an angle. Do your best to extract what you can.
+
+Extract these fields and return ONLY a valid JSON object, no markdown, no explanation:
+{
+  "plate": "NSW plate number e.g. FPI27U — uppercase, no spaces",
+  "make": "vehicle make e.g. Honda",
+  "model": "vehicle model e.g. Duo",
+  "year": "4 digit manufacture year",
+  "regoExpiry": "expiry date in YYYY-MM-DD format — look for Expiry date field",
+  "vin": "VIN or chassis number",
+  "confident": true
+}
+
+Always return your best guess even if unclear. Never return confident: false.`
+
+    const results = []
+    for (const file of files) {
+      try {
+        const result = await model.generateContent([
+          { inlineData: { data: file.base64, mimeType: file.mimeType || 'image/jpeg' } },
+          prompt
+        ])
+        const text = result.response.text().trim()
+        const clean = text.replace(/```json|```/g, '').trim()
+        const data = JSON.parse(clean)
+        results.push({ filename: file.name, status: 'ok', data })
+      } catch (err: any) {
+        results.push({ filename: file.name, status: 'error', data: null })
+      }
+    }
+
+    res.json({ results })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
 export default router
