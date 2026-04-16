@@ -293,6 +293,7 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
   const [linkMode, setLinkMode] = useState(false)
   const [linkCustomerId, setLinkCustomerId] = useState('')
   const [fetchedAmount, setFetchedAmount] = useState<number | null>(null)
+  const [fetchedNextDate, setFetchedNextDate] = useState<string | null>(null)
   const [fetchLoading, setFetchLoading] = useState(false)
   const [showChargeExtra, setShowChargeExtra] = useState(false)
   const [extraAmount, setExtraAmount] = useState('')
@@ -434,6 +435,7 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
     try {
       const res = await axios.get(`/api/renters/payway-schedule/${customerId.trim()}`)
       setFetchedAmount(res.data.weeklyAmount)
+      setFetchedNextDate(res.data.nextPaymentDate || null)
     } catch (err: any) {
       const msg = err.response?.data?.error || 'Customer not found in PayWay'
       onToast(`❌ ${msg}`, 'warning')
@@ -447,6 +449,7 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
       await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/link-payway`, {
         paywayCustomerId: linkCustomerId,
         weeklyAmount: fetchedAmount,
+        nextPaymentDate: fetchedNextDate,
       })
       onToast(`✅ PayWay customer linked — $${fetchedAmount}/wk`, 'success')
       onRefresh()

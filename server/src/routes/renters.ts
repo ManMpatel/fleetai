@@ -274,8 +274,9 @@ router.get('/payway-schedule/:customerId', async (req: Request, res: Response) =
       { headers: { Authorization: authHeader, Accept: 'application/json' } }
     )
     const amount = response.data.regularPrincipalAmount
+    const nextPaymentDate = response.data.nextPaymentDate
     if (!amount) return res.status(404).json({ error: 'No schedule found for this customer' })
-    res.json({ weeklyAmount: amount })
+    res.json({ weeklyAmount: amount, nextPaymentDate })
   } catch (err: any) {
     if (err.response?.status === 404) return res.status(404).json({ error: 'Customer not found in PayWay' })
     res.status(500).json({ error: 'Failed to fetch PayWay schedule' })
@@ -286,7 +287,7 @@ router.get('/payway-schedule/:customerId', async (req: Request, res: Response) =
 router.post('/:phone/link-payway', async (req: Request, res: Response) => {
   try {
     const phone = decodeURIComponent(req.params.phone)
-    const { paywayCustomerId, weeklyAmount } = req.body as { paywayCustomerId: string; weeklyAmount: number }
+    const { paywayCustomerId, weeklyAmount, nextPaymentDate } = req.body as { paywayCustomerId: string; weeklyAmount: number; nextPaymentDate?: string }
 
     if (!paywayCustomerId || !weeklyAmount) {
       return res.status(400).json({ error: 'paywayCustomerId and weeklyAmount are required' })
@@ -303,7 +304,7 @@ router.post('/:phone/link-payway', async (req: Request, res: Response) => {
       status: 'active',
       weeklyAmount,
       startDate: new Date(),
-      nextDebitDate: nextDebit,
+      nextDebitDate: nextPaymentDate ? new Date(nextPaymentDate) : nextDebit,
     }
     await renter.save()
 
