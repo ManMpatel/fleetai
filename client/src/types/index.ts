@@ -87,6 +87,10 @@ export interface Renter {
     weeklyAmount?: number
     startDate?: string
     nextDebitDate?: string
+    lastPaymentStatus?: 'paid' | 'failed' | 'dishonoured'
+    lastPaymentDate?: string
+    lastPaymentAmount?: number
+    lastPaymentDescription?: string
   }
   rentalHistory?: Array<{
     vehicle?: string

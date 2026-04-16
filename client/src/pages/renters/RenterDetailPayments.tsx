@@ -55,6 +55,28 @@ export default function RenterDetailPayments({
 
         {/* Auto-debit control */}
         <div className="bg-surface border border-border rounded-xl p-5">
+          {renter.payway?.lastPaymentStatus === 'failed' && (
+            <div className="mb-4 bg-red-bg border border-red/30 rounded-xl p-4 flex gap-3">
+              <div className="w-2 h-2 rounded-full bg-red mt-1.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red mb-1">Last payment failed</p>
+                <p className="text-xs text-red/80">
+                  ${renter.payway.lastPaymentAmount?.toFixed(2)} on {renter.payway.lastPaymentDate ? new Date(renter.payway.lastPaymentDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'} — {renter.payway.lastPaymentDescription}. Westpac will auto-retry.
+                </p>
+              </div>
+            </div>
+          )}
+          {renter.payway?.lastPaymentStatus === 'dishonoured' && (
+            <div className="mb-4 bg-red-bg border border-red/30 rounded-xl p-4 flex gap-3">
+              <div className="w-2 h-2 rounded-full bg-red mt-1.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red mb-1">Payment dishonoured — recover vehicle</p>
+                <p className="text-xs text-red/80">
+                  ${renter.payway.lastPaymentAmount?.toFixed(2)} on {renter.payway.lastPaymentDate ? new Date(renter.payway.lastPaymentDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'} — {renter.payway.lastPaymentDescription}. Contact the renter immediately.
+                </p>
+              </div>
+            </div>
+          )}
           <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-4">Auto-Debit Control</h3>
 
           {paywayStatus === 'not_setup' && (

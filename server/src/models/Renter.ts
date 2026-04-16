@@ -50,6 +50,10 @@ export interface IRenter extends Document {
     extraCharges?: Array<{ amount: number; note?: string; date: Date }>
     startDate?: Date
     nextDebitDate?: Date
+    lastPaymentStatus?: 'paid' | 'failed' | 'dishonoured'
+    lastPaymentDate?: Date
+    lastPaymentAmount?: number
+    lastPaymentDescription?: string
     activity?: Array<{
       type: 'info' | 'error' | 'success' | 'warning'
       message: string
@@ -141,6 +145,10 @@ const RenterSchema = new Schema<IRenter>(
       extraCharges: [{ amount: { type: Number }, note: { type: String }, date: { type: Date } }],
       startDate:    { type: Date },
       nextDebitDate:{ type: Date },
+      lastPaymentStatus:      { type: String, enum: ['paid', 'failed', 'dishonoured'] },
+      lastPaymentDate:        { type: Date },
+      lastPaymentAmount:      { type: Number },
+      lastPaymentDescription: { type: String },
       activity: [{
         type:      { type: String, enum: ['info','error','success','warning'] },
         message:   { type: String },

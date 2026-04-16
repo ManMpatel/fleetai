@@ -21,9 +21,12 @@ import searchRoutes from './routes/search'
 import serviceRecordRoutes from './routes/serviceRecords'
 import employeeRoutes from './routes/employees'
 import ClockRecord from './models/ClockRecord'
+import Renter from './models/Renter'
+import Notification from './models/Notification'
+import axios from 'axios'
 import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug, getBusinessName, setBusinessName } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
-import Renter from './models/Renter'
+
 
 dotenv.config()
 
@@ -166,6 +169,62 @@ cron.schedule('0 3 1 * *', async () => {
     console.log('🗄️ Running weekly MongoDB backup...')
     runMongoBackup()
   })
+
+  // Daily PayWay transaction sync — 9am Sydney time
+  cron.schedule('0 9 * * *', async () => {
+    console.log('🔄 Running daily PayWay transaction sync...')
+    try {
+      const activeRenters = await Renter.find({
+        'payway.status': 'active',
+        'payway.customerId': { $exists: true, $ne: '' }
+      })
+      const authHeader = `Basic ${Buffer.from(`${process.env.PAYWAY_SECRET_KEY || ''}:`).toString('base64')}`
+
+      for (const renter of activeRenters) {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 200))
+          const res = await axios.get(
+            `https://api.payway.com.au/rest/v1/transactions/search-customer?customerNumber=${renter.payway!.customerId}`,
+            { headers: { Authorization: authHeader, Accept: 'application/json' } }
+          )
+          const latestTx = res.data.data?.[0]
+          if (!latestTx || latestTx.transactionType !== 'payment') continue
+
+          const isApproved = latestTx.status === 'approved' || latestTx.status === 'approved*'
+          const isDeclined = latestTx.status === 'declined' || latestTx.status === 'suspended'
+          const newStatus = isApproved ? 'paid' : isDeclined ? 'failed' : renter.payway?.lastPaymentStatus
+          const prevStatus = renter.payway?.lastPaymentStatus
+          const txDate = latestTx.transactionDateTime || latestTx.settlementDate
+
+          if (newStatus === prevStatus && txDate === renter.payway?.lastPaymentDate?.toISOString()) continue
+
+          renter.payway!.lastPaymentStatus = newStatus
+          renter.payway!.lastPaymentDate = new Date()
+          renter.payway!.lastPaymentAmount = latestTx.principalAmount
+          renter.payway!.lastPaymentDescription = latestTx.responseText || latestTx.status
+          await renter.save()
+
+          if (isDeclined && newStatus !== prevStatus) {
+            await Notification.create({
+              ownerId: renter.ownerId,
+              type: 'info',
+              title: `Payment failed — ${renter.name}`,
+              description: `$${Number(latestTx.principalAmount).toFixed(2)} failed on ${new Date().toLocaleDateString('en-AU')} — ${latestTx.responseText || 'Declined'}. Please contact the renter.`,
+              actionRequired: true,
+            })
+            console.log(`❌ Payment failed — ${renter.name} (${latestTx.responseText})`)
+          } else if (isApproved) {
+            console.log(`✅ Payment cleared — ${renter.name}`)
+          }
+        } catch (err: any) {
+          console.error(`⚠️ PayWay sync failed for ${renter.name}:`, err.response?.data || err.message)
+        }
+      }
+      console.log('✅ PayWay transaction sync complete')
+    } catch (err: any) {
+      console.error('❌ PayWay cron error:', err.message)
+    }
+  }, { timezone: 'Australia/Sydney' })
 
     // Run expiry check once on startup too
     checkExpiringDates().catch(console.error)

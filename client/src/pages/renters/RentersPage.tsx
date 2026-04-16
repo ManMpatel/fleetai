@@ -183,6 +183,12 @@ export default function RentersPage() {
                   <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${statusColors[renter.payway?.status || 'not_setup']}`}>
                     {statusLabels[renter.payway?.status || 'not_setup']}
                   </span>
+                  {renter.payway?.lastPaymentStatus === 'failed' && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-bg text-red">Payment failed</span>
+                  )}
+                  {renter.payway?.lastPaymentStatus === 'dishonoured' && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-bg text-red">Dishonoured ⚠️</span>
+                  )}
                   {renter.payway?.weeklyAmount && <span className="text-[10px] text-text-muted">${renter.payway.weeklyAmount}/wk</span>}
                 </div>
               </div>
