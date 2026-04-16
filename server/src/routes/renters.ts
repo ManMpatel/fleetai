@@ -264,6 +264,24 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message })
   }
 })
+// GET /api/renters/payway-schedule/:customerId
+router.get('/payway-schedule/:customerId', async (req: Request, res: Response) => {
+  try {
+    const { customerId } = req.params
+    const authHeader = `Basic ${Buffer.from(`${process.env.PAYWAY_SECRET_KEY || ''}:`).toString('base64')}`
+    const response = await axios.get(
+      `https://api.payway.com.au/rest/v1/customers/${customerId}/schedule`,
+      { headers: { Authorization: authHeader, Accept: 'application/json' } }
+    )
+    const amount = response.data.regularPrincipalAmount
+    if (!amount) return res.status(404).json({ error: 'No schedule found for this customer' })
+    res.json({ weeklyAmount: amount })
+  } catch (err: any) {
+    if (err.response?.status === 404) return res.status(404).json({ error: 'Customer not found in PayWay' })
+    res.status(500).json({ error: 'Failed to fetch PayWay schedule' })
+  }
+})
+
 // POST /api/renters/:phone/link-payway
 router.post('/:phone/link-payway', async (req: Request, res: Response) => {
   try {

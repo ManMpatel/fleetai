@@ -33,6 +33,9 @@ interface Props {
   handleResume: () => void
   handleUpdate: () => void
   handleLink: () => void
+  fetchedAmount: number | null
+  fetchLoading: boolean
+  onFetchSchedule: (customerId: string) => void
   handleChargeExtra: () => void
   handleUpdateBank: () => void
   onToast: (msg: string, type: 'success' | 'warning') => void
@@ -47,6 +50,7 @@ export default function RenterDetailPayments({
   showUpdateBank, setShowUpdateBank, newBsb, setNewBsb, newAccount, setNewAccount, newHolder, setNewHolder,
   actionLoading, setConfirm,
   handleActivate, handlePause, handleResume, handleUpdate, handleLink, handleChargeExtra, handleUpdateBank,
+  fetchedAmount, fetchLoading, onFetchSchedule,
   onToast, onRefresh
 }: Props) {
   return (
@@ -103,25 +107,37 @@ export default function RenterDetailPayments({
                   </button>
                 </>
               ) : (
-                <>
-                  <div className="bg-amber-bg border border-amber/20 rounded-lg p-3 text-xs text-amber">
-                    Paste the PayWay customer number from the portal.
-                  </div>
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5">PayWay Customer Number</label>
-                    <input type="text" placeholder="e.g. 481864194" value={linkCustomerId} onChange={e => setLinkCustomerId(e.target.value)}
-                      className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5">Weekly amount ($)</label>
-                    <input type="number" placeholder="e.g. 150" value={weeklyAmount} onChange={e => setWeeklyAmount(e.target.value)}
-                      className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
-                  </div>
-                  <button onClick={handleLink} disabled={!linkCustomerId || !weeklyAmount || actionLoading}
-                    className="w-full bg-accent text-white text-sm font-medium py-3 rounded-lg disabled:opacity-50">
-                    {actionLoading ? 'Linking...' : 'Link PayWay Customer'}
-                  </button>
-                </>
+                   <>
+                      <div className="bg-amber-bg border border-amber/20 rounded-lg p-3 text-xs text-amber">
+                        Paste the PayWay customer number — we'll fetch the amount automatically.
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1.5">PayWay Customer Number</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 481864194"
+                          value={linkCustomerId}
+                          onChange={e => { setLinkCustomerId(e.target.value) }}
+                          onBlur={e => onFetchSchedule(e.target.value)}
+                          className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      {fetchLoading && (
+                        <p className="text-xs text-text-muted text-center py-1">Fetching from PayWay...</p>
+                      )}
+                      {fetchedAmount && !fetchLoading && (
+                        <div className="bg-green-bg border border-green/30 rounded-lg p-3 flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-green flex-shrink-0" />
+                          <p className="text-sm font-semibold text-green">${fetchedAmount}/week confirmed from PayWay</p>
+                        </div>
+                      )}
+                      <button
+                        onClick={handleLink}
+                        disabled={!linkCustomerId || !fetchedAmount || actionLoading}
+                        className="w-full bg-accent text-white text-sm font-medium py-3 rounded-lg disabled:opacity-50">
+                        {actionLoading ? 'Linking...' : 'Link PayWay Customer'}
+                      </button>
+                    </>
               )}
             </div>
           )}

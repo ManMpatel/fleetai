@@ -292,6 +292,8 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
   const [editingSchedule, setEditingSchedule] = useState(false)
   const [linkMode, setLinkMode] = useState(false)
   const [linkCustomerId, setLinkCustomerId] = useState('')
+  const [fetchedAmount, setFetchedAmount] = useState<number | null>(null)
+  const [fetchLoading, setFetchLoading] = useState(false)
   const [showChargeExtra, setShowChargeExtra] = useState(false)
   const [extraAmount, setExtraAmount] = useState('')
   const [extraNote, setExtraNote] = useState('')
@@ -425,11 +427,29 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
     } catch { onToast('❌ Failed to update', 'warning') }
     finally { setActionLoading(false); setConfirm({ show: false, action: null }) }
   }
+  async function handleFetchSchedule(customerId: string) {
+    if (!customerId.trim()) return
+    setFetchLoading(true)
+    setFetchedAmount(null)
+    try {
+      const res = await axios.get(`/api/renters/payway-schedule/${customerId.trim()}`)
+      setFetchedAmount(res.data.weeklyAmount)
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Customer not found in PayWay'
+      onToast(`❌ ${msg}`, 'warning')
+    } finally { setFetchLoading(false) }
+  }
+
   async function handleLink() {
+    if (!fetchedAmount) return onToast('❌ Fetch the schedule first', 'warning')
     setActionLoading(true)
     try {
-      await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/link-payway`, { paywayCustomerId: linkCustomerId, weeklyAmount: parseFloat(weeklyAmount) })
-      onToast(`✅ PayWay customer linked`, 'success'); onRefresh()
+      await axios.post(`/api/renters/${encodeURIComponent(renter.phone)}/link-payway`, {
+        paywayCustomerId: linkCustomerId,
+        weeklyAmount: fetchedAmount,
+      })
+      onToast(`✅ PayWay customer linked — $${fetchedAmount}/wk`, 'success')
+      onRefresh()
     } catch { onToast('❌ Failed to link', 'warning') }
     finally { setActionLoading(false) }
   }
@@ -671,6 +691,9 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
             handleLink={handleLink} handleChargeExtra={handleChargeExtra}
             handleUpdateBank={handleUpdateBank}
             onToast={onToast} onRefresh={onRefresh}
+            fetchedAmount={fetchedAmount}
+            fetchLoading={fetchLoading}
+            onFetchSchedule={handleFetchSchedule}
           />
         )}
 
