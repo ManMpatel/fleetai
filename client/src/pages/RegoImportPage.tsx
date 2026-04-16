@@ -10,12 +10,26 @@ type RegoStatus = 'in_stock' | 'stolen' | 'sold'
 interface RegoVehicle {
   _id: string
   plate: string
+  model?: string
   year: number
   regoExpiry: string
   notes?: string
   regoStatus: RegoStatus
   regoPhotoBase64?: string
   currentRenter?: { name: string; phone: string } | null
+}
+
+interface PendingScan {
+  id: string
+  plate: string
+  model: string
+  year: string
+  regoExpiry: string
+  notes: string
+  photoOriginal: string
+  photoCompressed: string
+  status: 'processing' | 'ready' | 'exists' | 'error'
+  errorMsg?: string
 }
 
 interface ConfirmData {
@@ -66,6 +80,8 @@ async function compressImage(file: File, maxWidth = 800, quality = 0.6): Promise
 export default function RegoImportPage() {
   const { user } = useAuth0()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const bulkInputRef = useRef<HTMLInputElement>(null)
+  const zoomRef = useRef<HTMLDivElement>(null)
   const [vehicles, setVehicles] = useState<RegoVehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<RegoStatus>('in_stock')
@@ -81,6 +97,11 @@ export default function RegoImportPage() {
   const [manualError, setManualError] = useState('')
   const [manual, setManual] = useState({ plate: '', year: '', regoExpiry: '', notes: '' })
   const [photoModal, setPhotoModal] = useState<string | null>(null)
+  const [pendingScans, setPendingScans] = useState<PendingScan[]>([])
+  const [showPendingSidebar, setShowPendingSidebar] = useState(false)
+  const [selectedPending, setSelectedPending] = useState<PendingScan | null>(null)
+  const [confirmingScan, setConfirmingScan] = useState(false)
+  const [zoomScale, setZoomScale] = useState(1)
 
   function showToast(msg: string) {
     setToast(msg); setTimeout(() => setToast(''), 3000)
@@ -188,6 +209,86 @@ export default function RegoImportPage() {
     }
     setSaving(false)
   }
+  async function handleBulkScan(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    setShowPendingSidebar(true)
+
+    for (const file of files) {
+      const tempId = `scan_${Date.now()}_${Math.random()}`
+      setPendingScans(prev => [...prev, {
+        id: tempId, plate: '', model: '', year: '', regoExpiry: '',
+        notes: '', photoOriginal: '', photoCompressed: '',
+        status: 'processing'
+      }])
+
+      try {
+        const originalBase64 = await new Promise<string>(resolve => {
+          const reader = new FileReader()
+          reader.onload = () => resolve((reader.result as string).split(',')[1])
+          reader.readAsDataURL(file)
+        })
+        const compressed = await compressImage(file, 800, 0.6)
+
+        const res = await axios.post('/api/upload/read-rego', {
+          photoBase64: originalBase64,
+        }, { headers: { 'x-owner-email': user?.email || '' } })
+
+        const data = res.data
+        const plate = (data.plate || '').toUpperCase().trim()
+
+        const existsInDB = vehicles.some(v => v.plate === plate)
+
+        setPendingScans(prev => prev.map(p => p.id === tempId ? {
+          ...p,
+          plate,
+          model: [data.make, data.model].filter(Boolean).join(' ') || '',
+          year: String(data.year || ''),
+          regoExpiry: data.regoExpiry || '',
+          photoOriginal: originalBase64,
+          photoCompressed: compressed,
+          status: existsInDB ? 'exists' : 'ready',
+          errorMsg: existsInDB ? 'Already in your fleet' : undefined,
+        } : p))
+
+        await new Promise(r => setTimeout(r, 4100))
+      } catch {
+        setPendingScans(prev => prev.map(p => p.id === tempId ? {
+          ...p, status: 'error', errorMsg: 'Failed to scan'
+        } : p))
+      }
+    }
+    e.target.value = ''
+  }
+
+  async function confirmPendingScan() {
+    if (!selectedPending) return
+    if (!selectedPending.plate || !selectedPending.regoExpiry) {
+      showToast('❌ Plate and expiry are required'); return
+    }
+    setConfirmingScan(true)
+    try {
+      await axios.post('/api/fleet', {
+        plate: selectedPending.plate.toUpperCase(),
+        model: selectedPending.model || 'Unknown',
+        year: parseInt(selectedPending.year) || new Date().getFullYear(),
+        type: 'scooter',
+        regoExpiry: selectedPending.regoExpiry,
+        notes: selectedPending.notes,
+        regoStatus: 'in_stock',
+        regoPhotoBase64: selectedPending.photoCompressed,
+      }, { headers: { 'x-owner-email': user?.email || '' } })
+
+      showToast(`✅ ${selectedPending.plate} saved`)
+      setPendingScans(prev => prev.filter(p => p.id !== selectedPending.id))
+      setSelectedPending(null)
+      fetchVehicles()
+    } catch (err: any) {
+      showToast(`❌ ${err.response?.data?.error || 'Failed to save'}`)
+    }
+    setConfirmingScan(false)
+  }
+
 
   async function updateStatus(vehicle: RegoVehicle, status: RegoStatus) {
     try {
@@ -250,7 +351,7 @@ export default function RegoImportPage() {
           Add Manual
         </button>
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => bulkInputRef.current?.click()}
           disabled={scanning}
           className="flex items-center gap-2 px-4 py-2.5 bg-accent text-white rounded-xl text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
         >
@@ -262,6 +363,13 @@ export default function RegoImportPage() {
         </button>
         </div>
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+        <input ref={bulkInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleBulkScan} />
+        {pendingScans.length > 0 && (
+          <button onClick={() => setShowPendingSidebar(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-bg border border-amber/30 text-amber rounded-xl text-sm font-medium">
+            ⏳ {pendingScans.filter(p => p.status === 'ready').length} ready · {pendingScans.length} total
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -315,7 +423,7 @@ export default function RegoImportPage() {
                   <table className="w-full text-sm border-t border-border">
                     <thead>
                       <tr className="bg-surface2 border-b border-border">
-                        {['Plate','Year','Rego expiry','Rego photo','Notes','Assigned To','Status',''].map(h => (
+                        {['Plate','Make / Model','Year','Rego expiry','Rego photo','Notes','Assigned To','Status',''].map(h => (
                           <th key={h} className="px-4 py-2.5 text-left text-xs text-text-muted font-medium uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
@@ -326,7 +434,10 @@ export default function RegoImportPage() {
                         return (
                           <tr key={v._id} className="hover:bg-surface2 transition-colors">
                             <td className="px-4 py-3">
-                              <span className="font-mono text-xs bg-surface2 border border-border px-2 py-1 rounded font-medium text-text-primary">{v.plate}</span>
+                              <span className="font-mono font-semibold text-text-primary text-sm">{v.plate}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-sm text-text-secondary">{v.model || '—'}</span>
                             </td>
                             <td className="px-4 py-3 text-text-secondary">{v.year || '—'}</td>
                             <td className="px-4 py-3">
@@ -388,6 +499,153 @@ export default function RegoImportPage() {
           })
         )}
       </div>
+
+      {/* Pending scans sidebar */}
+      {showPendingSidebar && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setShowPendingSidebar(false)} />
+          <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-surface border-l border-border z-50 flex flex-col shadow-2xl">
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-text-primary">Pending scans ({pendingScans.length})</h2>
+                <p className="text-xs text-text-muted mt-0.5">{pendingScans.filter(p => p.status === 'ready').length} ready to confirm</p>
+              </div>
+              <button onClick={() => setShowPendingSidebar(false)} className="text-text-muted hover:text-text-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {pendingScans.map(scan => (
+                <div key={scan.id}
+                  onClick={() => { if (scan.status === 'ready') { setSelectedPending(scan); setZoomScale(1) } }}
+                  className={`border rounded-xl p-4 transition-colors ${scan.status === 'ready' ? 'cursor-pointer hover:border-accent border-border bg-surface' : 'border-border bg-surface2'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono font-semibold text-text-primary text-sm">
+                      {scan.plate || 'Scanning...'}
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      scan.status === 'ready' ? 'bg-green-bg text-green' :
+                      scan.status === 'exists' ? 'bg-red-bg text-red' :
+                      scan.status === 'error' ? 'bg-red-bg text-red' :
+                      'bg-amber-bg text-amber'
+                    }`}>
+                      {scan.status === 'ready' ? 'Ready' : scan.status === 'exists' ? 'Already exists' : scan.status === 'error' ? 'Error' : 'Scanning...'}
+                    </span>
+                  </div>
+                  {scan.status === 'processing' ? (
+                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                      <div className="h-full w-1/2 bg-accent rounded-full animate-pulse" />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-text-muted">{scan.model || '—'} · {scan.year || '—'}</p>
+                      {scan.errorMsg ? (
+                        <p className="text-xs text-red mt-1">{scan.errorMsg}</p>
+                      ) : (
+                        <p className="text-xs text-text-muted mt-0.5">Exp: {scan.regoExpiry || '—'}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t border-border">
+              <button onClick={() => { setPendingScans([]); setShowPendingSidebar(false) }}
+                className="w-full text-xs py-2.5 border border-border rounded-lg text-text-muted hover:text-red hover:border-red transition-colors">
+                Clear all
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Verification popup */}
+      {selectedPending && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-4xl flex overflow-hidden" style={{ height: '85vh' }}>
+
+            {/* Left 40% — form */}
+            <div className="flex flex-col gap-4 p-6 overflow-y-auto" style={{ width: '40%', borderRight: '0.5px solid var(--color-border-tertiary)' }}>
+              <div>
+                <p className="text-xs text-text-muted uppercase tracking-wide mb-1">Verify & confirm</p>
+                <p className="text-base font-semibold text-text-primary">{selectedPending.plate || 'Unknown plate'}</p>
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">Plate number</label>
+                <input value={selectedPending.plate}
+                  onChange={e => setSelectedPending(p => p ? { ...p, plate: e.target.value.toUpperCase() } : p)}
+                  className="w-full bg-surface2 border border-border text-text-primary text-sm font-mono rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">Make / Model</label>
+                <input value={selectedPending.model}
+                  onChange={e => setSelectedPending(p => p ? { ...p, model: e.target.value } : p)}
+                  placeholder="e.g. Toyota Camry"
+                  className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">Year</label>
+                  <input value={selectedPending.year}
+                    onChange={e => setSelectedPending(p => p ? { ...p, year: e.target.value } : p)}
+                    className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">Rego expiry</label>
+                  <input value={selectedPending.regoExpiry}
+                    onChange={e => setSelectedPending(p => p ? { ...p, regoExpiry: e.target.value } : p)}
+                    className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">Notes</label>
+                <input value={selectedPending.notes}
+                  onChange={e => setSelectedPending(p => p ? { ...p, notes: e.target.value } : p)}
+                  placeholder="Optional..."
+                  className="w-full bg-surface2 border border-border text-text-primary text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-accent" />
+              </div>
+              <div className="flex gap-2 mt-auto pt-2">
+                <button onClick={() => setSelectedPending(null)}
+                  className="flex-1 py-2.5 text-sm border border-border rounded-lg text-text-muted hover:bg-surface2">Skip</button>
+                <button onClick={confirmPendingScan} disabled={confirmingScan}
+                  className="flex-2 px-6 py-2.5 text-sm font-medium bg-green text-white rounded-lg disabled:opacity-50" style={{ flex: 2 }}>
+                  {confirmingScan ? 'Saving...' : 'Confirm & save'}
+                </button>
+              </div>
+            </div>
+
+            {/* Right 60% — zoomable photo */}
+            <div style={{ width: '60%', display: 'flex', flexDirection: 'column', background: 'var(--color-background-secondary)' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '0.5px solid var(--color-border-tertiary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>Original rego photo — scroll to zoom</p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setZoomScale(s => Math.max(1, s - 0.25))}
+                    style={{ fontSize: 18, padding: '2px 10px', border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)', cursor: 'pointer' }}>−</button>
+                  <button onClick={() => setZoomScale(1)}
+                    style={{ fontSize: 12, padding: '2px 10px', border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>{Math.round(zoomScale * 100)}%</button>
+                  <button onClick={() => setZoomScale(s => Math.min(4, s + 0.25))}
+                    style={{ fontSize: 18, padding: '2px 10px', border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)', cursor: 'pointer' }}>+</button>
+                </div>
+              </div>
+              <div ref={zoomRef} style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16 }}
+                onWheel={e => { e.preventDefault(); setZoomScale(s => Math.min(4, Math.max(1, s - e.deltaY * 0.001))) }}>
+                {selectedPending.photoOriginal ? (
+                  <img
+                    src={`data:image/jpeg;base64,${selectedPending.photoOriginal}`}
+                    style={{ transform: `scale(${zoomScale})`, transformOrigin: 'top center', transition: 'transform 0.1s', maxWidth: '100%', borderRadius: 8 }}
+                    alt="Rego paper"
+                  />
+                ) : (
+                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>No photo available</p>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Manual entry modal */}
       {showManual && (
