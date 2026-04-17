@@ -149,3 +149,73 @@ async function checkDate(
   })
 }
 
+
+// ─────────────────────────────────────────────────────────
+// checkPaymentStatus — daily cron: checks renters whose
+// nextDebitDate is today or overdue, notifies if declined
+// ─────────────────────────────────────────────────────────
+export async function checkPaymentStatus(): Promise<void> {
+  const now = new Date()
+  const todayStr = now.toISOString().split('T')[0]
+
+  try {
+    const { getPaymentHistory } = await import('./payway')
+
+    // Find all active renters whose nextDebitDate is today or in the past (overdue)
+    const renters = await Renter.find({
+      'payway.status': 'active',
+      'payway.customerId': { $exists: true },
+      'payway.nextDebitDate': { $lte: new Date(todayStr + 'T23:59:59Z') },
+    })
+
+    console.log(`💳 Payment check — ${renters.length} renter(s) due today or overdue`)
+
+    for (const renter of renters) {
+      const customerId = renter.payway!.customerId!
+      const result = await getPaymentHistory(customerId)
+      const payments = result.payments || []
+
+      if (!payments.length) {
+        console.log(`⏳ No transactions yet for ${renter.name} — will retry tomorrow`)
+        continue
+      }
+
+      const latest = payments[0]
+      const latestDate = latest.date ? new Date(latest.date) : null
+
+      // Only process if the latest transaction is on or after the due date
+      if (!latestDate || latestDate < new Date(renter.payway!.nextDebitDate!)) {
+        console.log(`⏳ Payment not processed yet for ${renter.name} — will retry tomorrow`)
+        continue
+      }
+
+      // Dedup — skip if we already notified for this renter today
+      const existing = await Notification.findOne({
+        ownerId: renter.ownerId,
+        title: { $regex: renter.name, $options: 'i' },
+        type: 'info',
+        createdAt: { $gte: new Date(todayStr) },
+      })
+      if (existing) continue
+
+      if (latest.status === 'approved') {
+        // Update nextDebitDate +7 days in MongoDB
+        renter.payway!.nextDebitDate = new Date(latestDate.getTime() + 7 * 86400000)
+        await renter.save()
+        console.log(`✅ Payment confirmed for ${renter.name} — next debit: ${renter.payway!.nextDebitDate.toISOString().split('T')[0]}`)
+      } else {
+        // Payment declined — create notification
+        await Notification.create({
+          ownerId: renter.ownerId,
+          type: 'info',
+          title: `Payment failed — ${renter.name}`,
+          description: `Direct debit of $${latest.amount} failed for ${renter.name} (${renter.phone}). Reason: ${latest.description || 'Declined'}`,
+          actionRequired: true,
+        })
+        console.log(`❌ Payment declined for ${renter.name} — notification created`)
+      }
+    }
+  } catch (err) {
+    console.error('Payment check error:', err)
+  }
+}

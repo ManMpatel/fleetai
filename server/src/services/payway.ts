@@ -406,6 +406,25 @@ export async function refundTransaction(
   }
 }
 
+// ── Get customer schedule (next payment date) ─────────────
+export async function getCustomerSchedule(
+  customerId: string
+): Promise<{ success: boolean; nextPaymentDate?: Date; error?: string }> {
+  if (!isConfigured()) return { success: true }
+  try {
+    const res = await axios.get(
+      `${PAYWAY_BASE}/customers/${customerId}/schedule`,
+      { headers: getSecretAuthHeader() }
+    )
+    const raw = res.data.nextPaymentDate // e.g. "24 Apr 2026"
+    if (!raw) return { success: true }
+    const date = new Date(raw)
+    return { success: true, nextPaymentDate: date }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
 
 // ── Get payment history ───────────────────────────────────
 export async function getPaymentHistory(

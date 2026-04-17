@@ -12,7 +12,7 @@ import chatRoutes from './routes/chat'
 import uploadRoutes from './routes/upload'
 import whatsappRouter from './services/whatsapp'
 import renterRoutes from './routes/renters'
-import { checkExpiringDates } from './services/rag'
+import { checkExpiringDates, checkPaymentStatus } from './services/rag'
 import { runMongoBackup } from './services/backup'
 import { requireAuth, requireAdmin } from './middleware/auth'
 import { checkGmailForFines } from './services/gmail'
@@ -168,6 +168,12 @@ cron.schedule('0 3 1 * *', async () => {
   cron.schedule('0 2 * * 0', () => {
     console.log('🗄️ Running weekly MongoDB backup...')
     runMongoBackup()
+  })
+
+  // Payment status check — daily at 9am Sydney time
+  cron.schedule('0 9 * * *', () => {
+    console.log('💳 Running daily payment status check...')
+    checkPaymentStatus()
   })
 
   // Daily PayWay transaction sync — 9am Sydney time
