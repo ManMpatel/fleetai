@@ -6,16 +6,20 @@ interface FleetTableProps {
   loading: boolean
 }
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   available: 'bg-green-bg text-green',
   rented: 'bg-accent-bg text-accent',
   service: 'bg-amber-bg text-amber',
+  stolen: 'bg-red-bg text-red',
+  sold: 'bg-surface2 text-text-muted',
 }
 
-const statusDot = {
+const statusDot: Record<string, string> = {
   available: 'bg-green',
   rented: 'bg-accent',
   service: 'bg-amber',
+  stolen: 'bg-red',
+  sold: 'bg-text-muted',
 }
 
 function formatDate(d?: string) {
@@ -102,11 +106,16 @@ export default function FleetTable({ vehicles, loading }: FleetTableProps) {
                     <span className="text-text-muted capitalize">{vehicle.type}</span>
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[vehicle.status]}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${statusDot[vehicle.status]}`} />
-                      {vehicle.status.charAt(0).toUpperCase() + vehicle.status.slice(1)}
-                    </span>
-                  </td>
+                  {(() => {
+                    const displayStatus = (vehicle as any).regoStatus === 'stolen' ? 'stolen' : (vehicle as any).regoStatus === 'sold' ? 'sold' : vehicle.status
+                    return (
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[displayStatus] || statusColors['available']}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${statusDot[displayStatus] || statusDot['available']}`} />
+                        {displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}
+                      </span>
+                    )
+                  })()}
+                </td>
                   <td className="px-4 py-3.5 text-text-secondary">
                     {vehicle.currentRenter
                       ? typeof vehicle.currentRenter === 'object'
