@@ -175,8 +175,8 @@ router.post('/read-rego', async (req: Request, res: Response) => {
     console.log('🔍 read-rego body keys:', Object.keys(req.body))
     console.log('🔍 read-rego body (truncated):', JSON.stringify(req.body).substring(0, 200))
 
-    const { imageBase64, mimeType, files } = req.body
-    const base64 = imageBase64 || files?.[0]?.base64
+    const { photoBase64, imageBase64, mimeType, files } = req.body
+    const base64 = photoBase64 || imageBase64 || files?.[0]?.base64
     const mime = mimeType || files?.[0]?.mimeType || 'image/jpeg'
 
     if (!base64) return res.status(400).json({ error: 'No image provided', receivedKeys: Object.keys(req.body) })
