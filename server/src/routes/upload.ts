@@ -172,13 +172,14 @@ Important: Always set confident to true and always return your best guess even i
 // POST /api/upload/read-rego — single rego photo scan
 router.post('/read-rego', async (req: Request, res: Response) => {
   try {
-    const { imageBase64, mimeType, files } = req.body
+    console.log('🔍 read-rego body keys:', Object.keys(req.body))
+    console.log('🔍 read-rego body (truncated):', JSON.stringify(req.body).substring(0, 200))
 
-    // Support both single { imageBase64 } and bulk { files: [...] } format
+    const { imageBase64, mimeType, files } = req.body
     const base64 = imageBase64 || files?.[0]?.base64
     const mime = mimeType || files?.[0]?.mimeType || 'image/jpeg'
 
-    if (!base64) return res.status(400).json({ error: 'No image provided' })
+    if (!base64) return res.status(400).json({ error: 'No image provided', receivedKeys: Object.keys(req.body) })
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
