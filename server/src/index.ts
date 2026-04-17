@@ -171,7 +171,7 @@ cron.schedule('0 3 1 * *', async () => {
   })
 
   // Payment status check — daily at 9am Sydney time
-  cron.schedule('0 9 * * *', () => {
+  cron.schedule('0 23 * * *', () => {
     console.log('💳 Running daily payment status check...')
     checkPaymentStatus()
   })

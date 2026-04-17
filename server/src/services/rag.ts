@@ -165,7 +165,6 @@ export async function checkPaymentStatus(): Promise<void> {
     const renters = await Renter.find({
       'payway.status': 'active',
       'payway.customerId': { $exists: true },
-      'payway.nextDebitDate': { $lte: new Date(todayStr + 'T23:59:59Z') },
     })
 
     console.log(`💳 Payment check — ${renters.length} renter(s) due today or overdue`)
