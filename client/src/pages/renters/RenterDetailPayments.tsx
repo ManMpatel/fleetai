@@ -151,6 +151,11 @@ export default function RenterDetailPayments({
                       <div>
                         <p className="text-xs text-green font-semibold mb-1">● Active</p>
                         <p className="text-lg font-bold text-text-primary">${renter.payway?.weeklyAmount}/charge</p>
+                        {renter.payway?.nextDebitDate && (
+                          <p className="text-xs text-text-muted mt-1">
+                            Next debit: {new Date(renter.payway.nextDebitDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </p>
+                        )}
                         {(renter.payway as any)?.pendingExtraAmount && (
                           <p className="text-xs text-amber font-medium mt-1">
                             ⚠️ Next: ${((renter.payway?.weeklyAmount || 0) + (renter.payway as any).pendingExtraAmount).toFixed(2)}
