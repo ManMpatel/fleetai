@@ -169,11 +169,16 @@ Important: Always set confident to true and always return your best guess even i
   }
 })
 
-// POST /api/upload/read-rego — single file alias for read-rego-bulk
+// POST /api/upload/read-rego — single rego photo scan
 router.post('/read-rego', async (req: Request, res: Response) => {
   try {
-    const { files } = req.body as { files: { name: string; base64: string; mimeType: string }[] }
-    if (!files?.length) return res.status(400).json({ error: 'No files provided' })
+    const { imageBase64, mimeType, files } = req.body
+
+    // Support both single { imageBase64 } and bulk { files: [...] } format
+    const base64 = imageBase64 || files?.[0]?.base64
+    const mime = mimeType || files?.[0]?.mimeType || 'image/jpeg'
+
+    if (!base64) return res.status(400).json({ error: 'No image provided' })
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
@@ -194,24 +199,19 @@ Extract these fields and return ONLY a valid JSON object, no markdown, no explan
 
 Always return your best guess even if unclear. Never return confident: false.`
 
-    const results = []
-    for (const file of files) {
-      try {
-        const result = await model.generateContent([
-          { inlineData: { data: file.base64, mimeType: file.mimeType || 'image/jpeg' } },
-          prompt
-        ])
-        const text = result.response.text().trim()
-        const clean = text.replace(/```json|```/g, '').trim()
-        const data = JSON.parse(clean)
-        results.push({ filename: file.name, status: 'ok', data })
-      } catch (err: any) {
-        results.push({ filename: file.name, status: 'error', data: null })
-      }
-    }
+    const result = await model.generateContent([
+      { inlineData: { data: base64, mimeType: mime } },
+      prompt
+    ])
 
-    res.json({ results })
+    const text = result.response.text().trim()
+    const clean = text.replace(/```json|```/g, '').trim()
+    const data = JSON.parse(clean)
+
+    // Return in both formats so frontend can use either
+    res.json({ results: [{ filename: 'scan', status: 'ok', data }], ...data })
   } catch (err: any) {
+    console.error('Rego read error:', err)
     res.status(500).json({ error: err.message })
   }
 })
