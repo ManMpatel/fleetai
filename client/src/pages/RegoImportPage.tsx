@@ -93,6 +93,9 @@ export default function RegoImportPage() {
   const [toast, setToast] = useState('')
   const [editVehicle, setEditVehicle] = useState<RegoVehicle | null>(null)
   const [editYear, setEditYear] = useState('')
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [editNoteText, setEditNoteText] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
   const [editPhoto, setEditPhoto] = useState<string | null>(null)
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null)
   const [showManual, setShowManual] = useState(false)
@@ -324,6 +327,20 @@ export default function RegoImportPage() {
     setSaving(false)
   }
 
+  async function saveNote(vehicle: RegoVehicle) {
+    setSavingNote(true)
+    try {
+      await axios.put(`${API}/api/fleet/${vehicle.plate}`,
+        { notes: editNoteText },
+        { headers: { 'x-owner-email': user?.email || '' } }
+      )
+      setVehicles(prev => prev.map(v => v._id === vehicle._id ? { ...v, notes: editNoteText } : v))
+      showToast('✅ Note saved')
+    } catch { showToast('❌ Failed to save note') }
+    setEditingNoteId(null)
+    setSavingNote(false)
+  }
+
   const tabList: { key: RegoStatus; label: string }[] = [
     { key: 'in_stock', label: 'In stock' },
     { key: 'stolen',   label: 'Stolen' },
@@ -464,8 +481,48 @@ export default function RegoImportPage() {
                                 <span className="text-xs text-text-muted italic">Not scanned</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 max-w-[140px]">
-                              <span className="text-xs text-text-muted truncate block">{v.notes || '—'}</span>
+                            <td className="px-4 py-3 max-w-[180px]" onClick={e => e.stopPropagation()}>
+                              {editingNoteId === v._id ? (
+                                <div className="flex flex-col gap-1.5">
+                                  <textarea
+                                    value={editNoteText}
+                                    onChange={e => setEditNoteText(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Escape') setEditingNoteId(null)
+                                      if (e.key === 'Enter' && e.ctrlKey) saveNote(v)
+                                    }}
+                                    rows={3}
+                                    autoFocus
+                                    placeholder="Add a note..."
+                                    className="w-full bg-surface2 border border-accent rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none resize-none"
+                                  />
+                                  <div className="flex gap-1.5">
+                                    <button onClick={() => saveNote(v)} disabled={savingNote}
+                                      className="text-xs px-3 py-1 bg-accent text-white rounded-lg disabled:opacity-50">
+                                      {savingNote ? '...' : 'Save'}
+                                    </button>
+                                    <button onClick={() => setEditingNoteId(null)}
+                                      className="text-xs px-3 py-1 border border-border rounded-lg text-text-muted hover:text-text-primary">
+                                      Cancel
+                                    </button>
+                                  </div>
+                                  <p className="text-[10px] text-text-muted">Ctrl+Enter to save · Esc to cancel</p>
+                                </div>
+                              ) : (
+                                <div
+                                  onClick={() => { setEditingNoteId(v._id); setEditNoteText(v.notes || '') }}
+                                  className="group flex items-start gap-1.5 cursor-pointer min-h-[24px]"
+                                >
+                                  <span className={`text-xs leading-relaxed whitespace-pre-wrap ${v.notes ? 'text-text-primary' : 'text-text-muted italic'}`}>
+                                    {v.notes || 'Add note...'}
+                                  </span>
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+                                    className="w-3 h-3 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                  </svg>
+                                </div>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               {v.currentRenter ? (
