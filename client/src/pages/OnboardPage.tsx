@@ -174,7 +174,7 @@ export default function OnboardPage() {
       return
     }
 
-    if (!licenceFile) { setError('Please upload your licence photo'); return }
+    if (!licenceFile && form.vehicleType !== 'e-bike') { setError('Please upload your licence photo'); return }
     if (!selfieFile) { setError('Please upload a selfie photo'); return }
     if (!passportFile) { setError('Please upload your passport photo'); return }
     if (!form.passportNumber.trim()) { setError('Please enter your passport number'); return }
@@ -195,7 +195,7 @@ export default function OnboardPage() {
     try {
       // Compress all photos to base64 — no S3, stored directly in MongoDB
       const [licencePhotoBase64, selfieBase64, passportPhotoBase64] = await Promise.all([
-        compressToBase64(licenceFile, 1200, 0.8),
+        licenceFile ? compressToBase64(licenceFile, 1200, 0.8) : Promise.resolve(undefined),
         compressToBase64(selfieFile, 800, 0.7),
         ...(passportFile ? [compressToBase64(passportFile, 1200, 0.8)] : [Promise.resolve(undefined)]),
       ])
@@ -206,9 +206,9 @@ export default function OnboardPage() {
         ownerId: ownerEmail,
         email: form.email,
         dateOfBirth: form.dateOfBirth,
-        licenceNumber: form.licenceNumber,
+        licenceNumber: form.licenceNumber || undefined,
         passportNumber: form.passportNumber || undefined,
-        licencePhotoBase64,
+        ...(licencePhotoBase64 ? { licencePhotoBase64 } : {}),
         selfieBase64,
         ...(passportPhotoBase64 ? { passportPhotoBase64 } : {}),
         vehicleType: form.vehicleType,
@@ -301,15 +301,20 @@ export default function OnboardPage() {
                 className="w-full bg-white border border-gray-200 text-gray-900 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-400">
                 <option value="scooter">Scooter</option>
                 <option value="car">Car</option>
+                <option value="e-bike">E-Bike</option>
               </select>
             </div>
-            <Field label="Licence Number *" name="licenceNumber" value={form.licenceNumber} onChange={handleChange} required />
+            <Field label={form.vehicleType === 'e-bike' ? 'Licence Number' : 'Licence Number *'} name="licenceNumber" value={form.licenceNumber} onChange={handleChange} required={form.vehicleType !== 'e-bike'} />
             <Field label="Passport Number *" name="passportNumber" value={form.passportNumber} onChange={handleChange} required />
           </Section>
 
           {/* Licence Photo */}
-          <Section title="Licence Photo *">
-            <p className="text-xs text-gray-400 mb-3">Take a clear photo of your driver's licence (front side)</p>
+          <Section title={form.vehicleType === 'e-bike' ? 'Licence Photo (Optional)' : 'Licence Photo *'}>
+            <p className="text-xs text-gray-400 mb-3">
+              {form.vehicleType === 'e-bike'
+                ? 'E-Bike riders do not require a licence — you may skip this'
+                : "Take a clear photo of your driver's licence (front side)"}
+            </p>
             <PhotoUpload
               preview={licencePreview}
               inputId="licence-upload"

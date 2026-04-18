@@ -1,4 +1,4 @@
-export type VehicleType = 'scooter' | 'car'
+export type VehicleType = 'scooter' | 'car' | 'e-bike'
 export type VehicleStatus = 'available' | 'rented' | 'service'
 export type FineType = 'fine' | 'toll'
 export type NotificationType = 'fine' | 'toll' | 'rego' | 'whatsapp' | 'info'
@@ -62,7 +62,7 @@ export interface Renter {
   email?: string
   dateOfBirth?: string
   licenceNumber?: string
-  vehicleType?: 'scooter' | 'car'
+  vehicleType?: 'scooter' | 'car' | 'e-bike'
   status?: 'pending' | 'active' | 'inactive'  // ← add this
   address?: {
     street?: string

@@ -108,7 +108,7 @@ const RenterSchema = new Schema<IRenter>(
     licencePhotoBase64:   { type: String },
     selfieBase64:         { type: String },
     passportPhotoBase64:  { type: String },
-    vehicleType:     { type: String, enum: ['scooter', 'car'] },
+    vehicleType:     { type: String, enum: ['scooter', 'car', 'e-bike'] },
     status:          { type: String, enum: ['pending', 'active', 'inactive'], default: 'pending' },
     ownerId:         { type: String, index: true },
 
