@@ -86,9 +86,13 @@ function generateDDR(renter: any) {
   // ── PAGE 1 ──
   y = 25
   doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+  doc.text('ZUBER CAR RENTAL PTY LTD (314011)', W / 2, y, { align: 'center' }); y += 8
+  doc.setFontSize(14); doc.setFont('helvetica', 'bold')
   doc.text('Direct Debit Request (DDR)', W / 2, y, { align: 'center' }); y += 10
   para('You may contact us as follows:'); y -= 3
-  txt('Mail:    Sydney, NSW', L + 10)
+  txt('Phone:   0469048855', L + 10)
+  txt('Email:   zuber_gugarman@yahoo.com.au', L + 10)
+  txt('Mail:    4/64 Hillard Street, Wiley Park NSW 2195', L + 10)
   para('All communication addressed to us should include your Customer Number.'); y += 4
 
   txt('PART A - Your Details', L, 12, 'bold'); hline(); y += 2
@@ -185,12 +189,12 @@ function generateDDR(renter: any) {
 
   txt('Completed Application', L, 11, 'bold'); hline(); y += 2
   para('Return your completed application by mail to:')
-  para('    Mail: Sydney, NSW')
+  para('    Mail: 4/64 Hillard Street, Wiley Park NSW 2195')
 
   // ── PAGE 3 ──
   newPage()
   txt('Customer Direct Debit Request (DDR) Service Agreement', L, 13, 'bold'); y += 4
-  para(`This is your Direct Debit Service Agreement (the Debit User). It explains what your obligations are when undertaking a Direct Debit arrangement with us. It also details what our obligations are to you as your Direct Debit provider.`)
+  para(`This is your Direct Debit Service Agreement with ZUBER CAR RENTAL PTY LTD (314011) (the Debit User). It explains what your obligations are when undertaking a Direct Debit arrangement with us. It also details what our obligations are to you as your Direct Debit provider.`)
   para('Please keep this agreement for future reference. It forms part of the terms and conditions of your Direct Debit Request (DDR) and should be read in conjunction with your DDR authorisation.'); y += 4
 
   section('Definitions'); y += 2
@@ -201,7 +205,7 @@ function generateDDR(renter: any) {
     ['debit day', 'means the day that payment by you to us is due.'],
     ['debit payment', 'means a particular transaction where a debit is made.'],
     ['Direct Debit Request', 'means the written, verbal or online request between us and you to debit funds from your account.'],
-    ['us or we', 'means the Debit User you have authorised by requesting a Direct Debit Request.'],
+    ['us or we', 'means ZUBER CAR RENTAL PTY LTD (314011), (the Debit User) you have authorised by requesting a Direct Debit Request.'],
     ['you', 'means the customer who has authorised the Direct Debit Request.'],
     ['your financial institution', 'means the financial institution at which you hold the account you have authorised us to debit.'],
   ]
@@ -260,9 +264,9 @@ function generateDDR(renter: any) {
 
   section('Contacting each other'); y += 2
   para('If you wish to notify us in writing about anything relating to this agreement, you should write to:')
-  para(`Email: ${renter.email || ''}`)
-  para('Mail: Sydney, NSW')
-  para('You may telephone us during business hours.')
+  para('Email: zuber_gugarman@yahoo.com.au')
+  para('Mail: 4/64 Hillard Street, Wiley Park NSW 2195')
+  para('You may telephone us on 0469048855 during business hours.')
   para('All communication addressed to us should include your Customer Number.')
   para('We will notify you by sending a notice to the preferred address or email you have given us in the Direct Debit Request. Any notice will be deemed to have been received on the second banking day after sending.')
 
