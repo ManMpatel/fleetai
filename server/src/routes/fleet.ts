@@ -57,9 +57,22 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.put('/:plate', async (req: Request, res: Response) => {
   try {
+    const updates = { ...req.body }
+
+    // Handle regoPhotos array — keep last 2, auto-delete oldest
+    if (updates.regoPhotoBase64) {
+      const existing = await Vehicle.findOne({ plate: req.params.plate.toUpperCase(), ownerId: req.ownerEmail })
+      if (existing) {
+        const photos = (existing as any).regoPhotos || []
+        photos.push({ base64: updates.regoPhotoBase64, uploadedAt: new Date() })
+        if (photos.length > 2) photos.shift()
+        updates.regoPhotos = photos
+      }
+    }
+
     const vehicle = await Vehicle.findOneAndUpdate(
       { plate: req.params.plate.toUpperCase(), ownerId: req.ownerEmail },
-      { $set: req.body },
+      { $set: updates },
       { new: true, runValidators: true }
     )
       .populate('currentRenter', 'name phone email')

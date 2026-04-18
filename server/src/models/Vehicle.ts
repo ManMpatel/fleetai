@@ -44,6 +44,7 @@ const VehicleSchema = new Schema(
     notes: { type: String },
     regoStatus: { type: String, enum: ['in_stock', 'stolen', 'sold'], default: 'in_stock' },
     regoPhotoBase64: { type: String },
+    regoPhotos: [{ base64: { type: String }, uploadedAt: { type: Date, default: Date.now } }],
   },
   { timestamps: true }
 )

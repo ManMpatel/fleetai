@@ -93,6 +93,8 @@ export default function RegoImportPage() {
   const [toast, setToast] = useState('')
   const [editVehicle, setEditVehicle] = useState<RegoVehicle | null>(null)
   const [editYear, setEditYear] = useState('')
+  const [editPhoto, setEditPhoto] = useState<string | null>(null)
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null)
   const [showManual, setShowManual] = useState(false)
   const [manualError, setManualError] = useState('')
   const [manual, setManual] = useState({ plate: '', year: '', regoExpiry: '', notes: '' })
@@ -307,13 +309,17 @@ export default function RegoImportPage() {
       const current = new Date(editVehicle.regoExpiry)
       current.setFullYear(parseInt(editYear))
       const newExpiry = current.toISOString().split('T')[0]
+      const body: any = { regoExpiry: newExpiry }
+      if (editPhoto) body.regoPhotoBase64 = editPhoto
       await axios.put(`${API}/api/fleet/${editVehicle.plate}`,
-        { regoExpiry: newExpiry },
+        body,
         { headers: { 'x-owner-email': user?.email || '' } }
       )
       setVehicles(prev => prev.map(v => v._id === editVehicle._id ? { ...v, regoExpiry: newExpiry } : v))
       showToast(`✅ ${editVehicle.plate} updated`)
       setEditVehicle(null)
+      setEditPhoto(null)
+      setEditPhotoPreview(null)
     } catch { showToast('❌ Failed to update') }
     setSaving(false)
   }
@@ -733,14 +739,15 @@ export default function RegoImportPage() {
 
       {/* Photo viewer modal */}
       {photoModal && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center px-4"
+        <div className="fixed inset-0 bg-black/95 z-[9999] overflow-auto"
           onClick={() => setPhotoModal(null)}>
-          <div className="max-w-2xl w-full" onClick={e => e.stopPropagation()}>
-            <img src={`data:image/jpeg;base64,${photoModal}`} className="w-full rounded-2xl" />
-            <button onClick={() => setPhotoModal(null)}
-              className="mt-3 w-full py-2.5 bg-white/10 text-white rounded-xl text-sm hover:bg-white/20">
-              Close
-            </button>
+          <button onClick={() => setPhotoModal(null)}
+            className="fixed top-4 right-4 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full w-9 h-9 flex items-center justify-center text-lg transition-colors">✕</button>
+          <div className="min-h-full flex items-start justify-center p-8" onClick={e => e.stopPropagation()}>
+            <img src={`data:image/jpeg;base64,${photoModal}`}
+              className="rounded-xl shadow-2xl"
+              style={{ width: '100%', maxWidth: 900, height: 'auto' }}
+            />
           </div>
         </div>
       )}
@@ -837,8 +844,35 @@ export default function RegoImportPage() {
               />
               <p className="text-xs text-text-muted mt-1.5">Day and month stay the same — only year changes.</p>
             </div>
+            <div>
+              <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">New rego photo (optional)</label>
+              {editPhotoPreview ? (
+                <div className="relative">
+                  <img src={editPhotoPreview} className="w-full rounded-lg object-cover max-h-32 cursor-pointer" onClick={() => setPhotoModal(editPhoto)} />
+                  <button onClick={() => { setEditPhoto(null); setEditPhotoPreview(null) }}
+                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">✕</button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-2 border border-dashed border-border rounded-lg px-3 py-3 text-xs text-text-muted cursor-pointer hover:border-accent transition-colors">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                  Upload new rego photo
+                  <input type="file" accept="image/*" className="hidden" onChange={async e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const compressed = await compressImage(file, 800, 0.6)
+                    setEditPhoto(compressed)
+                    const reader = new FileReader()
+                    reader.onload = ev => setEditPhotoPreview(ev.target?.result as string)
+                    reader.readAsDataURL(file)
+                  }} />
+                </label>
+              )}
+            </div>
             <div className="flex gap-2 mt-5">
-              <button onClick={() => setEditVehicle(null)}
+              <button onClick={() => { setEditVehicle(null); setEditPhoto(null); setEditPhotoPreview(null) }}
                 className="flex-1 py-2.5 border border-border rounded-xl text-sm text-text-muted hover:text-text-primary transition-colors">
                 Cancel
               </button>
