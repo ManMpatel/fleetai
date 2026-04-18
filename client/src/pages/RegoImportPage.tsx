@@ -101,7 +101,8 @@ export default function RegoImportPage() {
   const [showManual, setShowManual] = useState(false)
   const [manualError, setManualError] = useState('')
   const [manual, setManual] = useState({ plate: '', year: '', regoExpiry: '', notes: '' })
-  const [photoModal, setPhotoModal] = useState<string | null>(null)
+  const [photoModal, setPhotoModal] = useState<string[]>([])
+  const [photoIndex, setPhotoIndex] = useState(0)
   const [pendingScans, setPendingScans] = useState<PendingScan[]>([])
   const [showPendingSidebar, setShowPendingSidebar] = useState(false)
   const [selectedPending, setSelectedPending] = useState<PendingScan | null>(null)
@@ -470,16 +471,22 @@ export default function RegoImportPage() {
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              {v.regoPhotoBase64 ? (
-                                <button
-                                  onClick={() => setPhotoModal(v.regoPhotoBase64!)}
-                                  className="text-xs text-accent underline hover:no-underline"
-                                >
-                                  View photo
-                                </button>
-                              ) : (
-                                <span className="text-xs text-text-muted italic">Not scanned</span>
-                              )}
+                              {(() => {
+                                const photos = [
+                                  ...((v as any).regoPhotos || []).map((p: any) => p.base64),
+                                  ...(v.regoPhotoBase64 && !((v as any).regoPhotos?.length) ? [v.regoPhotoBase64] : [])
+                                ].filter(Boolean)
+                                return photos.length > 0 ? (
+                                  <button
+                                    onClick={() => { setPhotoModal(photos); setPhotoIndex(photos.length - 1) }}
+                                    className="text-xs text-accent underline hover:no-underline"
+                                  >
+                                    View photo{photos.length > 1 ? ` (${photos.length})` : ''}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-text-muted italic">Not scanned</span>
+                                )
+                              })()}
                             </td>
                             <td className="px-4 py-3 max-w-[180px]" onClick={e => e.stopPropagation()}>
                               {editingNoteId === v._id ? (
@@ -794,14 +801,23 @@ export default function RegoImportPage() {
         </div>
       )}
 
-      {/* Photo viewer modal */}
-      {photoModal && (
-        <div className="fixed inset-0 bg-black/95 z-[9999] overflow-auto"
-          onClick={() => setPhotoModal(null)}>
-          <button onClick={() => setPhotoModal(null)}
+      {photoModal.length > 0 && (
+        <div className="fixed inset-0 bg-black/95 z-[9999] overflow-auto" onClick={() => setPhotoModal([])}>
+          <button onClick={() => setPhotoModal([])}
             className="fixed top-4 right-4 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full w-9 h-9 flex items-center justify-center text-lg transition-colors">✕</button>
-          <div className="min-h-full flex items-start justify-center p-8" onClick={e => e.stopPropagation()}>
-            <img src={`data:image/jpeg;base64,${photoModal}`}
+          {photoModal.length > 1 && (
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3">
+              <button onClick={e => { e.stopPropagation(); setPhotoIndex(i => Math.max(0, i - 1)) }}
+                disabled={photoIndex === 0}
+                className="bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors">←</button>
+              <span className="text-white text-sm">{photoIndex + 1} / {photoModal.length}</span>
+              <button onClick={e => { e.stopPropagation(); setPhotoIndex(i => Math.min(photoModal.length - 1, i + 1)) }}
+                disabled={photoIndex === photoModal.length - 1}
+                className="bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors">→</button>
+            </div>
+          )}
+          <div className="min-h-full flex items-start justify-center p-8 pt-16" onClick={e => e.stopPropagation()}>
+            <img src={`data:image/jpeg;base64,${photoModal[photoIndex]}`}
               className="rounded-xl shadow-2xl"
               style={{ width: '100%', maxWidth: 900, height: 'auto' }}
             />
@@ -905,7 +921,7 @@ export default function RegoImportPage() {
               <label className="block text-xs text-text-muted mb-1 uppercase tracking-wide">New rego photo (optional)</label>
               {editPhotoPreview ? (
                 <div className="relative">
-                  <img src={editPhotoPreview} className="w-full rounded-lg object-cover max-h-32 cursor-pointer" onClick={() => setPhotoModal(editPhoto)} />
+                  <img src={editPhotoPreview} className="w-full rounded-lg object-cover max-h-32 cursor-pointer" onClick={() => { setPhotoModal([editPhoto!]); setPhotoIndex(0) }} />
                   <button onClick={() => { setEditPhoto(null); setEditPhotoPreview(null) }}
                     className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">✕</button>
                 </div>
