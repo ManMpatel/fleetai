@@ -172,6 +172,7 @@ export async function checkPaymentStatus(): Promise<void> {
     for (const renter of renters) {
       const customerId = renter.payway!.customerId!
       const result = await getPaymentHistory(customerId)
+      console.log(`📥 PayWay response for ${renter.name} (${customerId}):`, JSON.stringify(result, null, 2))
       const payments = result.payments || []
 
       if (!payments.length) {
