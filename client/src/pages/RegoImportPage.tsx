@@ -319,11 +319,11 @@ export default function RegoImportPage() {
         body,
         { headers: { 'x-owner-email': user?.email || '' } }
       )
-      setVehicles(prev => prev.map(v => v._id === editVehicle._id ? { ...v, regoExpiry: newExpiry } : v))
       showToast(`✅ ${editVehicle.plate} updated`)
       setEditVehicle(null)
       setEditPhoto(null)
       setEditPhotoPreview(null)
+      await fetchVehicles()
     } catch { showToast('❌ Failed to update') }
     setSaving(false)
   }
