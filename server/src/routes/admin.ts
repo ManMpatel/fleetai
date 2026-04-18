@@ -198,5 +198,34 @@ router.get('/stats', requireSuperAdmin, async (_req, res) => {
   }
 })
 
+// POST /api/admin/sync-payway-dates — one-time, delete after use
+router.post('/sync-payway-dates', async (req: Request, res: Response) => {
+  try {
+    const { getCustomerSchedule } = await import('../services/payway')
+    const Renter = (await import('../models/Renter')).default
 
+    const renters = await Renter.find({
+      'payway.status': { $in: ['active', 'paused'] },
+      'payway.customerId': { $exists: true },
+    })
+
+    const results = []
+    for (const renter of renters) {
+      const customerId = renter.payway!.customerId!
+      const schedule = await getCustomerSchedule(customerId)
+      console.log(`📥 PayWay schedule for ${renter.name} (${customerId}):`, JSON.stringify(schedule, null, 2))
+      if (schedule.success && schedule.nextPaymentDate) {
+        renter.payway!.nextDebitDate = schedule.nextPaymentDate
+        await renter.save()
+        results.push({ name: renter.name, nextDebitDate: schedule.nextPaymentDate, status: 'updated' })
+      } else {
+        results.push({ name: renter.name, status: 'failed', error: schedule.error })
+      }
+    }
+
+    res.json({ updated: results.length, results })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
 export default router
