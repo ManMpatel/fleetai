@@ -414,7 +414,7 @@ export async function getCustomerSchedule(
   try {
     const res = await axios.get(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
-      { headers: getSecretAuthHeader() }
+      { headers: { Authorization: getSecretAuthHeader().Authorization } }
     )
     const raw = res.data.nextPaymentDate // e.g. "24 Apr 2026"
     if (!raw) return { success: true }
