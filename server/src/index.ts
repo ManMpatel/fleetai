@@ -208,6 +208,17 @@ cron.schedule('0 3 1 * *', async () => {
           renter.payway!.lastPaymentDate = new Date()
           renter.payway!.lastPaymentAmount = latestTx.principalAmount
           renter.payway!.lastPaymentDescription = latestTx.responseText || latestTx.status
+
+          // If payment approved, advance nextDebitDate by 7 days from the transaction date
+          if (isApproved) {
+            const txDateObj = txDate ? new Date(txDate) : new Date()
+            const newNextDebit = new Date(txDateObj.getTime() + 7 * 86400000)
+            // Only update if the new date is actually later than current nextDebitDate
+            if (!renter.payway!.nextDebitDate || newNextDebit > renter.payway!.nextDebitDate) {
+              renter.payway!.nextDebitDate = newNextDebit
+            }
+          }
+
           await renter.save()
 
           if (isDeclined && newStatus !== prevStatus) {
