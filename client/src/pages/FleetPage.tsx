@@ -7,6 +7,7 @@ import FilterBar from '../components/FilterBar'
 import FleetTable from '../components/FleetTable'
 import SlidePanel from '../components/SlidePanel'
 import type { VehicleStatus, VehicleType } from '../types'
+import { QRCodeSVG } from 'qrcode.react'
 
 function ShareLinks() {
   const { user } = useAuth0()
@@ -18,6 +19,7 @@ function ShareLinks() {
   const [businessName, setBusinessName] = useState('')
   const [bizSaving, setBizSaving] = useState(false)
   const [bizSaved, setBizSaved] = useState(false)
+  const [qrUrl, setQrUrl] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
   const BASE = 'https://fleetai.co.in'
@@ -39,6 +41,7 @@ function ShareLinks() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
   async function saveBizName() {
     if (!businessName.trim() || !user?.email) return
     setBizSaving(true)
@@ -71,77 +74,119 @@ function ShareLinks() {
   }
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 bg-surface2 border border-border rounded-lg text-sm text-text-secondary hover:text-text-primary hover:border-accent transition-colors"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4">
-          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-        </svg>
-        Share Links
-      </button>
+    <>
+      <div className="relative" ref={ref}>
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-2 px-3 py-2 bg-surface2 border border-border rounded-lg text-sm text-text-secondary hover:text-text-primary hover:border-accent transition-colors"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          Share Links
+        </button>
 
-      {open && (
-      <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
-        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
-        <div className="flex gap-2 items-center">
-          <input
-            value={businessName}
-            onChange={e => setBusinessName(e.target.value)}
-            placeholder="Business name on onboard form"
-            className="flex-1 text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent"
-          />
-          <button
-            onClick={saveBizName}
-            disabled={bizSaving || !businessName.trim()}
-            className="px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
-          >
-            {bizSaved ? '✓' : bizSaving ? '...' : 'Save'}
-          </button>
-        </div>
-        <div className="flex gap-2 items-center">
-          <input
-            value={slug}
-            onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-            placeholder="Short URL e.g. dasiboys"
-            className="flex-1 text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent"
-          />
-          <button
-            onClick={saveSlug}
-            disabled={saving || !slug.trim()}
-            className="px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
-          >
-            {saved ? '✓' : saving ? '...' : 'Save'}
-          </button>
-        </div>
-        {[
-          { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: 'https://fleetai.co.in/tablet' },
-          { type: 'onboard', label: 'Onboard form', sub: 'Send link to new renters', icon: '👤', url: `https://fleetai.co.in/onboard/${slug}` },
-        ].map(link => (
-          <div key={link.type} className="flex items-center justify-between p-3 bg-surface2 border border-border rounded-lg">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span>{link.icon}</span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-text-primary">{link.label}</p>
-                <p className="text-xs text-text-muted truncate">{link.sub}</p>
-              </div>
+        {open && (
+          <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
+            <div className="flex gap-2 items-center">
+              <input
+                value={businessName}
+                onChange={e => setBusinessName(e.target.value)}
+                placeholder="Business name on onboard form"
+                className="flex-1 text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent"
+              />
+              <button
+                onClick={saveBizName}
+                disabled={bizSaving || !businessName.trim()}
+                className="px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
+              >
+                {bizSaved ? '✓' : bizSaving ? '...' : 'Save'}
+              </button>
             </div>
+            <div className="flex gap-2 items-center">
+              <input
+                value={slug}
+                onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                placeholder="Short URL e.g. dasiboys"
+                className="flex-1 text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent"
+              />
+              <button
+                onClick={saveSlug}
+                disabled={saving || !slug.trim()}
+                className="px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
+              >
+                {saved ? '✓' : saving ? '...' : 'Save'}
+              </button>
+            </div>
+            {[
+              { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: `${BASE}/tablet` },
+              { type: 'onboard', label: 'Onboard form', sub: 'Send link to new renters', icon: '👤', url: `${BASE}/onboard/${slug}` },
+            ].map(link => (
+              <div key={link.type} className="flex items-center justify-between p-3 bg-surface2 border border-border rounded-lg">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span>{link.icon}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-text-primary">{link.label}</p>
+                    <p className="text-xs text-text-muted truncate">{link.sub}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 ml-3 shrink-0">
+                  {link.type === 'onboard' && slug && (
+                    <button
+                      onClick={() => setQrUrl(link.url)}
+                      title="Show QR code"
+                      className="px-2.5 py-1.5 bg-surface border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-3.5 h-3.5">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <rect x="14" y="14" width="3" height="3" rx="0.5"/><rect x="18" y="14" width="3" height="3" rx="0.5"/>
+                        <rect x="14" y="18" width="3" height="3" rx="0.5"/><rect x="18" y="18" width="3" height="3" rx="0.5"/>
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => copyLink(link.type)}
+                    className="px-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors"
+                  >
+                    {copied === link.type ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* QR Code Modal */}
+      {qrUrl && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setQrUrl(null)}
+        >
+          <div
+            className="bg-surface border border-border rounded-2xl p-6 flex flex-col items-center gap-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-text-primary">Scan to open onboard form</p>
+            <div className="p-3 bg-white rounded-xl">
+              <QRCodeSVG value={qrUrl} size={200} />
+            </div>
+            <p className="text-xs text-text-muted max-w-[200px] text-center break-all">{qrUrl}</p>
             <button
-              onClick={() => copyLink(link.type)}
-              className="ml-3 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors shrink-0"
+              onClick={() => setQrUrl(null)}
+              className="px-4 py-2 bg-surface2 border border-border rounded-lg text-xs text-text-secondary hover:border-accent"
             >
-              {copied === link.type ? '✓ Copied' : 'Copy'}
+              Close
             </button>
           </div>
-        ))}
-      </div>
-    )}
-    </div>
+        </div>
+      )}
+    </>
   )
 }
-    
 
 export default function FleetPage() {
   const { vehicles, fleetLoading, fetchVehicles, selectedVehicle, stats } = useStore()
@@ -167,7 +212,6 @@ export default function FleetPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-bg">
-      {/* Page header */}
       <div className="px-6 py-5 border-b border-border bg-surface flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-text-primary">Fleet Overview</h1>
@@ -177,7 +221,6 @@ export default function FleetPage() {
       </div>
 
       <div className="flex-1 px-6 py-6 space-y-6">
-        {/* Stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
             label="Total Fleet"
@@ -226,7 +269,6 @@ export default function FleetPage() {
           />
         </div>
 
-        {/* Filters */}
         <FilterBar
           search={search}
           onSearch={setSearch}
@@ -236,11 +278,9 @@ export default function FleetPage() {
           onType={setTypeFilter}
         />
 
-        {/* Table */}
         <FleetTable vehicles={filtered} loading={fleetLoading} />
       </div>
 
-      {/* Slide-out panel */}
       {selectedVehicle && <SlidePanel />}
     </div>
   )
