@@ -177,6 +177,43 @@ router.post('/:plate/assign', async (req: Request, res: Response) => {
   }
 })
 
+// POST /api/fleet/:plate/update-start-date
+router.post('/:plate/update-start-date', async (req: Request, res: Response) => {
+  try {
+    const plate = req.params.plate.toUpperCase()
+    const { startDate, renterId } = req.body
+    if (!startDate || !renterId) return res.status(400).json({ error: 'startDate and renterId required' })
+
+    const newDate = new Date(startDate)
+    if (isNaN(newDate.getTime())) return res.status(400).json({ error: 'Invalid date' })
+
+    const vehicle = await Vehicle.findOne({ plate, ownerId: req.ownerEmail })
+    if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' })
+
+    const Renter = (await import('../models/Renter')).default
+    const renter = await Renter.findOne({ _id: renterId, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+
+    // Update vehicle
+    ;(vehicle as any).rentStartDate = newDate
+    await vehicle.save()
+
+    // Update renter
+    ;(renter as any).rentStartDate = newDate
+
+    // Update open rental history entry
+    const h = (renter.rentalHistory as any[]).find(
+      e => e.vehicle?.toString() === (vehicle._id as any).toString() && !e.endDate
+    )
+    if (h) h.startDate = newDate
+    await renter.save()
+
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/fleet/:plate/unassign
 router.post('/:plate/unassign', async (req: Request, res: Response) => {
   try {
