@@ -176,72 +176,62 @@ cron.schedule('0 3 1 * *', async () => {
     checkPaymentStatus()
   })
 
-  // Daily PayWay transaction sync — 9am Sydney time
-  cron.schedule('0 9 * * *', async () => {
-    console.log('🔄 Running daily PayWay transaction sync...')
+
+  // Daily PayWay schedule sync — 9am Sydney time (UTC 23:00)
+  cron.schedule('0 23 * * *', async () => {
+    console.log('📅 Running daily PayWay schedule sync...')
     try {
+      const { getCustomerSchedule } = await import('./services/payway')
       const activeRenters = await Renter.find({
         'payway.status': 'active',
         'payway.customerId': { $exists: true, $ne: '' }
       })
-      const authHeader = `Basic ${Buffer.from(`${process.env.PAYWAY_SECRET_KEY || ''}:`).toString('base64')}`
+
+      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+      const fmt = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+
+      let synced = 0, conflicts = 0, errors = 0
 
       for (const renter of activeRenters) {
         try {
-          await new Promise(resolve => setTimeout(resolve, 200))
-          const res = await axios.get(
-            `https://api.payway.com.au/rest/v1/transactions/search-customer?customerNumber=${renter.payway!.customerId}`,
-            { headers: { Authorization: authHeader, Accept: 'application/json' } }
-          )
-          const latestTx = res.data.data?.[0]
-          if (!latestTx || latestTx.transactionType !== 'payment') continue
+          await new Promise(r => setTimeout(r, 300))
+          const result = await getCustomerSchedule(renter.payway!.customerId!)
 
-          const isApproved = latestTx.status === 'approved' || latestTx.status === 'approved*'
-          const isDeclined = latestTx.status === 'declined' || latestTx.status === 'suspended'
-          const newStatus = isApproved ? 'paid' : isDeclined ? 'failed' : renter.payway?.lastPaymentStatus
-          const prevStatus = renter.payway?.lastPaymentStatus
-          const txDate = latestTx.transactionDateTime || latestTx.settlementDate
-
-          if (newStatus === prevStatus && txDate === renter.payway?.lastPaymentDate?.toISOString()) continue
-
-          renter.payway!.lastPaymentStatus = newStatus
-          renter.payway!.lastPaymentDate = new Date()
-          renter.payway!.lastPaymentAmount = latestTx.principalAmount
-          renter.payway!.lastPaymentDescription = latestTx.responseText || latestTx.status
-
-          // If payment approved, advance nextDebitDate by 7 days from the transaction date
-          if (isApproved) {
-            const txDateObj = txDate ? new Date(txDate) : new Date()
-            const newNextDebit = new Date(txDateObj.getTime() + 7 * 86400000)
-            // Only update if the new date is actually later than current nextDebitDate
-            if (!renter.payway!.nextDebitDate || newNextDebit > renter.payway!.nextDebitDate) {
-              renter.payway!.nextDebitDate = newNextDebit
-            }
+          if (!result.success || !result.nextPaymentDate) {
+            console.log(`⚠️  ${renter.name} (${renter.payway!.customerId}) — PayWay returned no schedule`)
+            errors++
+            continue
           }
 
-          await renter.save()
+          const paywayDate = new Date(result.nextPaymentDate)
+          paywayDate.setHours(0, 0, 0, 0)
 
-          if (isDeclined && newStatus !== prevStatus) {
-            await Notification.create({
-              ownerId: renter.ownerId,
-              type: 'info',
-              title: `Payment failed — ${renter.name}`,
-              description: `$${Number(latestTx.principalAmount).toFixed(2)} failed on ${new Date().toLocaleDateString('en-AU')} — ${latestTx.responseText || 'Declined'}. Please contact the renter.`,
-              actionRequired: true,
-            })
-            console.log(`❌ Payment failed — ${renter.name} (${latestTx.responseText})`)
-          } else if (isApproved) {
-            console.log(`✅ Payment cleared — ${renter.name}`)
+          const dbDate = renter.payway!.nextDebitDate ? new Date(renter.payway!.nextDebitDate) : null
+          if (dbDate) dbDate.setHours(0, 0, 0, 0)
+
+          const dbStr = dbDate ? fmt(dbDate) : 'none'
+          const paywayStr = fmt(paywayDate)
+
+          if (!dbDate || dbDate.getTime() !== paywayDate.getTime()) {
+            renter.payway!.nextDebitDate = paywayDate
+            await renter.save()
+            console.log(`🔄 CONFLICT — ${renter.name}: DB had ${dbStr}, PayWay says ${paywayStr} → updated`)
+            conflicts++
+          } else {
+            console.log(`✅ IN SYNC — ${renter.name}: ${paywayStr}`)
+            synced++
           }
         } catch (err: any) {
-          console.error(`⚠️ PayWay sync failed for ${renter.name}:`, err.response?.data || err.message)
+          console.error(`❌ Schedule sync failed for ${renter.name}:`, err.message)
+          errors++
         }
       }
-      console.log('✅ PayWay transaction sync complete')
+
+      console.log(`📅 PayWay schedule sync complete — ✅ ${synced} in sync, 🔄 ${conflicts} updated, ❌ ${errors} errors`)
     } catch (err: any) {
-      console.error('❌ PayWay cron error:', err.message)
+      console.error('❌ PayWay schedule sync cron error:', err.message)
     }
-  }, { timezone: 'Australia/Sydney' })
+  })
 
     // Run expiry check once on startup too
     checkExpiringDates().catch(console.error)

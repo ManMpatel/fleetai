@@ -440,12 +440,11 @@ export async function getPaymentHistory(
     }
   }
 
-  try {
-    const res = await axios.get(
-      `${PAYWAY_BASE}/customers/${customerId}/transactions`,
+  try { const res = await axios.get(
+      `${PAYWAY_BASE}/transactions/search-customer`,
       {
         headers: getSecretAuthHeader(),
-        params: { offset: 0, limit: 10 }
+        params: { customerNumber: customerId, offset: 0, limit: 10 }
       }
     )
     const raw = res.data.data || []
