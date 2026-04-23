@@ -120,7 +120,7 @@ export default function SearchPage() {
                       </div>
                       {h.rentals.map((r: RentalRecord, j: number) => (
                         <div key={j} className="text-xs text-text-muted flex gap-4 mt-1">
-                          <span>{new Date(r.startDate).toLocaleDateString('en-AU')} → {r.endDate ? new Date(r.endDate).toLocaleDateString('en-AU') : 'Present'}</span>
+                          <span>{new Date(r.startDate).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} → {r.endDate ? new Date(r.endDate).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Present'}</span>
                           {r.weeklyRate && <span>${r.weeklyRate}/wk</span>}
                           {r.totalAmount && <span>Total: ${r.totalAmount}</span>}
                         </div>
@@ -165,7 +165,7 @@ export default function SearchPage() {
                         <div key={j} className="flex items-center justify-between text-xs border-b border-border pb-1.5 last:border-0">
                           <div className="flex gap-3">
                             <span className="font-mono font-bold text-accent">{r.plate}</span>
-                            <span className="text-text-muted">{new Date(r.startDate).toLocaleDateString('en-AU')} → {r.endDate ? new Date(r.endDate).toLocaleDateString('en-AU') : 'Present'}</span>
+                            <span className="text-text-muted">{new Date(r.startDate).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} → {r.endDate ? new Date(r.endDate).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Present'}</span>
                           </div>
                           <div className="flex gap-3 text-text-muted">
                             {r.weeklyRate && <span>${r.weeklyRate}/wk</span>}
