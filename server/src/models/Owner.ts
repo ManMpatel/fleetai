@@ -9,7 +9,11 @@ const ownerSchema = new mongoose.Schema({
   businessName: { type: String },
   status:     { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   approvedAt: { type: Date },
-  createdAt:  { type: Date, default: Date.now }
+  createdAt:  { type: Date, default: Date.now },
+  paywaySecretKey:      { type: String },
+  paywayPublishableKey: { type: String },
+  paywayMerchantId:     { type: String },
+  paywayBankAccountId:  { type: String },
 })
 
 export default mongoose.model('Owner', ownerSchema)

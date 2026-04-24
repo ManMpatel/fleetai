@@ -2,36 +2,42 @@ import axios from 'axios'
 
 const PAYWAY_BASE = 'https://api.payway.com.au/rest/v1'
 
-function getSecretAuthHeader() {
-  const secretKey = process.env.PAYWAY_SECRET_KEY || 'test_placeholder'
+export interface PayWayKeys {
+  secretKey: string
+  publishableKey: string
+  merchantId: string
+  bankAccountId: string
+}
+
+function getSecretAuthHeader(keys?: PayWayKeys) {
+  const secretKey = keys?.secretKey || process.env.PAYWAY_SECRET_KEY || 'test_placeholder'
   return {
     Authorization: `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`,
     'Content-Type': 'application/x-www-form-urlencoded',
   }
 }
 
-function getPublishableAuthHeader() {
-  const publishableKey = process.env.PAYWAY_PUBLISHABLE_KEY || 'test_placeholder'
+function getPublishableAuthHeader(keys?: PayWayKeys) {
+  const publishableKey = keys?.publishableKey || process.env.PAYWAY_PUBLISHABLE_KEY || 'test_placeholder'
   return {
     Authorization: `Basic ${Buffer.from(`${publishableKey}:`).toString('base64')}`,
     'Content-Type': 'application/x-www-form-urlencoded',
   }
 }
 
-function isConfigured(): boolean {
-  return !!(
-    process.env.PAYWAY_SECRET_KEY &&
-    process.env.PAYWAY_SECRET_KEY !== 'test_placeholder'
-  )
+function isConfigured(keys?: PayWayKeys): boolean {
+  const key = keys?.secretKey || process.env.PAYWAY_SECRET_KEY
+  return !!(key && key !== 'test_placeholder')
 }
 
 // ── Step 1: Create single use token from BSB/Account ──────
 export async function createBankAccountToken(
   bsb: string,
   accountNumber: string,
-  accountName: string
+  accountName: string,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; token?: string; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     console.log('⚠️  PayWay not configured — mock token')
     return { success: true, token: 'MOCK_TOKEN_123' }
   }
@@ -48,7 +54,7 @@ export async function createBankAccountToken(
     const res = await axios.post(
       `${PAYWAY_BASE}/single-use-tokens`,
       params.toString(),
-      { headers: getPublishableAuthHeader() }
+      { headers: getPublishableAuthHeader(keys) }
     )
 
     console.log(`✅ PayWay token created: ${res.data.singleUseTokenId}`)
@@ -67,14 +73,14 @@ export async function createPayWayCustomer(renter: {
   bsbNumber?: string
   accountNumber?: string
   accountHolderName?: string
-}): Promise<{ success: boolean; customerId?: string; accountToken?: string | null; error?: string }> {
-  if (!isConfigured()) {
+}, keys?: PayWayKeys): Promise<{ success: boolean; customerId?: string; accountToken?: string | null; error?: string }> {
+  if (!isConfigured(keys)) {
     console.log('⚠️  PayWay not configured — mock createCustomer for:', renter.phone)
     return { success: true, customerId: `MOCK_${renter.phone}` }
   }
 
   try {
-    const merchantId = process.env.PAYWAY_MERCHANT_ID || 'TEST'
+    const merchantId = keys?.merchantId || process.env.PAYWAY_MERCHANT_ID || 'TEST'
     const customerId = renter.phone.replace(/\s+/g, '').replace(/[^0-9]/g, '')
 
     // Step 1 — get single use token for bank account
@@ -83,7 +89,8 @@ export async function createPayWayCustomer(renter: {
       const tokenResult = await createBankAccountToken(
         renter.bsbNumber,
         renter.accountNumber,
-        renter.accountHolderName || renter.name
+        renter.accountHolderName || renter.name,
+        keys
       )
       if (!tokenResult.success || !tokenResult.token) {
         return { success: false, error: tokenResult.error }
@@ -95,7 +102,7 @@ export async function createPayWayCustomer(renter: {
     const params = new URLSearchParams({
       singleUseTokenId,
       merchantId,
-      bankAccountId: process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A',
+      bankAccountId: keys?.bankAccountId || process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A',
       customerName: renter.name,
       emailAddress: renter.email || '',
       sendEmailReceipts: 'false',
@@ -105,7 +112,7 @@ export async function createPayWayCustomer(renter: {
     const res = await axios.post(
       `${PAYWAY_BASE}/customers`,
       params.toString(),
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
 
     const paywayCustomerId = res.data.customerNumber || customerId
@@ -122,9 +129,10 @@ export async function createPayWayCustomer(renter: {
 export async function setupWeeklyDebit(
   customerId: string,
   weeklyAmount: number,
-  startDate: Date
+  startDate: Date,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     console.log(`⚠️  PayWay not configured — mock setupWeeklyDebit: $${weeklyAmount}/week for ${customerId}`)
     return { success: true }
   }
@@ -152,7 +160,7 @@ export async function setupWeeklyDebit(
     const schedRes = await axios.put(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
       params.toString(),
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
 
     console.log(`✅ PayWay schedule set — response: ${JSON.stringify(schedRes.data)}`)
@@ -167,7 +175,8 @@ export async function setupWeeklyDebit(
 export async function pushNextPayment(
   customerId: string,
   weeklyAmount: number,
-  weeks: number
+  weeks: number,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; newDate?: string; error?: string }> {
   if (!isConfigured()) {
     console.log(`⚠️  PayWay not configured — mock push ${weeks} week(s) for ${customerId}`)
@@ -192,7 +201,7 @@ export async function pushNextPayment(
     await axios.put(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
       params.toString(),
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
     console.log(`✅ PayWay next payment pushed to ${formatted}`)
     return { success: true, newDate: formatted }
@@ -207,9 +216,10 @@ export async function pushNextPayment(
 
 export async function pauseDebit(
   customerId: string,
-  weeklyAmount: number = 10
+  weeklyAmount: number = 10,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     console.log(`⚠️  PayWay not configured — mock pauseDebit for ${customerId}`)
     return { success: true }
   }
@@ -229,7 +239,7 @@ export async function pauseDebit(
     await axios.put(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
       params.toString(),
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
     console.log(`✅ PayWay debit paused: ${customerId}`)
     return { success: true }
@@ -242,9 +252,10 @@ export async function pauseDebit(
 // ── Resume auto-debit ─────────────────────────────────────
 export async function resumeDebit(
   customerId: string,
-  weeklyAmount: number
+  weeklyAmount: number,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     console.log(`⚠️  PayWay not configured — mock resumeDebit for ${customerId}`)
     return { success: true }
   }
@@ -268,7 +279,7 @@ export async function resumeDebit(
     await axios.put(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
       params.toString(),
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
     console.log(`✅ PayWay debit resumed: ${customerId}`)
     return { success: true }
@@ -285,26 +296,27 @@ export async function updateBankAccount(
   customerId: string,
   bsb: string,
   accountNumber: string,
-  accountName: string
+  accountName: string,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     console.log(`⚠️  PayWay not configured — mock updateBankAccount for ${customerId}`)
     return { success: true }
   }
   try {
-    const tokenResult = await createBankAccountToken(bsb, accountNumber, accountName)
+    const tokenResult = await createBankAccountToken(bsb, accountNumber, accountName, keys)
     if (!tokenResult.success || !tokenResult.token) {
       return { success: false, error: tokenResult.error }
     }
     const params = new URLSearchParams({
       singleUseTokenId: tokenResult.token,
-      bankAccountId: process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A',
+      bankAccountId: keys?.bankAccountId || process.env.PAYWAY_BANK_ACCOUNT_ID || '0000000A',
     })
     console.log(`📤 PayWay update bank account — customerId: ${customerId}`)
     await axios.put(
       `${PAYWAY_BASE}/customers/${customerId}/payment-setup`,
       params.toString(),
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
     console.log(`✅ PayWay bank account updated for ${customerId}`)
     return { success: true }
@@ -318,7 +330,8 @@ export async function updateBankAccount(
 // ── Retry a failed payment ────────────────────────────────
 export async function retryFailedPayment(
   customerId: string,
-  amount: number
+  amount: number,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; error?: string }> {
   if (!isConfigured()) {
     console.log(`⚠️  PayWay not configured — mock retry for ${customerId} $${amount}`)
@@ -338,7 +351,7 @@ export async function retryFailedPayment(
       params.toString(),
       {
         headers: {
-          ...getSecretAuthHeader(),
+          ...getSecretAuthHeader(keys),
           'Idempotency-Key': idempotencyKey,
         }
       }
@@ -354,9 +367,10 @@ export async function retryFailedPayment(
 
 // ── Void a transaction ────────────────────────────────────
 export async function voidTransaction(
-  transactionId: string
+  transactionId: string,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     console.log(`⚠️  PayWay not configured — mock void for ${transactionId}`)
     return { success: true }
   }
@@ -365,7 +379,7 @@ export async function voidTransaction(
     await axios.post(
       `${PAYWAY_BASE}/transactions/${transactionId}/void`,
       '',
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
     console.log(`✅ PayWay void success: ${transactionId}`)
     return { success: true }
@@ -379,9 +393,10 @@ export async function voidTransaction(
 // ── Refund a transaction ──────────────────────────────────
 export async function refundTransaction(
   transactionId: string,
-  amount: number
+  amount: number,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     console.log(`⚠️  PayWay not configured — mock refund for ${transactionId}`)
     return { success: true }
   }
@@ -395,7 +410,7 @@ export async function refundTransaction(
     await axios.post(
       `${PAYWAY_BASE}/transactions`,
       params.toString(),
-      { headers: getSecretAuthHeader() }
+      { headers: getSecretAuthHeader(keys) }
     )
     console.log(`✅ PayWay refund success: ${transactionId} $${amount}`)
     return { success: true }
@@ -408,13 +423,14 @@ export async function refundTransaction(
 
 // ── Get customer schedule (next payment date) ─────────────
 export async function getCustomerSchedule(
-  customerId: string
+  customerId: string,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; nextPaymentDate?: Date; error?: string }> {
-  if (!isConfigured()) return { success: true }
+  if (!isConfigured(keys)) return { success: true }
   try {
     const res = await axios.get(
       `${PAYWAY_BASE}/customers/${customerId}/schedule`,
-      { headers: { Authorization: getSecretAuthHeader().Authorization } }
+      { headers: { Authorization: getSecretAuthHeader(keys).Authorization } }
     )
     const raw = res.data.nextPaymentDate // e.g. "24 Apr 2026"
     if (!raw) return { success: true }
@@ -428,9 +444,10 @@ export async function getCustomerSchedule(
 
 // ── Get payment history ───────────────────────────────────
 export async function getPaymentHistory(
-  customerId: string
+  customerId: string,
+  keys?: PayWayKeys
 ): Promise<{ success: boolean; payments?: any[]; error?: string }> {
-  if (!isConfigured()) {
+  if (!isConfigured(keys)) {
     return {
       success: true,
       payments: [
@@ -443,7 +460,7 @@ export async function getPaymentHistory(
   try { const res = await axios.get(
       `${PAYWAY_BASE}/transactions/search-customer`,
       {
-        headers: getSecretAuthHeader(),
+        headers: getSecretAuthHeader(keys),
         params: { customerNumber: customerId, offset: 0, limit: 10 }
       }
     )

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import Owner from '../models/Owner'
+import { encrypt, decrypt } from '../services/encryption'
 
 declare global {
   namespace Express {
@@ -135,4 +136,59 @@ export async function setBusinessName(req: Request, res: Response) {
   } catch (err) {
     res.status(500).json({ error: 'Failed to save business name' })
   }
+}
+
+// GET /api/auth/payway-settings — returns non-secret fields only
+export async function getPayWaySettings(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const owner = await Owner.findOne({ email })
+    if (!owner) return res.status(404).json({ error: 'Owner not found' })
+    res.json({
+      hasKeys: !!(owner as any).paywaySecretKey,
+      merchantId: (owner as any).paywayMerchantId ? decrypt((owner as any).paywayMerchantId) : '',
+      bankAccountId: (owner as any).paywayBankAccountId ? decrypt((owner as any).paywayBankAccountId) : '',
+    })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get PayWay settings' })
+  }
+}
+
+// POST /api/auth/payway-settings — encrypt and save all 4 keys
+export async function setPayWaySettings(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const { secretKey, publishableKey, merchantId, bankAccountId } = req.body
+    if (!secretKey || !publishableKey || !merchantId || !bankAccountId) {
+      return res.status(400).json({ error: 'All 4 PayWay fields are required' })
+    }
+    await Owner.findOneAndUpdate(
+      { email },
+      {
+        paywaySecretKey:      encrypt(secretKey.trim()),
+        paywayPublishableKey: encrypt(publishableKey.trim()),
+        paywayMerchantId:     encrypt(merchantId.trim()),
+        paywayBankAccountId:  encrypt(bankAccountId.trim()),
+      }
+    )
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save PayWay settings' })
+  }
+}
+
+// Helper: fetch and decrypt owner's PayWay keys — falls back to env vars if not set
+export async function getOwnerPayWayKeys(ownerEmail: string): Promise<{ secretKey: string; publishableKey: string; merchantId: string; bankAccountId: string } | undefined> {
+  try {
+    const owner = await Owner.findOne({ email: ownerEmail })
+    if (!(owner as any)?.paywaySecretKey) return undefined
+    return {
+      secretKey:      decrypt((owner as any).paywaySecretKey),
+      publishableKey: decrypt((owner as any).paywayPublishableKey),
+      merchantId:     decrypt((owner as any).paywayMerchantId),
+      bankAccountId:  decrypt((owner as any).paywayBankAccountId),
+    }
+  } catch { return undefined }
 }

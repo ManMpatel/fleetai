@@ -5,6 +5,8 @@ import dotenv from 'dotenv'
 import path from 'path'
 import cron from 'node-cron'
 import { pauseDebit } from './services/payway'
+import Owner from './models/Owner'
+import { decrypt } from './services/encryption'
 
 import fleetRoutes from './routes/fleet'
 import notificationRoutes from './routes/notifications'
@@ -24,7 +26,7 @@ import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
 import Notification from './models/Notification'
 import axios from 'axios'
-import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug, getBusinessName, setBusinessName } from './middleware/ownerAuth'
+import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug, getBusinessName, setBusinessName, getPayWaySettings, setPayWaySettings } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
 
 
@@ -101,6 +103,8 @@ app.post('/api/auth/slug', setOwnerSlug)
 app.get('/api/auth/resolve/:slug', resolveSlug)
 app.get('/api/auth/business-name', getBusinessName)
 app.post('/api/auth/business-name', setBusinessName)
+app.get('/api/auth/payway-settings', getPayWaySettings)
+app.post('/api/auth/payway-settings', setPayWaySettings)
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -134,7 +138,14 @@ cron.schedule('0 3 1 * *', async () => {
   console.log('🔄 Re-pausing all paused renters...')
   const paused = await Renter.find({ 'payway.status': 'paused', 'payway.customerId': { $exists: true } })
   for (const renter of paused) {
-    await pauseDebit(renter.payway!.customerId!, renter.payway!.weeklyAmount || 10)
+    const owner = await Owner.findOne({ email: renter.ownerId })
+    const keys = (owner as any)?.paywaySecretKey ? {
+      secretKey:      decrypt((owner as any).paywaySecretKey),
+      publishableKey: decrypt((owner as any).paywayPublishableKey),
+      merchantId:     decrypt((owner as any).paywayMerchantId),
+      bankAccountId:  decrypt((owner as any).paywayBankAccountId),
+    } : undefined
+    await pauseDebit(renter.payway!.customerId!, renter.payway!.weeklyAmount || 10, keys)
     console.log(`✅ Re-paused: ${renter.name}`)
   }
   console.log(`✅ Done — ${paused.length} renters re-paused`)

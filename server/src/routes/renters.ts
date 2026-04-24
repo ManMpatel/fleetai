@@ -4,7 +4,7 @@ import Vehicle from '../models/Vehicle'
 import Fine from '../models/Fine'
 import Notification from '../models/Notification'
 import { encrypt, decrypt, hash } from '../services/encryption'
-import { requireOwner } from '../middleware/ownerAuth'
+import { requireOwner, getOwnerPayWayKeys } from '../middleware/ownerAuth'
 import axios from 'axios'
 import {
   createPayWayCustomer,
@@ -231,18 +231,21 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
     const created = await createPayWayCustomer({
-      phone: renter.phone, name: renter.name, email: renter.email,
+      phone: renter.phone,
+      name: renter.name,
+      email: renter.email || '',
       bsbNumber: renter.bsbNumber ? decrypt(renter.bsbNumber) : undefined,
       accountNumber: renter.accountNumber ? decrypt(renter.accountNumber) : undefined,
       accountHolderName: renter.accountHolderName ? decrypt(renter.accountHolderName) : undefined,
-    })
+    }, keys)
 
     if (!created.success) return res.status(500).json({ error: 'Failed to create PayWay customer' })
 
     const startDate = new Date()
     startDate.setDate(startDate.getDate() + intervalDays)
-    await setupWeeklyDebit(created.customerId!, weeklyAmount, startDate)
+    await setupWeeklyDebit(created.customerId!, weeklyAmount, startDate, keys)
 
     const nextDebit = new Date()
     nextDebit.setDate(nextDebit.getDate() + intervalDays)
@@ -265,10 +268,12 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
   }
 })
 // GET /api/renters/payway-schedule/:customerId
-router.get('/payway-schedule/:customerId', async (req: Request, res: Response) => {
+router.get('/payway-schedule/:customerId', requireOwner, async (req: Request, res: Response) => {
   try {
     const { customerId } = req.params
-    const authHeader = `Basic ${Buffer.from(`${process.env.PAYWAY_SECRET_KEY || ''}:`).toString('base64')}`
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const secretKey = keys?.secretKey || process.env.PAYWAY_SECRET_KEY || ''
+    const authHeader = `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`
     const response = await axios.get(
       `https://api.payway.com.au/rest/v1/customers/${customerId}/schedule`,
       { headers: { Authorization: authHeader, Accept: 'application/json' } }
@@ -411,7 +416,8 @@ router.post('/:phone/void-transaction', async (req: Request, res: Response) => {
     const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
-    const result = await voidTransaction(transactionId)
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const result = await voidTransaction(transactionId, keys)
     if (!result.success) return res.status(400).json({ error: result.error || 'Void failed' })
 
     await Notification.create({
@@ -438,7 +444,8 @@ router.post('/:phone/refund-transaction', async (req: Request, res: Response) =>
     const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
-    const result = await refundTransaction(transactionId, amount)
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const result = await refundTransaction(transactionId, amount, keys)
     if (!result.success) return res.status(400).json({ error: result.error || 'Refund failed' })
 
     await Notification.create({
@@ -471,11 +478,13 @@ router.post('/:phone/update-bank', async (req: Request, res: Response) => {
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
     if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer — activate debit first' })
 
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
     const result = await updateBankAccount(
       renter.payway.customerId,
       bsbNumber.replace(/[^0-9]/g, ''),
       accountNumber,
-      accountHolderName
+      accountHolderName,
+      keys
     )
     if (!result.success) return res.status(400).json({ error: result.error || 'Bank update failed' })
 
@@ -513,7 +522,8 @@ router.post('/:phone/retry-payment', async (req: Request, res: Response) => {
     const weeklyAmount = renter.payway.weeklyAmount || 0
     const retryAmount = weeklyAmount + DISHONOUR_FEE
 
-    const result = await retryFailedPayment(renter.payway.customerId, retryAmount)
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const result = await retryFailedPayment(renter.payway.customerId, retryAmount, keys)
     if (!result.success) return res.status(400).json({ error: result.error || 'Retry failed' })
 
     await Notification.create({
@@ -542,7 +552,8 @@ router.post('/:phone/push-payment', async (req: Request, res: Response) => {
     if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer found' })
     if (renter.payway.status !== 'active') return res.status(400).json({ error: 'Debit is not active' })
 
-    const result = await pushNextPayment(renter.payway.customerId, renter.payway.weeklyAmount || 0, weeks)
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const result = await pushNextPayment(renter.payway.customerId, renter.payway.weeklyAmount || 0, weeks, keys)
     if (!result.success) return res.status(400).json({ error: result.error || 'Push failed' })
 
     const newDate = new Date()
@@ -580,7 +591,8 @@ router.post('/:phone/pause', async (req: Request, res: Response) => {
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
     if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer found' })
 
-    await pauseDebit(renter.payway.customerId, renter.payway.weeklyAmount || 10)
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    await pauseDebit(renter.payway.customerId, renter.payway.weeklyAmount || 10, keys)
     renter.payway.status = 'paused'
     if (!renter.payway.activity) renter.payway.activity = []
     renter.payway.activity.push({ type: 'info', message: 'Auto-debit paused', detail: 'Resume anytime from the dashboard', createdAt: new Date() })
@@ -608,7 +620,8 @@ router.post('/:phone/resume', async (req: Request, res: Response) => {
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
     if (!renter.payway?.customerId) return res.status(400).json({ error: 'No PayWay customer found' })
 
-    await resumeDebit(renter.payway.customerId, renter.payway.weeklyAmount || 0)
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    await resumeDebit(renter.payway.customerId, renter.payway.weeklyAmount || 0, keys)
     renter.payway.status = 'active'
     await renter.save()
 
@@ -626,7 +639,8 @@ router.get('/:phone/payments', async (req: Request, res: Response) => {
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
     if (!renter.payway?.customerId) return res.json({ payments: [] })
 
-    const result = await getPaymentHistory(renter.payway.customerId)
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const result = await getPaymentHistory(renter.payway.customerId, keys)
     res.json({ payments: result.payments || [] })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
