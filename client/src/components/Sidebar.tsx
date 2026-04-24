@@ -333,44 +333,64 @@ export default function Sidebar() {
         
       </aside>
     {settingsOpen && (
-        <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center" onClick={() => setSettingsOpen(false)}>
-          <div className="bg-surface border border-border rounded-xl w-[400px] max-w-[90vw]" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-text-primary">PayWay settings</h2>
-              <button onClick={() => setSettingsOpen(false)} className="text-text-muted hover:text-text-primary transition-colors">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <div className="fixed inset-0 bg-bg z-[200] flex flex-col">
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+            <h1 className="text-base font-semibold text-text-primary">Settings</h1>
+            <button onClick={() => setSettingsOpen(false)} className="p-1.5 rounded-lg hover:bg-surface2 text-text-muted hover:text-text-primary transition-colors">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Left nav */}
+            <div className="w-52 shrink-0 border-r border-border px-3 py-4">
+              <div className="text-[11px] text-text-muted uppercase tracking-wide font-medium px-2 mb-2">Account</div>
+              <button className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium bg-surface2 text-text-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4 shrink-0">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                PayWay
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              <p className="text-xs text-text-muted">Enter your PayWay credentials. These are encrypted and stored securely per account.</p>
-              {([
-                { key: 'secretKey', label: 'Secret key', type: 'password', placeholder: 'T20433_SEC_...' },
-                { key: 'publishableKey', label: 'Publishable key', type: 'password', placeholder: 'T20433_PUB_...' },
-                { key: 'merchantId', label: 'Merchant ID', type: 'text', placeholder: 'Q30708' },
-                { key: 'bankAccountId', label: 'Bank account ID', type: 'text', placeholder: '032065352812A' },
-              ] as const).map(field => (
-                <div key={field.key}>
-                  <label className="block text-[11px] text-text-muted mb-1.5 font-medium uppercase tracking-wide">{field.label}</label>
-                  <input
-                    type={field.type}
-                    value={paywayForm[field.key]}
-                    onChange={e => setPaywayForm(f => ({ ...f, [field.key]: e.target.value }))}
-                    placeholder={field.placeholder}
-                    className="w-full px-3 py-2 text-sm bg-surface2 border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent font-mono"
-                  />
-                </div>
-              ))}
-              <div className="flex items-center justify-between pt-1">
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-10 py-8 max-w-2xl">
+              <h2 className="text-lg font-semibold text-text-primary mb-1">PayWay credentials</h2>
+              <p className="text-sm text-text-muted mb-6">Your keys are encrypted with AES-256 and stored per account. Each owner uses their own PayWay merchant credentials.</p>
+
+              <div className="space-y-5">
+                {([
+                  { key: 'secretKey', label: 'Secret key', type: 'password', placeholder: 'T20433_SEC_...' },
+                  { key: 'publishableKey', label: 'Publishable key', type: 'password', placeholder: 'T20433_PUB_...' },
+                  { key: 'merchantId', label: 'Merchant ID', type: 'text', placeholder: 'Q30708' },
+                  { key: 'bankAccountId', label: 'Bank account ID', type: 'text', placeholder: '032065352812A' },
+                ] as const).map(field => (
+                  <div key={field.key}>
+                    <label className="block text-sm font-medium text-text-primary mb-1.5">{field.label}</label>
+                    <input
+                      type={field.type}
+                      value={paywayForm[field.key]}
+                      onChange={e => setPaywayForm(f => ({ ...f, [field.key]: e.target.value }))}
+                      placeholder={field.placeholder}
+                      className="w-full px-3 py-2.5 text-sm bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent font-mono"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between mt-8 pt-6 border-t border-border">
                 <div className="flex items-center gap-1.5 text-green text-xs">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  AES-256 encrypted
+                  AES-256 encrypted in database
                 </div>
                 <button
                   onClick={savePaywaySettings}
                   disabled={paywayLoading}
-                  className="px-5 py-2 bg-accent text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+                  className="px-6 py-2.5 bg-accent text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors hover:bg-accent/90"
                 >
-                  {paywaySaved ? '✓ Saved' : paywayLoading ? 'Saving...' : 'Save'}
+                  {paywaySaved ? '✓ Saved' : paywayLoading ? 'Saving...' : 'Save changes'}
                 </button>
               </div>
             </div>
