@@ -1,12 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
+// ── Types ──────────────────────────────────────────────────────
 interface Template {
   _id: string
   name: string
+  logoBase64?: string
+  businessName: string
+  address: string
+  phone: string
+  email: string
+  abn: string
+  bankName: string
+  bsb: string
+  account: string
   usageCount: number
-  createdAt: string
 }
 
 interface LineItem {
@@ -22,7 +31,6 @@ interface SavedInvoice {
   templateName: string
   billToName: string
   total: number
-  invoiceDate: string
   createdAt: string
 }
 
@@ -30,23 +38,34 @@ const EMPTY_LINE = (): LineItem => ({ description: '', days: '', unitPrice: '', 
 
 function today() {
   const d = new Date()
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const yyyy = d.getFullYear()
-  return `${dd}/${mm}/${yyyy}`
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
 }
-
 function fmtAmt(n: number) {
   return `$${n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
-
 function fmtDate(s: string) {
   return new Date(s).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// ── PDF generation ────────────────────────────────────────────────────────────
-async function buildInvoicePDF(params: {
-  templateBase64: string
+// ── Compress logo before storing ───────────────────────────────
+function compressLogo(base64: string): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const MAX = 600
+      const scale = Math.min(MAX / img.width, MAX / img.height, 1)
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.round(img.width  * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/png').split(',')[1])
+    }
+    img.src = `data:image/png;base64,${base64}`
+  })
+}
+
+// ── Build full invoice PDF from scratch ────────────────────────
+async function buildInvoicePDF(tmpl: Template, params: {
   number: number
   billToName: string
   billToAddress: string
@@ -58,93 +77,184 @@ async function buildInvoicePDF(params: {
   gst: number
   total: number
 }): Promise<Uint8Array> {
-  const bytes = Uint8Array.from(atob(params.templateBase64), c => c.charCodeAt(0))
-  const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true })
-  const pages = pdfDoc.getPages()
-  const page = pages[0]
-  const { width, height } = page.getSize()
+  const pdfDoc = await PDFDocument.create()
+  const W = 595.28, H = 841.89
+  const page = pdfDoc.addPage([W, H])
 
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
-  const black = rgb(0, 0, 0)
-  const white = rgb(1, 1, 1)
-  const orange = rgb(0.91, 0.376, 0.11)
 
-  const draw = (text: string, x: number, y: number, size = 10, bold = false, color = black) => {
-    page.drawText(text, { x, y, size, font: bold ? fontBold : font, color })
+  const ORANGE = rgb(0.831, 0.329, 0.102)
+  const BLACK  = rgb(0.173, 0.173, 0.173)
+  const GRAY   = rgb(0.533, 0.533, 0.533)
+  const WHITE  = rgb(1, 1, 1)
+  const LGRAY  = rgb(0.965, 0.965, 0.965)
+  const BDGRAY = rgb(0.867, 0.867, 0.867)
+
+  // Section heights
+  const HDR_H  = 120, BILL_H = 100, DATE_H = 55
+  const THDR_H = 28,  ROW_H  = 36,  N_ROWS = 5
+  const TOT_H  = 90,  BANK_H = 80,  FOOT_H = 40
+  const DIV_X  = W / 2 + 20   // 317.64
+  const COL_W  = W / 3
+
+  // Y boundaries (from bottom)
+  const hdr_bot  = H - HDR_H
+  const bill_bot = hdr_bot - BILL_H
+  const date_bot = bill_bot - DATE_H
+  const thdr_bot = date_bot - THDR_H
+  const rows_bot = thdr_bot - N_ROWS * ROW_H
+  const tot_bot  = rows_bot - TOT_H
+  const bank_bot = tot_bot  - BANK_H
+
+  const rect = (x: number, y: number, w: number, h: number, color: ReturnType<typeof rgb>, border?: ReturnType<typeof rgb>) =>
+    page.drawRectangle({ x, y, width: w, height: h, color, borderColor: border, borderWidth: border ? 0.5 : 0 })
+
+  const ln = (x1: number, y1: number, x2: number, y2: number, color = BDGRAY, thickness = 0.5) =>
+    page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, color, thickness })
+
+  const txt = (s: string, x: number, y: number, size: number, f = font, color = BLACK) => {
+    if (!s) return
+    page.drawText(s, { x, y, size, font: f, color })
+  }
+  const txtR = (s: string, rx: number, y: number, size: number, f = font, color = BLACK) => {
+    if (!s) return
+    page.drawText(s, { x: rx - f.widthOfTextAtSize(s, size), y, size, font: f, color })
+  }
+  const txtC = (s: string, cx: number, y: number, size: number, f = font, color = BLACK) => {
+    if (!s) return
+    page.drawText(s, { x: cx - f.widthOfTextAtSize(s, size) / 2, y, size, font: f, color })
   }
 
-  // Invoice number — right aligned, white on orange header
-  page.drawText(`# ${params.number}`, {
-    x: width - 16 - font.widthOfTextAtSize(`# ${params.number}`, 12),
-    y: 783.9, size: 12, font: fontBold, color: white,
+  // ── HEADER ──────────────────────────────────────────────────
+  rect(0, hdr_bot, W, HDR_H, ORANGE)
+
+  // Logo box
+  const LX = 14, LY = hdr_bot + 8, LW = 104, LH = 104
+  rect(LX, LY, LW, LH, WHITE)
+  if (tmpl.logoBase64) {
+    try {
+      const lb = Uint8Array.from(atob(tmpl.logoBase64), c => c.charCodeAt(0))
+      const li = tmpl.logoBase64.startsWith('iVBOR') ? await pdfDoc.embedPng(lb) : await pdfDoc.embedJpg(lb)
+      const d  = li.scaleToFit(LW - 8, LH - 8)
+      page.drawImage(li, {
+        x: LX + 4 + (LW - 8 - d.width) / 2,
+        y: LY + 4 + (LH - 8 - d.height) / 2,
+        width: d.width, height: d.height,
+      })
+    } catch {}
+  }
+
+  const BX = LX + LW + 14
+  txt(tmpl.businessName, BX, H - 34, 17, fontBold, WHITE)
+  txt(tmpl.address,      BX, H - 50, 8.5, font, WHITE)
+  txt(`${tmpl.phone}  |  ${tmpl.email}`, BX, H - 62, 8.5, font, WHITE)
+  txtR('INVOICE',         W - 16, H - 42, 28, fontBold, WHITE)
+  txtR(`# ${params.number}`, W - 16, H - 62, 12, fontBold, WHITE)
+
+  // ── BILL TO ──────────────────────────────────────────────────
+  rect(0, bill_bot, W, BILL_H, WHITE, BDGRAY)
+  ln(DIV_X, hdr_bot - 8, DIV_X, bill_bot + 8)
+
+  txt('BILL TO',           16,        hdr_bot - 18, 7,    fontBold, ORANGE)
+  txt(params.billToName,   16,        hdr_bot - 34, 11,   fontBold, BLACK)
+  txt(params.billToAddress,16,        hdr_bot - 50, 9.5,  font, BLACK)
+  txt('CUSTOMER ID', DIV_X + 16, hdr_bot - 18, 7, fontBold, ORANGE)
+  txt('\u2014',      DIV_X + 16, hdr_bot - 32, 9, font, GRAY)
+  txt('TERMS',       DIV_X + 16, hdr_bot - 52, 7, fontBold, ORANGE)
+  txt('\u2014',      DIV_X + 16, hdr_bot - 66, 9, font, GRAY)
+
+  // ── DATES ────────────────────────────────────────────────────
+  rect(0, date_bot, W, DATE_H, WHITE, BDGRAY)
+  const dateVals = [params.invoiceDate, params.hireFrom, params.hireTo]
+  ;['INVOICE DATE', 'HIRE FROM', 'HIRE TO'].forEach((lbl, i) => {
+    const x = i * COL_W + 16
+    txt(lbl,        x, bill_bot - 16, 7,  fontBold, ORANGE)
+    txt(dateVals[i],x, bill_bot - 34, 10, font, BLACK)
+    if (i < 2) ln((i + 1) * COL_W, bill_bot - 4, (i + 1) * COL_W, date_bot + 4)
   })
 
-  // Bill To
-  draw(params.billToName,    16, height - 689.9, 11, true)
-  draw(params.billToAddress, 16, height - 674.9,  9)
-  
-  // Dates
-  draw(params.invoiceDate,   16,        height - 589.9, 10)
-  draw(params.hireFrom,      214,       height - 589.9, 10)
-  draw(params.hireTo,        413,       height - 589.9, 10)
+  // ── TABLE HEADER ─────────────────────────────────────────────
+  rect(0, thdr_bot, W, THDR_H, ORANGE)
+  txt('DESCRIPTION', 16, thdr_bot + 9, 8, fontBold, WHITE)
+  txtC('DAYS',         375, thdr_bot + 9, 8, fontBold, WHITE)
+  txtC('UNIT PRICE',   455, thdr_bot + 9, 8, fontBold, WHITE)
+  txtR('AMOUNT',       W - 16, thdr_bot + 9, 8, fontBold, WHITE)
 
-  // Line items
-  const ROW_START_Y = 529.9
-  const ROW_H       = 28
-  params.lineItems
-    .filter(li => li.description.trim())
-    .forEach((li, i) => {
-      const y = ROW_START_Y - i * ROW_H
-      draw(li.description, 16,  height - y, 9)
-      // Days — centred around x=375
-      const daysW = font.widthOfTextAtSize(li.days, 9)
-      page.drawText(li.days, { x: 375 - daysW / 2, y, size: 9, font, color: black })
-      // Unit price — centred around x=445
-      const upStr = `$${li.unitPrice}`
-      const upW   = font.widthOfTextAtSize(upStr, 9)
-      page.drawText(upStr, { x: 445 - upW / 2, y, size: 9, font, color: black })
-      // Amount — right aligned
-      const amtStr = fmtAmt(li.amount)
-      const amtW   = fontBold.widthOfTextAtSize(amtStr, 9)
-      page.drawText(amtStr, { x: width - 16 - amtW, y, size: 9, font: fontBold, color: black })
-    })
-
-  // Totals — right aligned
-  const rAlign = (text: string, y: number, size = 9, bold = false, col = black) => {
-    const f   = bold ? fontBold : font
-    const tw  = f.widthOfTextAtSize(text, size)
-    page.drawText(text, { x: width - 16 - tw, y, size, font: f, color: col })
+  // ── ROWS ─────────────────────────────────────────────────────
+  for (let i = 0; i < N_ROWS; i++) {
+    const ry = thdr_bot - (i + 1) * ROW_H
+    rect(0, ry, W, ROW_H, i === 0 ? LGRAY : WHITE)
+    ln(0, ry, W, ry, BDGRAY, 0.4)
+    const li = params.lineItems[i]
+    if (li?.description?.trim()) {
+      txt(li.description,       16,  ry + 13, 9.5, font, BLACK)
+      txtC(li.days,             375, ry + 13, 9.5, font, BLACK)
+      txtC(`$${li.unitPrice}`,  455, ry + 13, 9.5, font, BLACK)
+      txtR(fmtAmt(li.amount),   W - 16, ry + 13, 9.5, fontBold, BLACK)
+    }
   }
-  rAlign(fmtAmt(params.subtotal), 415.9)
-  rAlign(fmtAmt(params.gst),      397.9)
-  rAlign(fmtAmt(params.total),    369.9, 12, true, orange)
+  // Border around entire table
+  rect(0, rows_bot, W, thdr_bot + THDR_H - rows_bot, rgb(1,1,1), BDGRAY)
 
-  // Balance
-  draw(fmtAmt(params.total), 334, height - 319.9, 18, true, orange)
+  // ── TOTALS ───────────────────────────────────────────────────
+  rect(0, tot_bot, W, TOT_H, WHITE, BDGRAY)
+  ln(DIV_X, rows_bot - 2, W - 16, rows_bot - 2, ORANGE, 0.8)
+  txt('Subtotal',   DIV_X + 16, rows_bot - 22, 9, font, GRAY)
+  txtR(fmtAmt(params.subtotal), W - 16, rows_bot - 22, 9, font, BLACK)
+  txt('GST (10%)',  DIV_X + 16, rows_bot - 42, 9, font, GRAY)
+  txtR(fmtAmt(params.gst), W - 16, rows_bot - 42, 9, font, BLACK)
+  ln(DIV_X + 16, rows_bot - 52, W - 16, rows_bot - 52)
+  txt('TOTAL',     DIV_X + 16, rows_bot - 70, 12, fontBold, ORANGE)
+  txtR(fmtAmt(params.total), W - 16, rows_bot - 70, 12, fontBold, ORANGE)
+
+  // ── BANK + BALANCE ───────────────────────────────────────────
+  rect(0, bank_bot, W, BANK_H, WHITE, BDGRAY)
+  ln(DIV_X, tot_bot - 6, DIV_X, bank_bot + 6)
+  txt('BANK DETAILS',      16, tot_bot - 16, 7,  fontBold, ORANGE)
+  txt(tmpl.bankName,       16, tot_bot - 30, 10, fontBold, BLACK)
+  txt(`BSB: ${tmpl.bsb}`,  16, tot_bot - 44, 9,  font, BLACK)
+  txt(`Account: ${tmpl.account}`, 16, tot_bot - 58, 9, font, BLACK)
+  txt('BALANCE',           DIV_X + 16, tot_bot - 16, 7,  fontBold, ORANGE)
+  txt(fmtAmt(params.total),DIV_X + 16, tot_bot - 38, 18, fontBold, ORANGE)
+  txt('Balance Paid',      DIV_X + 16, tot_bot - 58, 9,  font, GRAY)
+
+  // ── FOOTER ───────────────────────────────────────────────────
+  rect(0, 0, W, FOOT_H, ORANGE)
+  txt('Thank you for your business!', 16, 14, 11, fontBold, WHITE)
+  txtR(`ABN: ${tmpl.abn}`, W - 16, 14, 9, fontBold, WHITE)
 
   return pdfDoc.save()
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Default template form state ────────────────────────────────
+const emptyTmplForm = () => ({
+  logoBase64: '', businessName: '', address: '', phone: '',
+  email: '', abn: '', bankName: '', bsb: '', account: '',
+})
 
+// ── Page ───────────────────────────────────────────────────────
 export default function InvoicePage() {
-  const [tab, setTab]                 = useState<'new' | 'past'>('new')
-  const [templates, setTemplates]     = useState<Template[]>([])
-  const [selectedTmpl, setSelectedTmpl] = useState<string>('')
-  const [tLoading, setTLoading]       = useState(true)
-  const [invNumber, setInvNumber]     = useState(3001)
-  const [pastInvoices, setPastInvoices] = useState<SavedInvoice[]>([])
-  const [generating, setGenerating]   = useState(false)
-  const [saving, setSaving]           = useState(false)
-  const [previewBlob, setPreviewBlob] = useState<string | null>(null)
-  const [pendingBytes, setPendingBytes] = useState<Uint8Array | null>(null)
-  const [pendingForm, setPendingForm] = useState<any>(null)
-  const [uploading, setUploading]     = useState(false)
-  const [toast, setToast]             = useState('')
-  const [deleting, setDeleting]       = useState<string | null>(null)
+  const [tab, setTab]               = useState<'new'|'past'>('new')
+  const [templates, setTemplates]   = useState<Template[]>([])
+  const [selectedId, setSelectedId] = useState('')
+  const [tLoading, setTLoading]     = useState(true)
+  const [invNumber, setInvNumber]   = useState(3001)
+  const [pastInvoices, setPast]     = useState<SavedInvoice[]>([])
+  const [generating, setGenerating] = useState(false)
+  const [saving, setSaving]         = useState(false)
+  const [previewBlob, setPreview]   = useState<string|null>(null)
+  const [pendingBytes, setPending]  = useState<Uint8Array|null>(null)
+  const [pendingForm, setPendForm]  = useState<any>(null)
+  const [toast, setToast]           = useState('')
+  const [deleting, setDeleting]     = useState<string|null>(null)
 
-  // Form state
+  // Template form
+  const [showTmplForm, setShowTmplForm] = useState(false)
+  const [tmplForm, setTmplForm]     = useState(emptyTmplForm())
+  const [tmplSaving, setTmplSaving] = useState(false)
+
+  // Invoice form
   const [billToName,    setBillToName]    = useState('')
   const [billToAddress, setBillToAddress] = useState('')
   const [invoiceDate,   setInvoiceDate]   = useState(today())
@@ -152,14 +262,13 @@ export default function InvoicePage() {
   const [hireTo,        setHireTo]        = useState('')
   const [lineItems, setLineItems]         = useState<LineItem[]>([EMPTY_LINE(), EMPTY_LINE()])
 
-  const fileRef = useRef<HTMLInputElement>(null)
+  const logoRef = useRef<HTMLInputElement>(null)
 
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(''), 3000)
-  }
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3000) }
 
-  // ── Fetch ──────────────────────────────────────────────
+  const selectedTmpl = templates.find(t => t._id === selectedId) || null
+
+  // ── Fetch ────────────────────────────────────────────────────
   async function fetchAll() {
     try {
       setTLoading(true)
@@ -169,123 +278,98 @@ export default function InvoicePage() {
         axios.get('/api/invoices/next-number'),
       ])
       setTemplates(tr.data)
-      setPastInvoices(ir.data)
+      setPast(ir.data)
       setInvNumber(nr.data.number)
-      if (tr.data.length > 0 && !selectedTmpl) setSelectedTmpl(tr.data[0]._id)
-    } catch {
-      showToast('Failed to load data')
-    } finally {
-      setTLoading(false)
-    }
+      if (tr.data.length > 0 && !selectedId) setSelectedId(tr.data[0]._id)
+    } catch { showToast('Failed to load') }
+    finally  { setTLoading(false) }
   }
 
   useEffect(() => { fetchAll() }, [])
 
-  // ── Line item calc ─────────────────────────────────────
-  function updateLineItem(i: number, field: keyof LineItem, val: string) {
+  // ── Logo upload ──────────────────────────────────────────────
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const raw = (reader.result as string).split(',')[1]
+      const compressed = await compressLogo(raw)
+      setTmplForm(p => ({ ...p, logoBase64: compressed }))
+    }
+    reader.readAsDataURL(file)
+    if (logoRef.current) logoRef.current.value = ''
+  }
+
+  // ── Save template ────────────────────────────────────────────
+  async function saveTemplate() {
+    if (!tmplForm.businessName.trim()) return showToast('Business name required')
+    setTmplSaving(true)
+    try {
+      const res = await axios.post('/api/invoices/templates', tmplForm)
+      setTemplates(p => [res.data, ...p])
+      setSelectedId(res.data._id)
+      setShowTmplForm(false)
+      setTmplForm(emptyTmplForm())
+      showToast('Template saved')
+    } catch { showToast('Failed to save template') }
+    finally  { setTmplSaving(false) }
+  }
+
+  // ── Delete template ──────────────────────────────────────────
+  async function deleteTemplate(id: string) {
+    if (!confirm('Delete this template?')) return
+    setDeleting(id)
+    try {
+      await axios.delete(`/api/invoices/templates/${id}`)
+      setTemplates(p => p.filter(t => t._id !== id))
+      if (selectedId === id) setSelectedId(templates.find(t => t._id !== id)?._id || '')
+      showToast('Deleted')
+    } catch { showToast('Delete failed') }
+    finally  { setDeleting(null) }
+  }
+
+  // ── Line items ───────────────────────────────────────────────
+  function updateItem(i: number, field: keyof LineItem, val: string) {
     setLineItems(prev => {
       const next = [...prev]
       next[i] = { ...next[i], [field]: val }
-      const days  = parseFloat(next[i].days) || 0
-      const price = parseFloat(next[i].unitPrice) || 0
-      next[i].amount = days * price
+      next[i].amount = (parseFloat(next[i].days) || 0) * (parseFloat(next[i].unitPrice) || 0)
       return next
     })
   }
-
-  function addRow()    { setLineItems(p => [...p, EMPTY_LINE()]) }
-  function removeRow(i: number) { setLineItems(p => p.filter((_, idx) => idx !== i)) }
 
   const subtotal = lineItems.reduce((s, li) => s + li.amount, 0)
   const gst      = Math.round(subtotal * 0.1 * 100) / 100
   const total    = Math.round((subtotal + gst) * 100) / 100
 
-  // ── Upload template ────────────────────────────────────
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.type !== 'application/pdf') return showToast('Please upload a PDF file')
-
-    const name = window.prompt('Template name (e.g. Desi Boys Rental):')
-    if (!name?.trim()) return
-
-    setUploading(true)
-    try {
-      const reader = new FileReader()
-      reader.onload = async () => {
-        const base64 = (reader.result as string).split(',')[1]
-        const res = await axios.post('/api/invoices/templates', { name: name.trim(), pdfBase64: base64 })
-        setTemplates(p => [res.data, ...p])
-        setSelectedTmpl(res.data._id)
-        showToast('Template uploaded')
-        setUploading(false)
-      }
-      reader.readAsDataURL(file)
-    } catch {
-      showToast('Upload failed')
-      setUploading(false)
-    }
-
-    if (fileRef.current) fileRef.current.value = ''
-  }
-
-  // ── Delete template ────────────────────────────────────
-  async function deleteTemplate(id: string) {
-    if (!confirm('Delete this template? All invoices using it will also be deleted.')) return
-    setDeleting(id)
-    try {
-      await axios.delete(`/api/invoices/templates/${id}`)
-      setTemplates(p => p.filter(t => t._id !== id))
-      if (selectedTmpl === id) setSelectedTmpl(templates.find(t => t._id !== id)?._id || '')
-      showToast('Template deleted')
-    } catch {
-      showToast('Delete failed')
-    } finally {
-      setDeleting(null)
-    }
-  }
-
-  // ── Generate preview ───────────────────────────────────
+  // ── Generate ─────────────────────────────────────────────────
   async function handleGenerate() {
-    if (!selectedTmpl) return showToast('Select a template first')
-    if (!billToName.trim()) return showToast('Bill To name required')
+    if (!selectedTmpl)                              return showToast('Select a template first')
+    if (!billToName.trim())                         return showToast('Bill To name required')
     if (lineItems.every(li => !li.description.trim())) return showToast('Add at least one line item')
-
     setGenerating(true)
     try {
-      const tmpl = templates.find(t => t._id === selectedTmpl)
-      const { data } = await axios.get(`/api/invoices/templates/${selectedTmpl}/pdf`)
-
-      const pdfBytes = await buildInvoicePDF({
-        templateBase64: data.pdfBase64,
+      const form = {
+        templateId:   selectedTmpl._id,
+        templateName: selectedTmpl.businessName,
         number: invNumber,
-        billToName, billToAddress,
-        invoiceDate, hireFrom, hireTo,
-        lineItems, subtotal, gst, total,
-      })
-
-      const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
-      const url  = URL.createObjectURL(blob)
-      setPreviewBlob(url)
-      setPendingBytes(pdfBytes)
-      setPendingForm({
-        templateId:   selectedTmpl,
-        templateName: tmpl?.name,
-        number: invNumber,
-        billToName, billToAddress,
-        invoiceDate, hireFrom, hireTo,
+        billToName, billToAddress, invoiceDate, hireFrom, hireTo,
         lineItems: lineItems.filter(li => li.description.trim()),
         subtotal, gst, total,
-      })
+      }
+      const bytes = await buildInvoicePDF(selectedTmpl, form)
+      const blob  = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
+      setPreview(URL.createObjectURL(blob))
+      setPending(bytes)
+      setPendForm(form)
     } catch (err) {
       console.error(err)
       showToast('Failed to generate PDF')
-    } finally {
-      setGenerating(false)
-    }
+    } finally { setGenerating(false) }
   }
 
-  // ── Save + download ────────────────────────────────────
+  // ── Download ──────────────────────────────────────────────────
   async function handleDownload() {
     if (!pendingBytes || !pendingForm) return
     setSaving(true)
@@ -294,16 +378,13 @@ export default function InvoicePage() {
       const blob = new Blob([pendingBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
       const a    = document.createElement('a')
       a.href     = URL.createObjectURL(blob)
-      a.download = `Invoice-${pendingForm.number}-${pendingForm.billToName.replace(/\s+/g, '-')}.pdf`
+      a.download = `Invoice-${pendingForm.number}-${pendingForm.billToName.replace(/\s+/g,'-')}.pdf`
       a.click()
       setInvNumber(n => n + 1)
       await fetchAll()
-      showToast('Invoice saved & downloaded')
-    } catch {
-      showToast('Save failed')
-    } finally {
-      setSaving(false)
-    }
+      showToast('Saved & downloaded')
+    } catch { showToast('Save failed') }
+    finally { setSaving(false) }
   }
 
   async function handlePrint() {
@@ -311,56 +392,51 @@ export default function InvoicePage() {
     setSaving(true)
     try {
       await axios.post('/api/invoices', pendingForm)
+      const blob = new Blob([pendingBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
+      const win  = window.open(URL.createObjectURL(blob))
+      win?.addEventListener('load', () => win.print())
       setInvNumber(n => n + 1)
       await fetchAll()
-      // Open in new tab to print
-      const blob = new Blob([pendingBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
-      const url  = URL.createObjectURL(blob)
-      const win  = window.open(url)
-      win?.addEventListener('load', () => win.print())
-      showToast('Invoice saved')
-    } catch {
-      showToast('Save failed')
-    } finally {
-      setSaving(false)
-    }
+      showToast('Saved')
+    } catch { showToast('Save failed') }
+    finally { setSaving(false) }
   }
 
   function closePreview() {
     if (previewBlob) URL.revokeObjectURL(previewBlob)
-    setPreviewBlob(null)
-    setPendingBytes(null)
-    setPendingForm(null)
+    setPreview(null); setPending(null); setPendForm(null)
   }
 
-  // ── Re-download past invoice ───────────────────────────
+  // ── Re-download past invoice ───────────────────────────────────
   async function reDownload(inv: SavedInvoice) {
     try {
-      const full = await axios.get(`/api/invoices/${inv._id}`)
-      const { data: tmplData } = await axios.get(`/api/invoices/templates/${full.data.templateId}/pdf`)
-      const pdfBytes = await buildInvoicePDF({
-        templateBase64: tmplData.pdfBase64,
-        ...full.data,
-      })
-      const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
-      const a    = document.createElement('a')
-      a.href     = URL.createObjectURL(blob)
-      a.download = `Invoice-${inv.number}-${inv.billToName?.replace(/\s+/g, '-') || 'invoice'}.pdf`
+      const { data: full } = await axios.get(`/api/invoices/${inv._id}`)
+      const tmpl = templates.find(t => t._id === full.templateId)
+      if (!tmpl) return showToast('Template deleted — cannot regenerate')
+      const bytes = await buildInvoicePDF(tmpl, full)
+      const blob  = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
+      const a     = document.createElement('a')
+      a.href      = URL.createObjectURL(blob)
+      a.download  = `Invoice-${inv.number}.pdf`
       a.click()
-    } catch {
-      showToast('Failed to re-download')
-    }
+    } catch { showToast('Re-download failed') }
   }
 
-  // ── Render ─────────────────────────────────────────────
+  // ── Field helper ─────────────────────────────────────────────
+  const Field = ({ label, value, onChange, placeholder }: any) => (
+    <div>
+      <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">{label}</label>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent" />
+    </div>
+  )
+
+  // ── Render ────────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
 
-      {/* Toast */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-sm">
-          {toast}
-        </div>
+        <div className="fixed top-4 right-4 z-50 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-sm">{toast}</div>
       )}
 
       {/* Preview modal */}
@@ -369,23 +445,17 @@ export default function InvoicePage() {
           <div className="flex items-center justify-between px-6 py-3 bg-surface border-b border-border shrink-0">
             <span className="font-semibold text-text-primary">Preview — Invoice #{pendingForm?.number}</span>
             <div className="flex items-center gap-3">
-              <button
-                onClick={handlePrint}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
-              >
+              <button onClick={handlePrint} disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Print
               </button>
-              <button
-                onClick={handleDownload}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-40"
-              >
+              <button onClick={handleDownload} disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-40">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 {saving ? 'Saving...' : 'Download PDF'}
               </button>
-              <button onClick={closePreview} className="px-3 py-2 text-sm text-text-muted hover:text-text-primary transition-colors">✕ Close</button>
+              <button onClick={closePreview} className="px-3 py-2 text-sm text-text-muted hover:text-text-primary">✕ Close</button>
             </div>
           </div>
           <div className="flex-1 overflow-hidden">
@@ -394,267 +464,241 @@ export default function InvoicePage() {
         </div>
       )}
 
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-xl font-bold text-text-primary">Invoices</h1>
-        <p className="text-text-muted text-sm mt-0.5">Generate and manage business invoices</p>
+        <p className="text-text-muted text-sm mt-0.5">Generate professional invoices for your business</p>
       </div>
 
       <div className="flex gap-5">
 
-        {/* ── Left: Template Library ─────────────────── */}
-        <div className="w-[220px] shrink-0">
+        {/* ── Left: Templates ─────────────────────────────── */}
+        <div className="w-[230px] shrink-0 space-y-3">
           <div className="bg-surface border border-border rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-border">
               <span className="text-sm font-semibold text-text-primary">Templates</span>
             </div>
-
             <div className="p-3 space-y-2">
-              <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={handleUpload} />
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-border rounded-lg text-xs text-text-muted hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                {uploading ? 'Uploading...' : '+ Upload PDF'}
+              <button onClick={() => setShowTmplForm(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-border rounded-lg text-xs text-text-muted hover:border-accent hover:text-accent transition-colors">
+                + New Template
               </button>
 
               {tLoading ? (
                 <div className="py-4 text-center text-xs text-text-muted">Loading...</div>
               ) : templates.length === 0 ? (
                 <div className="py-4 text-center text-xs text-text-muted">No templates yet</div>
-              ) : (
-                templates.map(t => (
-                  <div
-                    key={t._id}
-                    onClick={() => setSelectedTmpl(t._id)}
-                    className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors border ${
-                      selectedTmpl === t._id
-                        ? 'border-accent bg-accent/5'
-                        : 'border-transparent hover:bg-surface2'
-                    }`}
-                  >
-                    <div className="w-8 h-10 rounded bg-red-50 border border-red-100 flex items-center justify-center shrink-0">
-                      <svg viewBox="0 0 16 20" fill="none" className="w-4 h-5">
-                        <rect x="2" y="1" width="12" height="18" rx="2" fill="#ef4444" opacity="0.2"/>
-                        <rect x="4" y="5" width="8" height="1.5" rx="0.75" fill="#ef4444" opacity="0.6"/>
-                        <rect x="4" y="8" width="6" height="1" rx="0.5" fill="#ef4444" opacity="0.4"/>
-                        <rect x="4" y="11" width="7" height="1" rx="0.5" fill="#ef4444" opacity="0.4"/>
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-text-primary truncate">{t.name}</p>
-                      <p className="text-[11px] text-text-muted">Used {t.usageCount}×</p>
-                    </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); deleteTemplate(t._id) }}
-                      disabled={deleting === t._id}
-                      className="text-text-muted hover:text-red-400 transition-colors text-sm leading-none shrink-0 disabled:opacity-30"
-                    >✕</button>
+              ) : templates.map(t => (
+                <div key={t._id} onClick={() => setSelectedId(t._id)}
+                  className={`flex items-center gap-2.5 p-2.5 rounded-lg cursor-pointer transition-colors border ${
+                    selectedId === t._id ? 'border-accent bg-accent/5' : 'border-transparent hover:bg-surface2'
+                  }`}>
+                  <div className="w-10 h-10 rounded-lg bg-surface2 border border-border shrink-0 overflow-hidden flex items-center justify-center">
+                    {t.logoBase64
+                      ? <img src={`data:image/png;base64,${t.logoBase64}`} className="w-full h-full object-contain" />
+                      : <span className="text-xl">🏢</span>}
                   </div>
-                ))
-              )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-text-primary truncate">{t.businessName}</p>
+                    <p className="text-[11px] text-text-muted">Used {t.usageCount}×</p>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); deleteTemplate(t._id) }}
+                    disabled={deleting === t._id}
+                    className="text-text-muted hover:text-red-400 transition-colors shrink-0 disabled:opacity-30 text-sm">✕</button>
+                </div>
+              ))}
 
-              <p className="text-[10px] text-text-muted text-center pt-2 leading-relaxed">
-                Saves last 20 invoices<br />per template
+              <p className="text-[10px] text-text-muted text-center pt-1 leading-relaxed">
+                Last 20 invoices saved per owner
               </p>
             </div>
           </div>
         </div>
 
-        {/* ── Right: Invoice Builder ─────────────────── */}
-        <div className="flex-1 bg-surface border border-border rounded-xl overflow-hidden">
+        {/* ── Right ───────────────────────────────────────── */}
+        <div className="flex-1">
 
-          {/* Tabs + action buttons */}
-          <div className="flex items-center border-b border-border px-5">
-            {(['new', 'past'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`py-3.5 px-4 text-sm font-medium border-b-2 transition-colors mr-1 ${
-                  tab === t ? 'border-accent text-accent' : 'border-transparent text-text-muted hover:text-text-primary'
-                }`}
-              >
-                {t === 'new' ? 'New Invoice' : `Past Invoices (${pastInvoices.length})`}
+          {/* Template form panel */}
+          {showTmplForm && (
+            <div className="bg-surface border border-border rounded-xl p-5 mb-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-text-primary">New Template</h2>
+                <button onClick={() => { setShowTmplForm(false); setTmplForm(emptyTmplForm()) }}
+                  className="text-text-muted hover:text-text-primary text-sm">✕ Cancel</button>
+              </div>
+
+              {/* Logo */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">Logo</label>
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-16 rounded-xl bg-surface2 border border-border flex items-center justify-center overflow-hidden shrink-0">
+                    {tmplForm.logoBase64
+                      ? <img src={`data:image/png;base64,${tmplForm.logoBase64}`} className="w-full h-full object-contain" />
+                      : <span className="text-2xl">🏢</span>}
+                  </div>
+                  <div>
+                    <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                    <button onClick={() => logoRef.current?.click()}
+                      className="px-3 py-1.5 border border-border rounded-lg text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors">
+                      Upload Logo (PNG/JPG)
+                    </button>
+                    <p className="text-[11px] text-text-muted mt-1">Recommended: square image, white background</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <Field label="Business Name *" value={tmplForm.businessName} onChange={(v: string) => setTmplForm(p => ({...p, businessName: v}))} placeholder="Desi Boys Rental" />
+                <Field label="Address" value={tmplForm.address} onChange={(v: string) => setTmplForm(p => ({...p, address: v}))} placeholder="5/247-249 Rawson St, Auburn NSW 2144" />
+                <Field label="Phone" value={tmplForm.phone} onChange={(v: string) => setTmplForm(p => ({...p, phone: v}))} placeholder="0439 233 004" />
+                <Field label="Email" value={tmplForm.email} onChange={(v: string) => setTmplForm(p => ({...p, email: v}))} placeholder="info@desiboysrental.com" />
+                <Field label="ABN" value={tmplForm.abn} onChange={(v: string) => setTmplForm(p => ({...p, abn: v}))} placeholder="91 639 442 541" />
+                <Field label="Bank Name" value={tmplForm.bankName} onChange={(v: string) => setTmplForm(p => ({...p, bankName: v}))} placeholder="Desi Boys Rental" />
+                <Field label="BSB" value={tmplForm.bsb} onChange={(v: string) => setTmplForm(p => ({...p, bsb: v}))} placeholder="032 065" />
+                <Field label="Account Number" value={tmplForm.account} onChange={(v: string) => setTmplForm(p => ({...p, account: v}))} placeholder="352 812" />
+              </div>
+
+              <button onClick={saveTemplate} disabled={tmplSaving}
+                className="w-full py-2.5 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-40">
+                {tmplSaving ? 'Saving...' : 'Save Template'}
               </button>
-            ))}
-            {tab === 'new' && (
-              <div className="ml-auto flex items-center gap-2 py-2">
-                <div className="text-xs font-medium px-3 py-1.5 rounded-lg bg-accent/10 text-accent border border-accent/20">
-                  # {invNumber}
-                </div>
-                <button
-                  onClick={handleGenerate}
-                  disabled={generating || !selectedTmpl}
-                  className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-40"
-                >
-                  {generating ? 'Generating...' : 'Generate →'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* ── New Invoice Form ── */}
-          {tab === 'new' && (
-            <div className="p-5 overflow-y-auto">
-
-              {!selectedTmpl && !tLoading && (
-                <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                  Upload a PDF template on the left to get started.
-                </div>
-              )}
-
-              {/* Bill To + Dates */}
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">Bill To — Name</label>
-                  <input
-                    value={billToName}
-                    onChange={e => setBillToName(e.target.value)}
-                    placeholder="e.g. Sydney Auto Warehouse"
-                    className="w-full bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">Bill To — Address</label>
-                  <input
-                    value={billToAddress}
-                    onChange={e => setBillToAddress(e.target.value)}
-                    placeholder="e.g. 12 Main St, Sydney NSW 2000"
-                    className="w-full bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                {[
-                  { label: 'Invoice Date', val: invoiceDate, set: setInvoiceDate, ph: 'DD/MM/YYYY' },
-                  { label: 'Hire From',    val: hireFrom,    set: setHireFrom,    ph: 'DD/MM/YYYY' },
-                  { label: 'Hire To',      val: hireTo,      set: setHireTo,      ph: 'DD/MM/YYYY' },
-                ].map(f => (
-                  <div key={f.label}>
-                    <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">{f.label}</label>
-                    <input
-                      value={f.val}
-                      onChange={e => f.set(e.target.value)}
-                      placeholder={f.ph}
-                      className="w-full bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {/* Line items */}
-              <div className="mb-1 text-xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-2">
-                Line Items
-              </div>
-              <table className="w-full mb-3">
-                <thead>
-                  <tr>
-                    {['Description', 'Days', 'Unit Price', 'Amount', ''].map(h => (
-                      <th key={h} className="text-left text-xs text-text-muted font-medium py-2 px-2 first:pl-0">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {lineItems.map((li, i) => (
-                    <tr key={i} className="border-b border-border last:border-0">
-                      <td className="py-1.5 px-2 pl-0 w-[42%]">
-                        <input
-                          value={li.description}
-                          onChange={e => updateLineItem(i, 'description', e.target.value)}
-                          placeholder="Description..."
-                          className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2 w-[15%]">
-                        <input
-                          value={li.days}
-                          onChange={e => updateLineItem(i, 'days', e.target.value)}
-                          placeholder="0"
-                          type="number"
-                          className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2 w-[18%]">
-                        <input
-                          value={li.unitPrice}
-                          onChange={e => updateLineItem(i, 'unitPrice', e.target.value)}
-                          placeholder="0.00"
-                          type="number"
-                          className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2 w-[18%] text-sm font-medium text-text-primary">
-                        {li.amount > 0 ? fmtAmt(li.amount) : '—'}
-                      </td>
-                      <td className="py-1.5 px-2 w-[7%] text-center">
-                        <button onClick={() => removeRow(i)} className="text-text-muted hover:text-red-400 transition-colors text-sm">✕</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <button onClick={addRow} className="text-xs text-accent hover:text-accent/80 transition-colors mb-6">
-                + Add line item
-              </button>
-
-              {/* Totals */}
-              <div className="flex justify-end">
-                <div className="w-60 border border-border rounded-xl overflow-hidden">
-                  <div className="flex justify-between px-4 py-2.5 text-sm border-b border-border">
-                    <span className="text-text-muted">Subtotal</span>
-                    <span className="text-text-primary">{fmtAmt(subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between px-4 py-2.5 text-sm border-b border-border">
-                    <span className="text-text-muted">GST (10%)</span>
-                    <span className="text-text-primary">{fmtAmt(gst)}</span>
-                  </div>
-                  <div className="flex justify-between px-4 py-3 text-sm font-semibold bg-surface2">
-                    <span className="text-accent">Total</span>
-                    <span className="text-accent">{fmtAmt(total)}</span>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
-          {/* ── Past Invoices ── */}
-          {tab === 'past' && (
-            pastInvoices.length === 0 ? (
-              <div className="py-16 text-center text-text-muted text-sm">No invoices generated yet.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+          {/* Invoice builder */}
+          <div className="bg-surface border border-border rounded-xl overflow-hidden">
+            <div className="flex items-center border-b border-border px-5">
+              {(['new','past'] as const).map(t => (
+                <button key={t} onClick={() => setTab(t)}
+                  className={`py-3.5 px-4 text-sm font-medium border-b-2 transition-colors mr-1 ${
+                    tab === t ? 'border-accent text-accent' : 'border-transparent text-text-muted hover:text-text-primary'
+                  }`}>
+                  {t === 'new' ? 'New Invoice' : `Past Invoices (${pastInvoices.length})`}
+                </button>
+              ))}
+              {tab === 'new' && (
+                <div className="ml-auto flex items-center gap-2 py-2">
+                  <div className="text-xs font-medium px-3 py-1.5 rounded-lg bg-accent/10 text-accent border border-accent/20">
+                    # {invNumber}
+                  </div>
+                  <button onClick={handleGenerate} disabled={generating || !selectedId}
+                    className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-40 transition-colors">
+                    {generating ? 'Generating...' : 'Generate →'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {tab === 'new' && (
+              <div className="p-5">
+                {!selectedId && !tLoading && (
+                  <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                    Create a template first using the "New Template" button on the left.
+                  </div>
+                )}
+
+                {selectedTmpl && (
+                  <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-surface2 rounded-lg border border-border w-fit">
+                    {selectedTmpl.logoBase64 && (
+                      <img src={`data:image/png;base64,${selectedTmpl.logoBase64}`} className="w-6 h-6 object-contain rounded" />
+                    )}
+                    <span className="text-xs font-medium text-text-primary">{selectedTmpl.businessName}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <Field label="Bill To — Name" value={billToName} onChange={setBillToName} placeholder="Sydney Auto Warehouse" />
+                  <Field label="Bill To — Address" value={billToAddress} onChange={setBillToAddress} placeholder="12 Main St, Sydney NSW 2000" />
+                </div>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <Field label="Invoice Date" value={invoiceDate} onChange={setInvoiceDate} placeholder="DD/MM/YYYY" />
+                  <Field label="Hire From" value={hireFrom} onChange={setHireFrom} placeholder="DD/MM/YYYY" />
+                  <Field label="Hire To" value={hireTo} onChange={setHireTo} placeholder="DD/MM/YYYY" />
+                </div>
+
+                <div className="mb-1 text-xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-2">Line Items</div>
+                <table className="w-full mb-3">
                   <thead>
-                    <tr className="border-b border-border">
-                      {['#', 'Template', 'Bill To', 'Total', 'Date', ''].map(h => (
-                        <th key={h} className="px-5 py-3 text-left text-xs text-text-muted font-medium">{h}</th>
+                    <tr>
+                      {['Description','Days','Unit Price','Amount',''].map(h => (
+                        <th key={h} className="text-left text-xs text-text-muted font-medium py-2 px-2 first:pl-0">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {pastInvoices.map(inv => (
-                      <tr key={inv._id} className="border-b border-border last:border-0 hover:bg-surface2">
-                        <td className="px-5 py-3 font-medium text-text-primary">#{inv.number}</td>
-                        <td className="px-5 py-3 text-text-muted">{inv.templateName || '—'}</td>
-                        <td className="px-5 py-3 text-text-primary">{inv.billToName || '—'}</td>
-                        <td className="px-5 py-3 font-medium text-accent">{fmtAmt(inv.total || 0)}</td>
-                        <td className="px-5 py-3 text-text-muted">{fmtDate(inv.createdAt)}</td>
-                        <td className="px-5 py-3">
-                          <button
-                            onClick={() => reDownload(inv)}
-                            className="text-xs text-accent hover:underline"
-                          >↓ Re-download</button>
+                    {lineItems.map((li, i) => (
+                      <tr key={i} className="border-b border-border last:border-0">
+                        <td className="py-1.5 px-2 pl-0 w-[42%]">
+                          <input value={li.description} onChange={e => updateItem(i,'description',e.target.value)}
+                            placeholder="Description..." className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none" />
+                        </td>
+                        <td className="py-1.5 px-2 w-[13%]">
+                          <input value={li.days} onChange={e => updateItem(i,'days',e.target.value)}
+                            type="number" placeholder="0" className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none" />
+                        </td>
+                        <td className="py-1.5 px-2 w-[16%]">
+                          <input value={li.unitPrice} onChange={e => updateItem(i,'unitPrice',e.target.value)}
+                            type="number" placeholder="0.00" className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none" />
+                        </td>
+                        <td className="py-1.5 px-2 w-[18%] text-sm font-medium text-text-primary">
+                          {li.amount > 0 ? fmtAmt(li.amount) : '—'}
+                        </td>
+                        <td className="py-1.5 px-2 w-[7%] text-center">
+                          <button onClick={() => setLineItems(p => p.filter((_,idx) => idx !== i))}
+                            className="text-text-muted hover:text-red-400 transition-colors text-sm">✕</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                <button onClick={() => setLineItems(p => [...p, EMPTY_LINE()])}
+                  className="text-xs text-accent hover:text-accent/80 transition-colors mb-6">+ Add line item</button>
+
+                <div className="flex justify-end">
+                  <div className="w-60 border border-border rounded-xl overflow-hidden">
+                    <div className="flex justify-between px-4 py-2.5 text-sm border-b border-border">
+                      <span className="text-text-muted">Subtotal</span><span>{fmtAmt(subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between px-4 py-2.5 text-sm border-b border-border">
+                      <span className="text-text-muted">GST (10%)</span><span>{fmtAmt(gst)}</span>
+                    </div>
+                    <div className="flex justify-between px-4 py-3 text-sm font-semibold bg-surface2">
+                      <span className="text-accent">Total</span><span className="text-accent">{fmtAmt(total)}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )
-          )}
+            )}
+
+            {tab === 'past' && (
+              pastInvoices.length === 0
+                ? <div className="py-16 text-center text-text-muted text-sm">No invoices yet.</div>
+                : <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          {['#','Template','Bill To','Total','Date',''].map(h => (
+                            <th key={h} className="px-5 py-3 text-left text-xs text-text-muted font-medium">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pastInvoices.map(inv => (
+                          <tr key={inv._id} className="border-b border-border last:border-0 hover:bg-surface2">
+                            <td className="px-5 py-3 font-medium">#{inv.number}</td>
+                            <td className="px-5 py-3 text-text-muted">{inv.templateName || '—'}</td>
+                            <td className="px-5 py-3">{inv.billToName || '—'}</td>
+                            <td className="px-5 py-3 font-medium text-accent">{fmtAmt(inv.total || 0)}</td>
+                            <td className="px-5 py-3 text-text-muted">{fmtDate(inv.createdAt)}</td>
+                            <td className="px-5 py-3">
+                              <button onClick={() => reDownload(inv)} className="text-xs text-accent hover:underline">↓ Re-download</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
