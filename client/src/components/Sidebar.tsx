@@ -91,30 +91,18 @@ const navItems = [
   },
 ]
 
-export default function Sidebar() {
+interface SidebarProps {
+  onOpenSettings: () => void
+  paywayHasKeys: boolean
+}
+
+export default function Sidebar({ onOpenSettings, paywayHasKeys }: SidebarProps) {
   const { darkMode, toggleDarkMode, notifications } = useStore()
   const [collapsed, setCollapsed] = useState(false)
   const { user, logout } = useAuth0()
   const unread = notifications.filter((n) => !n.read).length
   const [popupOpen, setPopupOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [paywayForm, setPaywayForm] = useState({ secretKey: '', publishableKey: '', merchantId: '', bankAccountId: '' })
-  const [paywayHasKeys, setPaywayHasKeys] = useState(false)
-  const [paywayLoading, setPaywayLoading] = useState(false)
-  const [paywaySaved, setPaywaySaved] = useState(false)
   const popupRef = useRef<HTMLDivElement>(null)
-  const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-
-  useEffect(() => {
-    if (!user?.email) return
-    axios.get(`${API}/api/auth/payway-settings`, { headers: { 'x-owner-email': user.email } })
-      .then(r => {
-        setPaywayHasKeys(r.data.hasKeys)
-        if (r.data.merchantId) setPaywayForm(f => ({ ...f, merchantId: r.data.merchantId }))
-        if (r.data.bankAccountId) setPaywayForm(f => ({ ...f, bankAccountId: r.data.bankAccountId }))
-      })
-      .catch(() => {})
-  }, [user?.email])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -123,18 +111,6 @@ export default function Sidebar() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
-
-  async function savePaywaySettings() {
-    if (!user?.email) return
-    setPaywayLoading(true)
-    try {
-      await axios.post(`${API}/api/auth/payway-settings`, paywayForm, { headers: { 'x-owner-email': user.email } })
-      setPaywaySaved(true)
-      setPaywayHasKeys(true)
-      setTimeout(() => setPaywaySaved(false), 2000)
-    } catch {}
-    setPaywayLoading(false)
-  }
 
   return (
     <>
@@ -263,7 +239,7 @@ export default function Sidebar() {
             {popupOpen && (
               <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface border border-border rounded-xl shadow-lg z-50 overflow-hidden">
                 <button
-                  onClick={() => { setSettingsOpen(true); setPopupOpen(false) }}
+                  onClick={() => { onOpenSettings(); setPopupOpen(false) }}
                   className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-text-primary hover:bg-sidebar-active transition-colors"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4 shrink-0">
@@ -332,71 +308,6 @@ export default function Sidebar() {
         </div>
         
       </aside>
-    {settingsOpen && (
-       <div className={`fixed top-0 bottom-0 right-0 z-[200] bg-bg flex flex-col ${collapsed ? 'left-[60px]' : 'left-[220px]'}`}>
-          {/* Top bar */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-            <h1 className="text-base font-semibold text-text-primary">Settings</h1>
-            <button onClick={() => setSettingsOpen(false)} className="p-1.5 rounded-lg hover:bg-surface2 text-text-muted hover:text-text-primary transition-colors">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-
-          {/* Body */}
-          <div className="flex flex-1 overflow-hidden">
-            {/* Settings nav */}
-            <div className="w-52 shrink-0 border-r border-border px-3 py-4">
-              <div className="text-[11px] text-text-muted uppercase tracking-wide font-medium px-2 mb-2">Account</div>
-              <button className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium bg-surface2 text-text-primary">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4 shrink-0">
-                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                </svg>
-                PayWay
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto px-10 py-8 max-w-2xl">
-              <h2 className="text-lg font-semibold text-text-primary mb-1">PayWay credentials</h2>
-              <p className="text-sm text-text-muted mb-6">Your keys are encrypted with AES-256 and stored per account. Each owner uses their own PayWay merchant credentials.</p>
-
-              <div className="space-y-5">
-                {([
-                  { key: 'secretKey', label: 'Secret key', type: 'password', placeholder: 'T20433_SEC_...' },
-                  { key: 'publishableKey', label: 'Publishable key', type: 'password', placeholder: 'T20433_PUB_...' },
-                  { key: 'merchantId', label: 'Merchant ID', type: 'text', placeholder: 'Q30708' },
-                  { key: 'bankAccountId', label: 'Bank account ID', type: 'text', placeholder: '032065352812A' },
-                ] as const).map(field => (
-                  <div key={field.key}>
-                    <label className="block text-sm font-medium text-text-primary mb-1.5">{field.label}</label>
-                    <input
-                      type={field.type}
-                      value={paywayForm[field.key]}
-                      onChange={e => setPaywayForm(f => ({ ...f, [field.key]: e.target.value }))}
-                      placeholder={field.placeholder}
-                      className="w-full px-3 py-2.5 text-sm bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent font-mono"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between mt-8 pt-6 border-t border-border">
-                <div className="flex items-center gap-1.5 text-green text-xs">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  AES-256 encrypted in database
-                </div>
-                <button
-                  onClick={savePaywaySettings}
-                  disabled={paywayLoading}
-                  className="px-6 py-2.5 bg-accent text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors hover:bg-accent/90"
-                >
-                  {paywaySaved ? '✓ Saved' : paywayLoading ? 'Saving...' : 'Save changes'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
