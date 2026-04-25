@@ -101,12 +101,21 @@ async function buildInvoicePDF(tmpl: Template, params: {
   const LGRAY  = rgb(0.965, 0.965, 0.965)
   const BDGRAY = rgb(0.867, 0.867, 0.867)
 
-  // Section heights
-  const HDR_H  = 120, BILL_H = 100, DATE_H = 55
-  const THDR_H = 28,  ROW_H  = 36,  N_ROWS = 5
-  const TOT_H  = 90,  BANK_H = 80,  FOOT_H = 40
-  const DIV_X  = W / 2 + 20   // 317.64
-  const COL_W  = W / 3
+  // Fixed section heights
+  const HDR_H  = 120
+  const BILL_H = 100
+  const DATE_H = 55
+  const THDR_H = 28
+  const TOT_H  = 90
+  const BANK_H = 80
+  const FOOT_H = 40
+  const N_ROWS = 7
+
+  // Row height fills remaining space exactly
+  const ROW_H = Math.floor((H - HDR_H - BILL_H - DATE_H - THDR_H - TOT_H - BANK_H - FOOT_H) / N_ROWS)
+
+  const DIV_X = W / 2 + 20
+  const COL_W = W / 3
 
   // Y boundaries (from bottom)
   const hdr_bot  = H - HDR_H
@@ -117,36 +126,40 @@ async function buildInvoicePDF(tmpl: Template, params: {
   const tot_bot  = rows_bot - TOT_H
   const bank_bot = tot_bot  - BANK_H
 
-  const rect = (x: number, y: number, w: number, h: number, color: ReturnType<typeof rgb>, border?: ReturnType<typeof rgb>) =>
-    page.drawRectangle({ x, y, width: w, height: h, color, borderColor: border, borderWidth: border ? 0.5 : 0 })
+  const fillRect = (x: number, y: number, w: number, h: number, color: ReturnType<typeof rgb>) =>
+    page.drawRectangle({ x, y, width: w, height: h, color })
+
+  const borderRect = (x: number, y: number, w: number, h: number) =>
+    page.drawRectangle({ x, y, width: w, height: h, borderColor: BDGRAY, borderWidth: 0.5 })
 
   const ln = (x1: number, y1: number, x2: number, y2: number, color = BDGRAY, thickness = 0.5) =>
     page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, color, thickness })
 
   const txt = (s: string, x: number, y: number, size: number, f = font, color = BLACK) => {
-    if (!s) return
+    if (!s?.trim()) return
     page.drawText(s, { x, y, size, font: f, color })
   }
   const txtR = (s: string, rx: number, y: number, size: number, f = font, color = BLACK) => {
-    if (!s) return
+    if (!s?.trim()) return
     page.drawText(s, { x: rx - f.widthOfTextAtSize(s, size), y, size, font: f, color })
   }
   const txtC = (s: string, cx: number, y: number, size: number, f = font, color = BLACK) => {
-    if (!s) return
+    if (!s?.trim()) return
     page.drawText(s, { x: cx - f.widthOfTextAtSize(s, size) / 2, y, size, font: f, color })
   }
 
   // ── HEADER ──────────────────────────────────────────────────
-  rect(0, hdr_bot, W, HDR_H, ORANGE)
+  fillRect(0, hdr_bot, W, HDR_H, ORANGE)
 
-  // Logo box
   const LX = 14, LY = hdr_bot + 8, LW = 104, LH = 104
-  rect(LX, LY, LW, LH, WHITE)
+  fillRect(LX, LY, LW, LH, WHITE)
   if (tmpl.logoBase64) {
     try {
       const lb = Uint8Array.from(atob(tmpl.logoBase64), c => c.charCodeAt(0))
-      const li = tmpl.logoBase64.startsWith('iVBOR') ? await pdfDoc.embedPng(lb) : await pdfDoc.embedJpg(lb)
-      const d  = li.scaleToFit(LW - 8, LH - 8)
+      const li = tmpl.logoBase64.startsWith('iVBOR')
+        ? await pdfDoc.embedPng(lb)
+        : await pdfDoc.embedJpg(lb)
+      const d = li.scaleToFit(LW - 8, LH - 8)
       page.drawImage(li, {
         x: LX + 4 + (LW - 8 - d.width) / 2,
         y: LY + 4 + (LH - 8 - d.height) / 2,
@@ -156,83 +169,93 @@ async function buildInvoicePDF(tmpl: Template, params: {
   }
 
   const BX = LX + LW + 14
-  txt(tmpl.businessName, BX, H - 34, 17, fontBold, WHITE)
-  txt(tmpl.address,      BX, H - 50, 8.5, font, WHITE)
-  txt(`${tmpl.phone}  |  ${tmpl.email}`, BX, H - 62, 8.5, font, WHITE)
-  txtR('INVOICE',         W - 16, H - 42, 28, fontBold, WHITE)
-  txtR(`# ${params.number}`, W - 16, H - 62, 12, fontBold, WHITE)
+  txt(tmpl.businessName,                    BX, H - 36,  18, fontBold, WHITE)
+  txt(tmpl.address,                         BX, H - 52,  9,  font,     WHITE)
+  txt(`${tmpl.phone}  |  ${tmpl.email}`,   BX, H - 64,  9,  font,     WHITE)
+  txtR('INVOICE',        W - 16, H - 44, 30, fontBold, WHITE)
+  txtR(`# ${params.number}`, W - 16, H - 66, 13, fontBold, WHITE)
 
   // ── BILL TO ──────────────────────────────────────────────────
-  rect(0, bill_bot, W, BILL_H, WHITE, BDGRAY)
+  fillRect(0, bill_bot, W, BILL_H, WHITE)
+  borderRect(0, bill_bot, W, BILL_H)
   ln(DIV_X, hdr_bot - 8, DIV_X, bill_bot + 8)
 
-  txt('BILL TO',           16,        hdr_bot - 18, 7,    fontBold, ORANGE)
-  txt(params.billToName,   16,        hdr_bot - 34, 11,   fontBold, BLACK)
-  txt(params.billToAddress,16,        hdr_bot - 50, 9.5,  font, BLACK)
-  txt('CUSTOMER ID', DIV_X + 16, hdr_bot - 18, 7, fontBold, ORANGE)
-  txt('\u2014',      DIV_X + 16, hdr_bot - 32, 9, font, GRAY)
-  txt('TERMS',       DIV_X + 16, hdr_bot - 52, 7, fontBold, ORANGE)
-  txt('\u2014',      DIV_X + 16, hdr_bot - 66, 9, font, GRAY)
+  txt('BILL TO',            16,        hdr_bot - 18, 7.5,  fontBold, ORANGE)
+  txt(params.billToName,    16,        hdr_bot - 34, 12,   fontBold, BLACK)
+  txt(params.billToAddress, 16,        hdr_bot - 50, 10,   font,     BLACK)
+  txt('CUSTOMER ID',  DIV_X + 16, hdr_bot - 18, 7.5, fontBold, ORANGE)
+  txt('\u2014',        DIV_X + 16, hdr_bot - 33, 10,  font,     GRAY)
+  txt('TERMS',         DIV_X + 16, hdr_bot - 53, 7.5, fontBold, ORANGE)
+  txt('\u2014',        DIV_X + 16, hdr_bot - 68, 10,  font,     GRAY)
 
   // ── DATES ────────────────────────────────────────────────────
-  rect(0, date_bot, W, DATE_H, WHITE, BDGRAY)
+  fillRect(0, date_bot, W, DATE_H, WHITE)
+  borderRect(0, date_bot, W, DATE_H)
   const dateVals = [params.invoiceDate, params.hireFrom, params.hireTo]
   ;['INVOICE DATE', 'HIRE FROM', 'HIRE TO'].forEach((lbl, i) => {
     const x = i * COL_W + 16
-    txt(lbl,        x, bill_bot - 16, 7,  fontBold, ORANGE)
-    txt(dateVals[i],x, bill_bot - 34, 10, font, BLACK)
+    txt(lbl,         x, bill_bot - 17, 7.5, fontBold, ORANGE)
+    txt(dateVals[i], x, bill_bot - 35, 11,  font,     BLACK)
     if (i < 2) ln((i + 1) * COL_W, bill_bot - 4, (i + 1) * COL_W, date_bot + 4)
   })
 
   // ── TABLE HEADER ─────────────────────────────────────────────
-  rect(0, thdr_bot, W, THDR_H, ORANGE)
-  txt('DESCRIPTION', 16, thdr_bot + 9, 8, fontBold, WHITE)
-  txtC('DAYS',         375, thdr_bot + 9, 8, fontBold, WHITE)
-  txtC('UNIT PRICE',   455, thdr_bot + 9, 8, fontBold, WHITE)
-  txtR('AMOUNT',       W - 16, thdr_bot + 9, 8, fontBold, WHITE)
+  fillRect(0, thdr_bot, W, THDR_H, ORANGE)
+  txt('DESCRIPTION',   16,     thdr_bot + 9, 8.5, fontBold, WHITE)
+  txtC('DAYS',         375,    thdr_bot + 9, 8.5, fontBold, WHITE)
+  txtC('UNIT PRICE',   455,    thdr_bot + 9, 8.5, fontBold, WHITE)
+  txtR('AMOUNT',       W - 16, thdr_bot + 9, 8.5, fontBold, WHITE)
 
-  // ── ROWS ─────────────────────────────────────────────────────
+  // ── ROWS — draw background first, then text ───────────────────
   for (let i = 0; i < N_ROWS; i++) {
     const ry = thdr_bot - (i + 1) * ROW_H
-    rect(0, ry, W, ROW_H, i === 0 ? LGRAY : WHITE)
+    fillRect(0, ry, W, ROW_H, i % 2 === 0 ? LGRAY : WHITE)
     ln(0, ry, W, ry, BDGRAY, 0.4)
-    const li = params.lineItems[i]
+  }
+  // Table outer border
+  borderRect(0, rows_bot, W, thdr_bot + THDR_H - rows_bot)
+
+  // Draw text AFTER all backgrounds
+  for (let i = 0; i < N_ROWS; i++) {
+    const ry  = thdr_bot - (i + 1) * ROW_H
+    const ty  = ry + ROW_H / 2 - 4   // vertically centred
+    const li  = params.lineItems[i]
     if (li?.description?.trim()) {
-      txt(li.description,       16,  ry + 13, 9.5, font, BLACK)
-      txtC(li.days,             375, ry + 13, 9.5, font, BLACK)
-      txtC(`$${li.unitPrice}`,  455, ry + 13, 9.5, font, BLACK)
-      txtR(fmtAmt(li.amount),   W - 16, ry + 13, 9.5, fontBold, BLACK)
+      txt(li.description,        16,     ty, 10.5, font,     BLACK)
+      txtC(li.days,              375,    ty, 10.5, font,     BLACK)
+      txtC(`$${li.unitPrice}`,   455,    ty, 10.5, font,     BLACK)
+      txtR(fmtAmt(li.amount),    W - 16, ty, 10.5, fontBold, BLACK)
     }
   }
-  // Border around entire table
-  rect(0, rows_bot, W, thdr_bot + THDR_H - rows_bot, rgb(1,1,1), BDGRAY)
 
   // ── TOTALS ───────────────────────────────────────────────────
-  rect(0, tot_bot, W, TOT_H, WHITE, BDGRAY)
-  ln(DIV_X, rows_bot - 2, W - 16, rows_bot - 2, ORANGE, 0.8)
-  txt('Subtotal',   DIV_X + 16, rows_bot - 22, 9, font, GRAY)
-  txtR(fmtAmt(params.subtotal), W - 16, rows_bot - 22, 9, font, BLACK)
-  txt('GST (10%)',  DIV_X + 16, rows_bot - 42, 9, font, GRAY)
-  txtR(fmtAmt(params.gst), W - 16, rows_bot - 42, 9, font, BLACK)
-  ln(DIV_X + 16, rows_bot - 52, W - 16, rows_bot - 52)
-  txt('TOTAL',     DIV_X + 16, rows_bot - 70, 12, fontBold, ORANGE)
-  txtR(fmtAmt(params.total), W - 16, rows_bot - 70, 12, fontBold, ORANGE)
+  fillRect(0, tot_bot, W, TOT_H, WHITE)
+  borderRect(0, tot_bot, W, TOT_H)
+  ln(DIV_X, rows_bot - 2, W - 16, rows_bot - 2, ORANGE, 1)
+  txt('Subtotal',            DIV_X + 16, rows_bot - 24, 10,   font,     GRAY)
+  txtR(fmtAmt(params.subtotal), W - 16, rows_bot - 24, 10,   font,     BLACK)
+  txt('GST (10%)',           DIV_X + 16, rows_bot - 44, 10,   font,     GRAY)
+  txtR(fmtAmt(params.gst),      W - 16, rows_bot - 44, 10,   font,     BLACK)
+  ln(DIV_X + 16, rows_bot - 54, W - 16, rows_bot - 54, BDGRAY, 0.5)
+  txt('TOTAL',               DIV_X + 16, rows_bot - 72, 13,   fontBold, ORANGE)
+  txtR(fmtAmt(params.total),    W - 16, rows_bot - 72, 13,   fontBold, ORANGE)
 
   // ── BANK + BALANCE ───────────────────────────────────────────
-  rect(0, bank_bot, W, BANK_H, WHITE, BDGRAY)
+  fillRect(0, bank_bot, W, BANK_H, WHITE)
+  borderRect(0, bank_bot, W, BANK_H)
   ln(DIV_X, tot_bot - 6, DIV_X, bank_bot + 6)
-  txt('BANK DETAILS',      16, tot_bot - 16, 7,  fontBold, ORANGE)
-  txt(tmpl.bankName,       16, tot_bot - 30, 10, fontBold, BLACK)
-  txt(`BSB: ${tmpl.bsb}`,  16, tot_bot - 44, 9,  font, BLACK)
-  txt(`Account: ${tmpl.account}`, 16, tot_bot - 58, 9, font, BLACK)
-  txt('BALANCE',           DIV_X + 16, tot_bot - 16, 7,  fontBold, ORANGE)
-  txt(fmtAmt(params.total),DIV_X + 16, tot_bot - 38, 18, fontBold, ORANGE)
-  txt('Balance Paid',      DIV_X + 16, tot_bot - 58, 9,  font, GRAY)
+  txt('BANK DETAILS',         16,        tot_bot - 16, 7.5,  fontBold, ORANGE)
+  txt(tmpl.bankName,          16,        tot_bot - 30, 11,   fontBold, BLACK)
+  txt(`BSB: ${tmpl.bsb}`,     16,        tot_bot - 46, 10,   font,     BLACK)
+  txt(`Account: ${tmpl.account}`, 16,    tot_bot - 60, 10,   font,     BLACK)
+  txt('BALANCE',          DIV_X + 16, tot_bot - 16, 7.5,  fontBold, ORANGE)
+  txt(fmtAmt(params.total), DIV_X + 16, tot_bot - 40, 20,   fontBold, ORANGE)
+  txt('Balance Paid',     DIV_X + 16, tot_bot - 62, 10,   font,     GRAY)
 
-  // ── FOOTER ───────────────────────────────────────────────────
-  rect(0, 0, W, FOOT_H, ORANGE)
-  txt('Thank you for your business!', 16, 14, 11, fontBold, WHITE)
-  txtR(`ABN: ${tmpl.abn}`, W - 16, 14, 9, fontBold, WHITE)
+  // ── FOOTER pinned to bottom ───────────────────────────────────
+  fillRect(0, 0, W, FOOT_H, ORANGE)
+  txt('Thank you for your business!', 16,     14, 12,  fontBold, WHITE)
+  txtR(`ABN: ${tmpl.abn}`,            W - 16, 14, 10,  fontBold, WHITE)
 
   return pdfDoc.save()
 }
