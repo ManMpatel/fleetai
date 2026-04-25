@@ -19,6 +19,7 @@ const InvoiceSchema = new mongoose.Schema({
   invoiceDate:   String,
   hireFrom:      String,
   hireTo:        String,
+  rego:          String,
   lineItems:     [LineItemSchema],
   subtotal:      Number,
   gst:           Number,

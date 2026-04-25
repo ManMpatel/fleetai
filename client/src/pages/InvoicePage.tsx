@@ -84,6 +84,7 @@ async function buildInvoicePDF(tmpl: Template, params: {
   invoiceDate: string
   hireFrom: string
   hireTo: string
+  rego?: string
   lineItems: LineItem[]
   subtotal: number
   gst: number
@@ -193,18 +194,19 @@ async function buildInvoicePDF(tmpl: Template, params: {
   // ── DATES ────────────────────────────────────────────────────
   fillRect(0, date_bot, W, DATE_H, WHITE)
   borderRect(0, date_bot, W, DATE_H)
-  const dateVals = [params.invoiceDate, params.hireFrom, params.hireTo]
-  ;['INVOICE DATE', 'HIRE FROM', 'HIRE TO'].forEach((lbl, i) => {
-    const x = i * COL_W + 16
+  const COL_W4  = W / 4
+  const dateVals = [params.invoiceDate, params.hireFrom, params.hireTo, params.rego || '\u2014']
+  ;['INVOICE DATE', 'HIRE FROM', 'HIRE TO', 'REGO'].forEach((lbl, i) => {
+    const x = i * COL_W4 + 16
     txt(lbl,         x, bill_bot - 17, 7.5, fontBold, ORANGE)
     txt(dateVals[i], x, bill_bot - 35, 11,  font,     BLACK)
-    if (i < 2) ln((i + 1) * COL_W, bill_bot - 4, (i + 1) * COL_W, date_bot + 4)
+    if (i < 3) ln((i + 1) * COL_W4, bill_bot - 4, (i + 1) * COL_W4, date_bot + 4)
   })
 
   // ── TABLE HEADER ─────────────────────────────────────────────
   fillRect(0, thdr_bot, W, THDR_H, ORANGE)
   txt('DESCRIPTION',   16,     thdr_bot + 9, 8.5, fontBold, WHITE)
-  txtC('DAYS',         375,    thdr_bot + 9, 8.5, fontBold, WHITE)
+  txtC('QUANTITY',     375,    thdr_bot + 9, 8.5, fontBold, WHITE)
   txtC('UNIT PRICE',   455,    thdr_bot + 9, 8.5, fontBold, WHITE)
   txtR('AMOUNT',       W - 16, thdr_bot + 9, 8.5, fontBold, WHITE)
 
@@ -297,6 +299,7 @@ export default function InvoicePage() {
   const [invoiceDate,   setInvoiceDate]   = useState(today())
   const [hireFrom,      setHireFrom]      = useState('')
   const [hireTo,        setHireTo]        = useState('')
+  const [rego,          setRego]          = useState('')
   const [lineItems, setLineItems]         = useState<LineItem[]>([EMPTY_LINE(), EMPTY_LINE()])
 
   const logoRef = useRef<HTMLInputElement>(null)
@@ -392,7 +395,7 @@ export default function InvoicePage() {
         templateName: selectedTmpl.businessName,
         number: invNumber,
         billToName, billToAddress, customerId, terms,
-        invoiceDate, hireFrom, hireTo,
+        invoiceDate, hireFrom, hireTo, rego,
         lineItems: lineItems.filter(li => li.description.trim()),
         subtotal, gst, total,
       }
@@ -642,17 +645,18 @@ export default function InvoicePage() {
                   <Field label="Customer ID (optional)" value={customerId} onChange={setCustomerId} placeholder="e.g. CUST-001" />
                   <Field label="Terms (optional)" value={terms} onChange={setTerms} placeholder="e.g. Net 30" />
                 </div>
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-4 gap-4 mb-6">
                   <Field label="Invoice Date" value={invoiceDate} onChange={setInvoiceDate} placeholder="DD/MM/YYYY" />
                   <Field label="Hire From" value={hireFrom} onChange={setHireFrom} placeholder="DD/MM/YYYY" />
                   <Field label="Hire To" value={hireTo} onChange={setHireTo} placeholder="DD/MM/YYYY" />
+                  <Field label="Rego (optional)" value={rego} onChange={setRego} placeholder="e.g. ERG18P" />
                 </div>
 
                 <div className="mb-1 text-xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-2">Line Items</div>
                 <table className="w-full mb-3">
                   <thead>
                     <tr>
-                      {['Description','Days','Unit Price','Amount',''].map(h => (
+                      {['Description','Quantity','Unit Price','Amount',''].map(h => (
                         <th key={h} className="text-left text-xs text-text-muted font-medium py-2 px-2 first:pl-0">{h}</th>
                       ))}
                     </tr>
