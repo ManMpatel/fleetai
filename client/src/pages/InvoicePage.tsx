@@ -70,46 +70,58 @@ async function buildInvoicePDF(params: {
   const white = rgb(1, 1, 1)
   const orange = rgb(0.91, 0.376, 0.11)
 
-  const draw = (text: string, x: number, yFromTop: number, size = 10, bold = false, color = black) => {
-    page.drawText(text, {
-      x,
-      y: height - yFromTop,
-      size,
-      font: bold ? fontBold : font,
-      color,
-    })
+  const draw = (text: string, x: number, y: number, size = 10, bold = false, color = black) => {
+    page.drawText(text, { x, y, size, font: bold ? fontBold : font, color })
   }
 
-  // Invoice number (on orange header — white text)
-  draw(`# ${params.number}`, width * 0.76, 92, 12, true, white)
+  // Invoice number — right aligned, white on orange header
+  page.drawText(`# ${params.number}`, {
+    x: width - 16 - font.widthOfTextAtSize(`# ${params.number}`, 12),
+    y: 783.9, size: 12, font: fontBold, color: white,
+  })
 
   // Bill To
-  draw(params.billToName,    45, 163, 11, true)
-  draw(params.billToAddress, 45, 179, 9,  false)
-
-  // Dates row
-  draw(params.invoiceDate, 42,  232, 10)
-  draw(params.hireFrom,    198, 232, 10)
-  draw(params.hireTo,      360, 232, 10)
+  draw(params.billToName,    16, height - 689.9, 11, true)
+  draw(params.billToAddress, 16, height - 674.9,  9)
+  
+  // Dates
+  draw(params.invoiceDate,   16,        height - 589.9, 10)
+  draw(params.hireFrom,      214,       height - 589.9, 10)
+  draw(params.hireTo,        413,       height - 589.9, 10)
 
   // Line items
-  const ROW_START = 290
-  const ROW_H     = 22
+  const ROW_START_Y = 529.9
+  const ROW_H       = 28
   params.lineItems
     .filter(li => li.description.trim())
     .forEach((li, i) => {
-      const y = ROW_START + i * ROW_H
-      draw(li.description,         45,  y, 9)
-      draw(li.days,                320, y, 9)
-      draw(`$${li.unitPrice}`,     390, y, 9)
-      draw(fmtAmt(li.amount),      width - 55, y, 9)
+      const y = ROW_START_Y - i * ROW_H
+      draw(li.description, 16,  height - y, 9)
+      // Days — centred around x=375
+      const daysW = font.widthOfTextAtSize(li.days, 9)
+      page.drawText(li.days, { x: 375 - daysW / 2, y, size: 9, font, color: black })
+      // Unit price — centred around x=445
+      const upStr = `$${li.unitPrice}`
+      const upW   = font.widthOfTextAtSize(upStr, 9)
+      page.drawText(upStr, { x: 445 - upW / 2, y, size: 9, font, color: black })
+      // Amount — right aligned
+      const amtStr = fmtAmt(li.amount)
+      const amtW   = fontBold.widthOfTextAtSize(amtStr, 9)
+      page.drawText(amtStr, { x: width - 16 - amtW, y, size: 9, font: fontBold, color: black })
     })
 
-  // Totals (right-aligned)
-  const TOTAL_X = width - 55
-  draw(fmtAmt(params.subtotal), TOTAL_X, 630, 9)
-  draw(fmtAmt(params.gst),      TOTAL_X, 648, 9)
-  draw(fmtAmt(params.total),    TOTAL_X, 668, 10, true, orange)
+  // Totals — right aligned
+  const rAlign = (text: string, y: number, size = 9, bold = false, col = black) => {
+    const f   = bold ? fontBold : font
+    const tw  = f.widthOfTextAtSize(text, size)
+    page.drawText(text, { x: width - 16 - tw, y, size, font: f, color: col })
+  }
+  rAlign(fmtAmt(params.subtotal), 415.9)
+  rAlign(fmtAmt(params.gst),      397.9)
+  rAlign(fmtAmt(params.total),    369.9, 12, true, orange)
+
+  // Balance
+  draw(fmtAmt(params.total), 334, height - 319.9, 18, true, orange)
 
   return pdfDoc.save()
 }
