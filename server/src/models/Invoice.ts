@@ -14,6 +14,8 @@ const InvoiceSchema = new mongoose.Schema({
   number:        { type: Number, required: true },
   billToName:    String,
   billToAddress: String,
+  customerId:    String,
+  terms:         String,
   invoiceDate:   String,
   hireFrom:      String,
   hireTo:        String,

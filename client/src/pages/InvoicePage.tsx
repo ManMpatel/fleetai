@@ -79,6 +79,8 @@ async function buildInvoicePDF(tmpl: Template, params: {
   number: number
   billToName: string
   billToAddress: string
+  customerId?: string
+  terms?: string
   invoiceDate: string
   hireFrom: string
   hireTo: string
@@ -183,10 +185,10 @@ async function buildInvoicePDF(tmpl: Template, params: {
   txt('BILL TO',            16,        hdr_bot - 18, 7.5,  fontBold, ORANGE)
   txt(params.billToName,    16,        hdr_bot - 34, 12,   fontBold, BLACK)
   txt(params.billToAddress, 16,        hdr_bot - 50, 10,   font,     BLACK)
-  txt('CUSTOMER ID',  DIV_X + 16, hdr_bot - 18, 7.5, fontBold, ORANGE)
-  txt('\u2014',        DIV_X + 16, hdr_bot - 33, 10,  font,     GRAY)
-  txt('TERMS',         DIV_X + 16, hdr_bot - 53, 7.5, fontBold, ORANGE)
-  txt('\u2014',        DIV_X + 16, hdr_bot - 68, 10,  font,     GRAY)
+  txt('CUSTOMER ID',                                    DIV_X + 16, hdr_bot - 18, 7.5, fontBold, ORANGE)
+  txt(params.customerId?.trim() || '\u2014',            DIV_X + 16, hdr_bot - 33, 10,  font,     GRAY)
+  txt('TERMS',                                          DIV_X + 16, hdr_bot - 53, 7.5, fontBold, ORANGE)
+  txt(params.terms?.trim() || '\u2014',                 DIV_X + 16, hdr_bot - 68, 10,  font,     GRAY)
 
   // ── DATES ────────────────────────────────────────────────────
   fillRect(0, date_bot, W, DATE_H, WHITE)
@@ -290,6 +292,8 @@ export default function InvoicePage() {
   // Invoice form
   const [billToName,    setBillToName]    = useState('')
   const [billToAddress, setBillToAddress] = useState('')
+  const [customerId,    setCustomerId]    = useState('')
+  const [terms,         setTerms]         = useState('')
   const [invoiceDate,   setInvoiceDate]   = useState(today())
   const [hireFrom,      setHireFrom]      = useState('')
   const [hireTo,        setHireTo]        = useState('')
@@ -387,7 +391,8 @@ export default function InvoicePage() {
         templateId:   selectedTmpl._id,
         templateName: selectedTmpl.businessName,
         number: invNumber,
-        billToName, billToAddress, invoiceDate, hireFrom, hireTo,
+        billToName, billToAddress, customerId, terms,
+        invoiceDate, hireFrom, hireTo,
         lineItems: lineItems.filter(li => li.description.trim()),
         subtotal, gst, total,
       }
@@ -634,6 +639,8 @@ export default function InvoicePage() {
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <Field label="Bill To — Name" value={billToName} onChange={setBillToName} placeholder="Sydney Auto Warehouse" />
                   <Field label="Bill To — Address" value={billToAddress} onChange={setBillToAddress} placeholder="12 Main St, Sydney NSW 2000" />
+                  <Field label="Customer ID (optional)" value={customerId} onChange={setCustomerId} placeholder="e.g. CUST-001" />
+                  <Field label="Terms (optional)" value={terms} onChange={setTerms} placeholder="e.g. Net 30" />
                 </div>
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   <Field label="Invoice Date" value={invoiceDate} onChange={setInvoiceDate} placeholder="DD/MM/YYYY" />
