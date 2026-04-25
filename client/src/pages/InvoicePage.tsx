@@ -43,6 +43,16 @@ function today() {
 function fmtAmt(n: number) {
   return `$${n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
+function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">{label}</label>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent" />
+    </div>
+  )
+}
+
 function fmtDate(s: string) {
   return new Date(s).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
@@ -422,14 +432,7 @@ export default function InvoicePage() {
     } catch { showToast('Re-download failed') }
   }
 
-  // ── Field helper ─────────────────────────────────────────────
-  const Field = ({ label, value, onChange, placeholder }: any) => (
-    <div>
-      <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">{label}</label>
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent" />
-    </div>
-  )
+  
 
   // ── Render ────────────────────────────────────────────────────
   return (
