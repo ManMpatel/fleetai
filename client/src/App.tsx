@@ -13,6 +13,7 @@ import RegoImportPage from './pages/RegoImportPage'
 import { useAuth0 } from '@auth0/auth0-react'
 import TabletPage from './pages/TabletPage'
 import StaffPage from './pages/StaffPage'
+import InvoicePage from './pages/InvoicePage'
 import ServiceHistoryPage from './pages/ServiceHistoryPage'
 
 
@@ -266,6 +267,7 @@ export default function App() {
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/staff" element={<StaffPage />} />
+                <Route path="/invoices" element={<InvoicePage />} />
                 <Route path="/service-history" element={<ServiceHistoryPage />} />
                 <Route path="/rego-import" element={<RegoImportPage />} />
                 <Route path="/tablet/:slug" element={<TabletPage />} />

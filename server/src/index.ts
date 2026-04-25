@@ -22,6 +22,7 @@ import adminRoutes from './routes/admin'
 import searchRoutes from './routes/search'
 import serviceRecordRoutes from './routes/serviceRecords'
 import employeeRoutes from './routes/employees'
+import invoiceRoutes from './routes/invoices'
 import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
 import Notification from './models/Notification'
@@ -95,6 +96,7 @@ app.use('/api/renters', renterRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/search', requireAuth, searchRoutes)
 app.use('/api/service-records', requireAuth, serviceRecordRoutes)
+app.use('/api/invoices', invoiceRoutes)
 app.use('/api/employees', employeeRoutes)
 app.post('/api/auth/register', registerOwner)
 app.get('/api/auth/status', getOwnerStatus)
@@ -251,4 +253,5 @@ cron.schedule('0 3 1 * *', async () => {
     console.error('❌ MongoDB connection error:', err)
     process.exit(1)
   })
+
 
