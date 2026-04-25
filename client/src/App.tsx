@@ -256,7 +256,7 @@ export default function App() {
         <Route path="/*" element={
           <div className="flex h-screen overflow-hidden bg-bg">
             <div className="h-screen sticky top-0 shrink-0">
-              <Sidebar onOpenSettings={() => setSettingsOpen(true)} paywayHasKeys={paywayHasKeys} />
+              <Sidebar onOpenSettings={() => setSettingsOpen(true)} paywayHasKeys={paywayHasKeys} onNavigate={() => setSettingsOpen(false)} />
             </div>
             <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
               <Routes>
@@ -275,9 +275,9 @@ export default function App() {
         } />
       </Routes>
     {settingsOpen && (
-        <div className="fixed inset-0 z-[200] flex">
+        <div className="fixed inset-0 z-[200] flex pointer-events-none">
           <div className="w-[220px] shrink-0" />
-          <div className="flex-1 bg-bg flex flex-col border-l border-border">
+          <div className="flex-1 bg-bg flex flex-col border-l border-border pointer-events-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
               <h1 className="text-base font-semibold text-text-primary">Settings</h1>
               <button onClick={() => setSettingsOpen(false)} className="p-1.5 rounded-lg hover:bg-surface2 text-text-muted hover:text-text-primary transition-colors">

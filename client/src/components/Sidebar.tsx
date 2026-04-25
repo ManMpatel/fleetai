@@ -94,9 +94,10 @@ const navItems = [
 interface SidebarProps {
   onOpenSettings: () => void
   paywayHasKeys: boolean
+  onNavigate: () => void
 }
 
-export default function Sidebar({ onOpenSettings, paywayHasKeys }: SidebarProps) {
+export default function Sidebar({ onOpenSettings, paywayHasKeys, onNavigate }: SidebarProps) {
   const { darkMode, toggleDarkMode, notifications } = useStore()
   const [collapsed, setCollapsed] = useState(false)
   const { user, logout } = useAuth0()
@@ -175,7 +176,8 @@ export default function Sidebar({ onOpenSettings, paywayHasKeys }: SidebarProps)
               to={item.to}
               end={item.to === '/'}
               title={collapsed ? item.label : undefined}
-              className={({ isActive }) =>
+              onClick={onNavigate}
+            className={({ isActive }) =>
                 `flex items-center gap-3 px-2.5 py-2.5 rounded-lg text-sm font-medium transition-colors relative group ${
                   isActive
                     ? 'bg-sidebar-active text-sidebar-text-active'
@@ -311,3 +313,5 @@ export default function Sidebar({ onOpenSettings, paywayHasKeys }: SidebarProps)
     </>
   )
 }
+
+
