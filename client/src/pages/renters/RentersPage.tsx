@@ -34,6 +34,7 @@ export default function RentersPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null)
   const [pendingModal, setPendingModal] = useState<Renter | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
+  const [sort, setSort] = useState<'recent' | 'az'>('recent')
   const [sendMethod, setSendMethod] = useState<'whatsapp' | 'sms'>('whatsapp')
 
   useEffect(() => { fetchRenters() }, [fetchRenters])
@@ -51,9 +52,12 @@ export default function RentersPage() {
 
   const activeRenters = renters.filter(r => (r as any).status !== 'pending')
   const pendingRenters = renters.filter(r => (r as any).status === 'pending')
-  const filtered = activeRenters.filter(r =>
-    !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.phone.includes(search)
-  )
+  const filtered = activeRenters
+    .filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.phone.includes(search))
+    .sort((a, b) => sort === 'az'
+      ? a.name.localeCompare(b.name)
+      : new Date((b as any).updatedAt || 0).getTime() - new Date((a as any).updatedAt || 0).getTime()
+    )
 
   function onToast(msg: string, type: 'success' | 'warning') { setToast({ message: msg, type }) }
 
@@ -172,6 +176,10 @@ export default function RentersPage() {
 
           <input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)}
             className="w-full bg-surface2 border border-border text-text-primary placeholder-text-muted text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
+          <div className="flex items-center gap-1 bg-surface2 border border-border rounded-lg p-0.5 self-start">
+            <button onClick={() => setSort('recent')} className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${sort === 'recent' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'}`}>Recent</button>
+            <button onClick={() => setSort('az')} className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${sort === 'az' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'}`}>A–Z</button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-border">
