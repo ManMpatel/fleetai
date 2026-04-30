@@ -28,15 +28,7 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
     const { phone, ownerEmail, method } = req.body as { phone: string; ownerEmail?: string; method?: string }
     if (!phone) return res.status(400).json({ error: 'phone is required' })
 
-    const waToken = process.env.WHATSAPP_TOKEN
-    const phoneId = process.env.WHATSAPP_PHONE_ID
-
-    if (!waToken || !phoneId) {
-      return res.status(503).json({ success: false, error: 'WhatsApp not configured' })
-    }
-
-    const cleanPhone = phone.replace(/\s+/g, '')
-    const formattedPhone = cleanPhone.replace(/^0/, '61')
+    const cleanPhone = phone.replace(/\s+/g, '') 
 
     const appUrl = process.env.APP_URL || 'https://fleetai-tau.vercel.app'
     const ownerParam = ownerEmail ? `?owner=${encodeURIComponent(ownerEmail)}` : ''
@@ -44,25 +36,7 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
 
     const msgBody = `Hi! 👋 Please fill in your rental details using this link:\n\n${link}\n\nThis takes about 2 minutes. You'll need your licence and bank details ready.`
 
-    if (method === 'sms') {
-      await sendSMS(cleanPhone, msgBody)
-    } else {
-      await axios.post(
-        `https://graph.facebook.com/v22.0/${phoneId}/messages`,
-        {
-          messaging_product: 'whatsapp',
-          to: formattedPhone,
-          type: 'text',
-          text: { body: msgBody }
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${waToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      )
-    }
+    await sendSMS(ownerEmail || '', cleanPhone, msgBody)
 
     res.json({ success: true })
   } catch (err: any) {
