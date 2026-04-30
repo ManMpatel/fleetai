@@ -34,6 +34,7 @@ export default function RentersPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null)
   const [pendingModal, setPendingModal] = useState<Renter | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
+  const [sendMethod, setSendMethod] = useState<'whatsapp' | 'sms'>('whatsapp')
 
   useEffect(() => { fetchRenters() }, [fetchRenters])
 
@@ -60,8 +61,8 @@ export default function RentersPage() {
     if (!newPhone.trim()) return
     setSendingLink(true)
     try {
-      await axios.post('/api/renters/send-onboarding', { phone: newPhone.trim(), ownerEmail: user?.email || '' })
-      setToast({ message: `✅ Link sent to ${newPhone.trim()}`, type: 'success' })
+      await axios.post('/api/renters/send-onboarding', { phone: newPhone.trim(), ownerEmail: user?.email || '', method: sendMethod })
+      setToast({ message: `✅ ${sendMethod === 'sms' ? 'SMS' : 'WhatsApp'} sent to ${newPhone.trim()}`, type: 'success' })
     } catch {
       const link = `${window.location.origin}/onboard/${encodeURIComponent(newPhone.trim())}?owner=${encodeURIComponent(user?.email || '')}`
       await navigator.clipboard.writeText(link).catch(() => {})
@@ -150,9 +151,19 @@ export default function RentersPage() {
               <p className="text-xs text-text-muted mb-2">Send onboarding link</p>
               <input type="tel" placeholder="04XX XXX XXX" value={newPhone} onChange={e => setNewPhone(e.target.value)}
                 className="w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent mb-2" />
+              <div className="flex gap-1 mb-2">
+                <button onClick={() => setSendMethod('whatsapp')}
+                  className={`flex-1 text-xs font-medium py-1.5 rounded-lg border transition-colors ${sendMethod === 'whatsapp' ? 'bg-green text-white border-green' : 'bg-surface border-border text-text-muted'}`}>
+                  💬 WhatsApp
+                </button>
+                <button onClick={() => setSendMethod('sms')}
+                  className={`flex-1 text-xs font-medium py-1.5 rounded-lg border transition-colors ${sendMethod === 'sms' ? 'bg-accent text-white border-accent' : 'bg-surface border-border text-text-muted'}`}>
+                  📱 SMS
+                </button>
+              </div>
               <div className="flex gap-2">
                 <button onClick={handleSendLink} disabled={sendingLink || !newPhone.trim()} className="flex-1 bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">
-                  {sendingLink ? 'Sending...' : '📲 Send'}
+                  {sendingLink ? 'Sending...' : `Send via ${sendMethod === 'sms' ? 'SMS' : 'WhatsApp'}`}
                 </button>
                 <button onClick={() => setShowNewRenter(false)} className="px-3 py-2 text-xs text-text-secondary border border-border rounded-lg">Cancel</button>
               </div>

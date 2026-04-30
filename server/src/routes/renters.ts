@@ -45,12 +45,22 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
     const msgBody = `Hi! 👋 Please fill in your rental details using this link:\n\n${link}\n\nThis takes about 2 minutes. You'll need your licence and bank details ready.`
 
     if (method === 'sms') {
-      await sendSMS(ownerEmail || '', cleanPhone, msgBody)
+      await sendSMS(cleanPhone, msgBody)
     } else {
       await axios.post(
         `https://graph.facebook.com/v22.0/${phoneId}/messages`,
-        { messaging_product: 'whatsapp', to: formattedPhone, type: 'text', text: { body: msgBody } },
-        { headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' } }
+        {
+          messaging_product: 'whatsapp',
+          to: formattedPhone,
+          type: 'text',
+          text: { body: msgBody }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${waToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
       )
     }
 
