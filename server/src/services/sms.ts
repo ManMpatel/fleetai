@@ -19,7 +19,7 @@ export async function sendSMS(ownerEmail: string, phone: string, message: string
   try {
     const response = await axios.post(
       'https://api.mobilemessage.com.au/v1/messages',
-      { to: formatted, message, from: 'FleetAI' },
+      { messages: [{ to: formatted, message, from: 'FleetAI' }] },
       { headers: { Authorization: `Basic ${token}`, 'Content-Type': 'application/json' } }
     )
     console.log(`✅ SMS sent successfully:`, JSON.stringify(response.data))
