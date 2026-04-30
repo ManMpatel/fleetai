@@ -13,9 +13,18 @@ export async function sendSMS(ownerEmail: string, phone: string, message: string
   const formatted = phone.replace(/\s+/g, '').replace(/^0/, '61')
   const token = Buffer.from(`${username}:${password}`).toString('base64')
 
-  await axios.post(
-    'https://api.mobilemessage.com.au/v1/messages',
-    { to: formatted, message, from: 'FleetAI' },
-    { headers: { Authorization: `Basic ${token}`, 'Content-Type': 'application/json' } }
-  )
+  console.log(`📱 Sending SMS to ${formatted}`)
+  console.log(`📱 Using username: ${username}`)
+
+  try {
+    const response = await axios.post(
+      'https://api.mobilemessage.com.au/v1/messages',
+      { to: formatted, message, from: 'FleetAI' },
+      { headers: { Authorization: `Basic ${token}`, 'Content-Type': 'application/json' } }
+    )
+    console.log(`✅ SMS sent successfully:`, JSON.stringify(response.data))
+  } catch (err: any) {
+    console.error(`❌ SMS failed:`, err.response?.status, JSON.stringify(err.response?.data))
+    throw err
+  }
 }
