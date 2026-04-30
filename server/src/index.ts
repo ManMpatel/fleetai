@@ -27,7 +27,7 @@ import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
 import Notification from './models/Notification'
 import axios from 'axios'
-import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug, getBusinessName, setBusinessName, getPayWaySettings, setPayWaySettings } from './middleware/ownerAuth'
+import { registerOwner, getOwnerStatus, getOwnerSlug, setOwnerSlug, resolveSlug, getBusinessName, setBusinessName, getPayWaySettings, setPayWaySettings, getSmsSettings, setSmsSettings } from './middleware/ownerAuth'
 import rateLimit from 'express-rate-limit'
 
 
@@ -105,6 +105,8 @@ app.post('/api/auth/slug', setOwnerSlug)
 app.get('/api/auth/resolve/:slug', resolveSlug)
 app.get('/api/auth/business-name', getBusinessName)
 app.post('/api/auth/business-name', setBusinessName)
+app.get('/api/auth/sms-settings', getSmsSettings)
+app.post('/api/auth/sms-settings', setSmsSettings)
 app.get('/api/auth/payway-settings', getPayWaySettings)
 app.post('/api/auth/payway-settings', setPayWaySettings)
 

@@ -192,3 +192,31 @@ export async function getOwnerPayWayKeys(ownerEmail: string): Promise<{ secretKe
     }
   } catch { return undefined }
 }
+
+export async function getSmsSettings(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const owner = await Owner.findOne({ email })
+    res.json({
+      mmApiUsername: (owner as any)?.mmApiUsername || '',
+      mmApiPassword: (owner as any)?.mmApiPassword ? '••••••••' : '',
+      configured: !!((owner as any)?.mmApiUsername && (owner as any)?.mmApiPassword)
+    })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get SMS settings' })
+  }
+}
+
+export async function setSmsSettings(req: Request, res: Response) {
+  try {
+    const email = req.headers['x-owner-email'] as string
+    if (!email) return res.status(401).json({ error: 'Not authenticated' })
+    const { mmApiUsername, mmApiPassword } = req.body
+    if (!mmApiUsername || !mmApiPassword) return res.status(400).json({ error: 'Both fields required' })
+    await Owner.findOneAndUpdate({ email }, { mmApiUsername, mmApiPassword })
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save SMS settings' })
+  }
+}

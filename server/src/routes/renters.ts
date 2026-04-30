@@ -6,6 +6,7 @@ import Notification from '../models/Notification'
 import { encrypt, decrypt, hash } from '../services/encryption'
 import { requireOwner, getOwnerPayWayKeys } from '../middleware/ownerAuth'
 import axios from 'axios'
+import { sendSMS } from '../services/sms'
 import {
   createPayWayCustomer,
   setupWeeklyDebit,
@@ -24,7 +25,7 @@ const router = Router()
 // Public route — no auth needed (renter fills this in)
 router.post('/send-onboarding', async (req: Request, res: Response) => {
   try {
-    const { phone, ownerEmail } = req.body as { phone: string; ownerEmail?: string }
+    const { phone, ownerEmail, method } = req.body as { phone: string; ownerEmail?: string; method?: string }
     if (!phone) return res.status(400).json({ error: 'phone is required' })
 
     const waToken = process.env.WHATSAPP_TOKEN
@@ -41,21 +42,17 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
     const ownerParam = ownerEmail ? `?owner=${encodeURIComponent(ownerEmail)}` : ''
     const link = `${appUrl}/onboard/${encodeURIComponent(cleanPhone)}${ownerParam}`
 
-    await axios.post(
-      `https://graph.facebook.com/v22.0/${phoneId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        to: formattedPhone,
-        type: 'text',
-        text: { body: `Hi! 👋 Please fill in your rental details using this link:\n\n${link}\n\nThis takes about 2 minutes. You'll need your licence and bank details ready.` }
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${waToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    )
+    const msgBody = `Hi! 👋 Please fill in your rental details using this link:\n\n${link}\n\nThis takes about 2 minutes. You'll need your licence and bank details ready.`
+
+    if (method === 'sms') {
+      await sendSMS(ownerEmail || '', cleanPhone, msgBody)
+    } else {
+      await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneId}/messages`,
+        { messaging_product: 'whatsapp', to: formattedPhone, type: 'text', text: { body: msgBody } },
+        { headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' } }
+      )
+    }
 
     res.json({ success: true })
   } catch (err: any) {
