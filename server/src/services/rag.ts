@@ -160,6 +160,7 @@ export async function checkPaymentStatus(): Promise<void> {
 
   try {
     const { getPaymentHistory } = await import('./payway')
+    const { getOwnerPayWayKeys } = await import('../middleware/ownerAuth')
 
     // Find all active renters whose nextDebitDate is today or in the past (overdue)
     const renters = await Renter.find({
@@ -171,7 +172,8 @@ export async function checkPaymentStatus(): Promise<void> {
 
     for (const renter of renters) {
       const customerId = renter.payway!.customerId!
-      const result = await getPaymentHistory(customerId)
+      const keys = await getOwnerPayWayKeys(renter.ownerId as string) || undefined
+      const result = await getPaymentHistory(customerId, keys)
       console.log(`📥 PayWay response for ${renter.name} (${customerId}):`, JSON.stringify(result, null, 2))
       const payments = result.payments || []
 
@@ -213,6 +215,20 @@ export async function checkPaymentStatus(): Promise<void> {
           actionRequired: true,
         })
         console.log(`❌ Payment declined for ${renter.name} — notification created`)
+
+        // Send SMS to renter
+        try {
+          const { sendSMS } = await import('./sms')
+          const firstName = renter.name.split(' ')[0]
+          await sendSMS(
+            renter.ownerId as string,
+            renter.phone,
+            `Hi ${firstName}, your weekly payment of $${latest.amount} has been declined. Please contact us ASAP.`
+          )
+          console.log(`📱 SMS sent to ${renter.name} (${renter.phone})`)
+        } catch (smsErr: any) {
+          console.error(`⚠️ SMS failed for ${renter.name}:`, smsErr.message)
+        }
       }
     }
   } catch (err) {
