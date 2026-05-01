@@ -226,7 +226,7 @@ async function buildInvoicePDF(tmpl: Template, params: {
     const li  = params.lineItems[i]
     if (li?.description?.trim()) {
       txt(li.description,        16,     ty, 10.5, font,     BLACK)
-      txtC(li.days,              375,    ty, 10.5, font,     BLACK)
+      txtC(String(li.days ?? ''), 375,    ty, 10.5, font,     BLACK)
       txtC(`$${li.unitPrice}`,   455,    ty, 10.5, font,     BLACK)
       txtR(fmtAmt(li.amount),    W - 16, ty, 10.5, fontBold, BLACK)
     }
