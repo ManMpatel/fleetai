@@ -89,6 +89,7 @@ async function buildInvoicePDF(tmpl: Template, params: {
   subtotal: number
   gst: number
   total: number
+  balancePaid?: boolean
 }): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create()
   const W = 595.28, H = 841.89
@@ -254,7 +255,9 @@ async function buildInvoicePDF(tmpl: Template, params: {
   txt(`Account: ${tmpl.account}`, 16,    tot_bot - 60, 10,   font,     BLACK)
   txt('BALANCE',          DIV_X + 16, tot_bot - 16, 7.5,  fontBold, ORANGE)
   txt(fmtAmt(params.total), DIV_X + 16, tot_bot - 40, 20,   fontBold, ORANGE)
-  txt('Balance Paid',     DIV_X + 16, tot_bot - 62, 10,   font,     GRAY)
+  const balLabel = params.balancePaid === false ? 'Balance Pending' : 'Balance Paid'
+  const balColor = params.balancePaid === false ? ORANGE : GRAY
+  txt(balLabel,           DIV_X + 16, tot_bot - 62, 10,   font,     balColor)
 
   // ── FOOTER pinned to bottom ───────────────────────────────────
   fillRect(0, 0, W, FOOT_H, ORANGE)
@@ -300,6 +303,7 @@ export default function InvoicePage() {
   const [hireFrom,      setHireFrom]      = useState('')
   const [hireTo,        setHireTo]        = useState('')
   const [rego,          setRego]          = useState('')
+  const [balancePaid, setBalancePaid]     = useState(true)
   const [lineItems, setLineItems]         = useState<LineItem[]>([EMPTY_LINE(), EMPTY_LINE()])
 
   const logoRef = useRef<HTMLInputElement>(null)
@@ -397,7 +401,7 @@ export default function InvoicePage() {
         billToName, billToAddress, customerId, terms,
         invoiceDate, hireFrom, hireTo, rego,
         lineItems: lineItems.filter(li => li.description.trim()),
-        subtotal, gst, total,
+        subtotal, gst, total, balancePaid,
       }
       const bytes = await buildInvoicePDF(selectedTmpl, form)
       const blob  = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
@@ -688,7 +692,21 @@ export default function InvoicePage() {
                   </tbody>
                 </table>
                 <button onClick={() => setLineItems(p => [...p, EMPTY_LINE()])}
-                  className="text-xs text-accent hover:text-accent/80 transition-colors mb-6">+ Add line item</button>
+                  className="text-xs text-accent hover:text-accent/80 transition-colors mb-4">+ Add line item</button>
+
+                <div className="flex items-center gap-2 mb-6">
+                  <span className="text-xs font-medium text-text-muted uppercase tracking-wide">Balance Status</span>
+                  <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+                    <button onClick={() => setBalancePaid(true)}
+                      className={`px-3 py-1.5 transition-colors ${balancePaid ? 'bg-green text-white' : 'text-text-muted hover:text-text-primary'}`}>
+                      ✓ Balance Paid
+                    </button>
+                    <button onClick={() => setBalancePaid(false)}
+                      className={`px-3 py-1.5 border-l border-border transition-colors ${!balancePaid ? 'bg-amber text-white' : 'text-text-muted hover:text-text-primary'}`}>
+                      ⏳ Balance Pending
+                    </button>
+                  </div>
+                </div>
 
                 <div className="flex justify-end">
                   <div className="w-60 border border-border rounded-xl overflow-hidden">

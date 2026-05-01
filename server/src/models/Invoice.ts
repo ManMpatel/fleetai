@@ -24,6 +24,7 @@ const InvoiceSchema = new mongoose.Schema({
   subtotal:      Number,
   gst:           Number,
   total:         Number,
+  balancePaid:   { type: Boolean, default: true },
 }, { timestamps: true })
 
 export default mongoose.model('Invoice', InvoiceSchema)
