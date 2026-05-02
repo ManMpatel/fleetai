@@ -461,7 +461,7 @@ export async function getPaymentHistory(
   try { const res = await axios.get(
       `${PAYWAY_BASE}/transactions/search-customer`,
       {
-        headers: getSecretAuthHeader(keys),
+        headers: { Authorization: getSecretAuthHeader(keys).Authorization },
         params: { customerNumber: customerId, offset: 0, limit: 10 }
       }
     )
