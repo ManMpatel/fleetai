@@ -308,6 +308,7 @@ export default function RenterDetailPayments({
               const ok = p.status === 'approved' || code === '08' || code === '00'
               const isTerminal = code === '2' || code === '3'
               const statusClass = ok ? 'bg-green-bg text-green' : isTerminal ? 'bg-red-bg text-red font-semibold' : 'bg-amber-bg text-amber'
+              const isRecent = i < 2
               const detail = isTerminal ? (code === '2' ? 'Renter stopped debits — recover vehicle' : 'Account closed — recover vehicle') : ''
               return (
                 <div key={i} className="py-2.5 border-b border-border last:border-0">

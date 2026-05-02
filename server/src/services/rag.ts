@@ -174,7 +174,6 @@ export async function checkPaymentStatus(): Promise<void> {
       const customerId = renter.payway!.customerId!
       const keys = await getOwnerPayWayKeys(renter.ownerId as string) || undefined
       const result = await getPaymentHistory(customerId, keys)
-      console.log(`📥 PayWay response for ${renter.name} (${customerId}):`, JSON.stringify(result, null, 2))
       const payments = result.payments || []
 
       if (!payments.length) {
@@ -191,6 +190,16 @@ export async function checkPaymentStatus(): Promise<void> {
         continue
       }
 
+      // Save new transaction to MongoDB if not already stored
+      const Transaction = (await import('../models/Transaction')).default
+      if (latest.transactionId) {
+        await Transaction.updateOne(
+          { transactionId: latest.transactionId },
+          { $setOnInsert: { ...latest, renterId: renter.phone, ownerId: renter.ownerId } },
+          { upsert: true }
+        )
+      }
+
       // Dedup — skip if we already notified for this renter today
       const existing = await Notification.findOne({
         ownerId: renter.ownerId,
@@ -201,10 +210,16 @@ export async function checkPaymentStatus(): Promise<void> {
       if (existing) continue
 
       if (latest.status === 'approved') {
-        // Update nextDebitDate +7 days in MongoDB
-        renter.payway!.nextDebitDate = new Date(latestDate.getTime() + 7 * 86400000)
+        // Get real next date from PayWay schedule
+        const { getCustomerSchedule } = await import('./payway')
+        const schedule = await getCustomerSchedule(customerId, keys)
+        if (schedule.success && schedule.nextPaymentDate) {
+          renter.payway!.nextDebitDate = schedule.nextPaymentDate
+        } else {
+          renter.payway!.nextDebitDate = new Date(latestDate.getTime() + 7 * 86400000)
+        }
         await renter.save()
-        console.log(`✅ Payment confirmed for ${renter.name} — next debit: ${renter.payway!.nextDebitDate.toISOString().split('T')[0]}`)
+        console.log(`✅ Payment confirmed for ${renter.name} — next debit: ${renter.payway!.nextDebitDate!.toISOString().split('T')[0]}`)
       } else {
         // Payment declined — create notification
         await Notification.create({

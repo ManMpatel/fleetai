@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import Renter from '../models/Renter'
 import Vehicle from '../models/Vehicle'
 import Fine from '../models/Fine'
+import Transaction from '../models/Transaction'
 import Notification from '../models/Notification'
 import { encrypt, decrypt, hash } from '../services/encryption'
 import { requireOwner, getOwnerPayWayKeys } from '../middleware/ownerAuth'
@@ -235,6 +236,22 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
     renter.payway!.activity!.push({ type: 'success', message: `Auto-debit activated — $${weeklyAmount}/week`, createdAt: new Date() })
     await renter.save()
 
+    // Fetch and store all historical transactions
+    try {
+      const { fetchAllTransactions } = await import('../services/payway')
+      const allTxns = await fetchAllTransactions(created.customerId!, keys)
+      for (const t of allTxns) {
+        await Transaction.updateOne(
+          { transactionId: t.transactionId },
+          { $setOnInsert: { ...t, renterId: renter.phone, ownerId: req.ownerEmail! } },
+          { upsert: true }
+        )
+      }
+      console.log(`💾 Saved ${allTxns.length} transactions for ${renter.name}`)
+    } catch (e: any) {
+      console.error('⚠️ Failed to fetch transaction history:', e.message)
+    }
+
     await Notification.create({
       ownerId: req.ownerEmail,
       type: 'info',
@@ -293,6 +310,23 @@ router.post('/:phone/link-payway', async (req: Request, res: Response) => {
       nextDebitDate: nextPaymentDate ? new Date(nextPaymentDate) : nextDebit,
     }
     await renter.save()
+
+    // Fetch and store all historical transactions
+    try {
+      const { fetchAllTransactions } = await import('../services/payway')
+      const linkKeys = await getOwnerPayWayKeys(req.ownerEmail!)
+      const allTxns = await fetchAllTransactions(paywayCustomerId.trim(), linkKeys || undefined)
+      for (const t of allTxns) {
+        await Transaction.updateOne(
+          { transactionId: t.transactionId },
+          { $setOnInsert: { ...t, renterId: renter.phone, ownerId: req.ownerEmail! } },
+          { upsert: true }
+        )
+      }
+      console.log(`💾 Saved ${allTxns.length} transactions for ${renter.name}`)
+    } catch (e: any) {
+      console.error('⚠️ Failed to fetch transaction history:', e.message)
+    }
 
     await Notification.create({
       ownerId: req.ownerEmail,
@@ -490,6 +524,37 @@ router.post('/:phone/update-bank', async (req: Request, res: Response) => {
   }
 })
 
+// POST /api/renters/:phone/refund/:transactionId
+router.post('/:phone/refund/:transactionId', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const transactionId = req.params.transactionId
+    const { amount } = req.body as { amount: number }
+
+    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const result = await refundTransaction(transactionId, amount, keys)
+    if (!result.success) return res.status(400).json({ error: result.error || 'Refund failed' })
+
+    // Update transaction in DB
+    await Transaction.updateOne({ transactionId: Number(transactionId) }, { isRefundable: false })
+
+    await Notification.create({
+      ownerId: req.ownerEmail,
+      type: 'info',
+      title: `Refund processed — ${renter.name}`,
+      description: `$${amount} refunded to ${renter.name}'s bank account.`,
+      actionRequired: false,
+    })
+
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/renters/:phone/retry-payment
 router.post('/:phone/retry-payment', async (req: Request, res: Response) => {
   try {
@@ -615,14 +680,15 @@ router.post('/:phone/resume', async (req: Request, res: Response) => {
 // GET /api/renters/:phone/payments
 router.get('/:phone/payments', async (req: Request, res: Response) => {
   try {
-    const phone  = decodeURIComponent(req.params.phone)
+    const phone = decodeURIComponent(req.params.phone)
     const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
     if (!renter.payway?.customerId) return res.json({ payments: [] })
 
-    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
-    const result = await getPaymentHistory(renter.payway.customerId, keys)
-    res.json({ payments: result.payments || [] })
+    const payments = await Transaction.find({ renterId: phone, ownerId: req.ownerEmail })
+      .sort({ date: -1 })
+      .lean()
+    res.json({ payments })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

@@ -422,6 +422,52 @@ export async function refundTransaction(
   }
 }
 
+// ── Fetch ALL transactions with pagination ────────────────
+export async function fetchAllTransactions(
+  customerId: string,
+  keys?: PayWayKeys
+): Promise<any[]> {
+  if (!isConfigured(keys)) return []
+  const all: any[] = []
+  let url: string | null = `${PAYWAY_BASE}/transactions/search-customer`
+  let params: any = { customerNumber: customerId }
+
+  while (url) {
+    try {
+      const res: any = await axios.get(url, {
+        headers: { Authorization: getSecretAuthHeader(keys).Authorization },
+        params,
+      })
+      const data = res.data
+      const raw = data.data || []
+      for (const t of raw) {
+        all.push({
+          transactionId: t.transactionId,
+          date:          t.settlementDate || null,
+          amount:        t.paymentAmount || 0,
+          status:        t.status || 'unknown',
+          description:   t.transactionType || 'Direct debit',
+          isVoidable:    t.voidable ?? false,
+          isRefundable:  t.refundable ?? false,
+          responseCode:  t.responseCode || null,
+        })
+      }
+      // Follow nextPage link if exists
+      const nextLink = (data.links || []).find((l: any) => l.rel === 'next')
+      if (nextLink) {
+        url = nextLink.href
+        params = {} // params are embedded in the next URL
+      } else {
+        url = null
+      }
+    } catch (err: any) {
+      console.error('❌ fetchAllTransactions error:', err.response?.data || err.message)
+      break
+    }
+  }
+  return all
+}
+
 // ── Get customer schedule (next payment date) ─────────────
 export async function getCustomerSchedule(
   customerId: string,

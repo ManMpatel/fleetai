@@ -186,14 +186,14 @@ cron.schedule('0 3 1 * *', async () => {
   })
 
   // Payment status check — daily at 9am Sydney time
-  cron.schedule('*/10 * * * *', () => {
+  cron.schedule('0 23 * * *', () => {
     console.log('💳 Running daily payment status check...')
     checkPaymentStatus()
   })
 
 
   // Daily PayWay schedule sync — 9am Sydney time (UTC 23:00)
-  cron.schedule('*/10 * * * *', async () => {
+  cron.schedule('0 23 * * *', async () => {
     console.log('📅 Running daily PayWay schedule sync...')
     try {
       const { getCustomerSchedule } = await import('./services/payway')
