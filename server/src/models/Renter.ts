@@ -73,6 +73,7 @@ export interface IRenter extends Document {
     totalAmount?: number
   }>
 
+  approvedAt?: Date
   changeHistory?: Array<{
     field: string
     oldValue: string
