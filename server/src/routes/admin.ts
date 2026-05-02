@@ -133,6 +133,41 @@ router.get('/logs', requireSuperAdmin, async (_req, res) => {
 })
 
 // GET /api/admin/stats — MongoDB platform stats
+router.post('/sync-all-transactions', requireSuperAdmin, async (_req, res) => {
+  try {
+    const Renter = (await import('../models/Renter')).default
+    const Transaction = (await import('../models/Transaction')).default
+    const { fetchAllTransactions } = await import('../services/payway')
+    const { getOwnerPayWayKeys } = await import('../middleware/ownerAuth')
+
+    const renters = await Renter.find({ 'payway.customerId': { $exists: true } })
+    const results = []
+
+    for (const renter of renters) {
+      try {
+        const keys = await getOwnerPayWayKeys(renter.ownerId as string) || undefined
+        const txns = await fetchAllTransactions(renter.payway!.customerId!, keys)
+        let saved = 0
+        for (const t of txns) {
+          const r = await Transaction.updateOne(
+            { transactionId: t.transactionId },
+            { $setOnInsert: { ...t, renterId: renter.phone, ownerId: renter.ownerId } },
+            { upsert: true }
+          )
+          if (r.upsertedCount) saved++
+        }
+        results.push({ name: renter.name, total: txns.length, saved })
+        console.log(`💾 ${renter.name} — ${txns.length} fetched, ${saved} new saved`)
+      } catch (e: any) {
+        results.push({ name: renter.name, error: e.message })
+      }
+    }
+    res.json({ success: true, results })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.post('/trigger-payment-check', requireSuperAdmin, async (_req, res) => {
   try {
     const { checkPaymentStatus } = await import('../services/rag')
