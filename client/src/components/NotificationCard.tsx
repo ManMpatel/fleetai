@@ -75,7 +75,10 @@ function timeAgo(dateStr: string) {
 
 export default function NotificationCard({ notification }: NotificationCardProps) {
   const { markRead } = useStore()
-  const cfg = typeConfig[notification.type]
+  const isDeclined = notification.title.toLowerCase().includes('payment failed') || notification.title.toLowerCase().includes('declined')
+  const cfg = isDeclined
+    ? { ...typeConfig['fine'], bg: 'bg-red-bg', color: 'text-red' }
+    : typeConfig[notification.type]
 
   return (
     <div
