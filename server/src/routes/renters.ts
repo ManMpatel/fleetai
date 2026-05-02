@@ -686,7 +686,7 @@ router.get('/:phone/payments', async (req: Request, res: Response) => {
     if (!renter.payway?.customerId) return res.json({ payments: [] })
 
     const payments = await Transaction.find({ renterId: phone, ownerId: req.ownerEmail })
-      .sort({ date: -1 })
+      .sort({ transactionId: -1 })
       .lean()
     res.json({ payments })
   } catch (err: any) {
