@@ -448,29 +448,122 @@ export default function OnboardPage() {
                   <h3 className="text-sm font-bold text-gray-900">Terms & Conditions</h3>
                   <button onClick={() => setShowTerms(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
                 </div>
-                <div className="px-5 py-4 space-y-4">
+                <div className="px-5 py-4 space-y-4 text-xs text-gray-600 leading-relaxed">
+
+                  {/* Privacy Policy */}
                   <div>
-                    <p className="text-xs font-semibold text-gray-700 mb-1">Privacy Policy</p>
-                    <p className="text-xs text-gray-500 leading-relaxed">
-                      Your driver's licence and passport photos are collected solely to verify your identity for rental purposes.
-                      Photos are stored securely and encrypted. They will be permanently deleted once your rental has ended and
-                      30 days have passed with no outstanding fines on your rental vehicle. Your personal details are retained
-                      for record-keeping as required by Australian law. You may request access to or deletion of your information at any time.
-                    </p>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">Privacy Policy</p>
+                    <p>Your driver's licence and passport photos are collected solely to verify your identity for rental purposes. Photos are stored securely and encrypted. They will be permanently deleted once your rental has ended and 30 days have passed with no outstanding fines on your rental vehicle. Your personal details are retained for record-keeping as required by Australian law. You may request access to or deletion of your information at any time.</p>
                   </div>
+
+                  {/* 1. Introduction */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">1. Introduction</p>
+                    <p>Welcome to ZUBER Car Rentals. By submitting this form you agree to be bound by the following Terms and Conditions. These terms govern your rights and obligations and form a binding agreement between you and ZUBER CAR RENTAL PTY LTD ("ZUBER", "we", "us", or "our").</p>
+                  </div>
+
+                  {/* 2. Rental Eligibility */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">2. Rental Eligibility</p>
+                    <p>Renters must be at least 21 years old and hold a valid driver's licence (international licences must be in English or officially translated). Proof of identity, address, and a security deposit (bond) are required. E-bike rentals are permitted from 18 years with valid photo ID.</p>
+                  </div>
+
+                  {/* 3. Rental Terms */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">3. Rental Terms</p>
+                    <p>Rental periods start and end on the agreed date and time. The vehicle must be returned in the same condition it was rented (excluding reasonable wear and tear). Late returns incur hourly or daily charges as per our rate schedule. Fuel must be refilled to the same level or refuelling charges apply. Mileage limits may apply; additional km charges may apply.</p>
+                  </div>
+
+                  {/* 4. Insurance & Liability */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">4. Insurance & Liability</p>
+                    <p>All rentals include compulsory third-party insurance. Additional coverage is available for purchase. Renters are liable for damage due to misuse, negligence, or unauthorised use. Accidents must be reported within 12 hours with a police report if applicable.</p>
+                    <ul className="mt-1.5 space-y-0.5 list-disc list-inside">
+                      <li>Car accident basic excess: <strong>AUD $1,200</strong></li>
+                      <li>Motorbike and scooter basic excess: <strong>AUD $1,500</strong></li>
+                      <li>Stolen bike excess: <strong>AUD $2,000</strong></li>
+                      <li>Additional excess applies for drivers under 25 years of age</li>
+                      <li>Drivers under 21 years are not covered under insurance</li>
+                      <li>E-bikes are not covered by any insurance — renters assume full responsibility for loss or damage</li>
+                    </ul>
+                  </div>
+
+                  {/* 5. Prohibited Uses */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">5. Prohibited Uses</p>
+                    <p>Vehicles must not be used for commercial purposes unless pre-approved. No involvement in unlawful activities or races. Only licensed and authorised drivers may operate the vehicle. Off-road use is prohibited unless specified.</p>
+                  </div>
+
+                  {/* 6. Breakdown & Repairs */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">6. Breakdown & Repairs</p>
+                    <p>Vehicles are regularly maintained. Contact our support team in case of breakdown. Unauthorised repairs or modifications are not permitted. <strong>Breakdown assistance covers the Sydney metro area only.</strong> ZUBER is not liable for delays due to breakdowns unless caused by known pre-existing issues.</p>
+                  </div>
+
+                  {/* 7. Toll Roads */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">7. Toll Roads</p>
+                    <p><strong>All toll road charges incurred during the rental period are the full responsibility of the renter.</strong> ZUBER will not cover or reimburse any toll fees. Any infringement notices or admin fees resulting from unpaid tolls will be passed on to the renter.</p>
+                  </div>
+
+                  {/* 8. Address & Contact Details */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">8. Address & Contact Details</p>
+                    <p><strong>It is the renter's responsibility to keep their address and mobile number up to date at all times.</strong> Any change must be notified to ZUBER immediately. ZUBER is not liable for missed communications due to outdated contact information.</p>
+                  </div>
+
+                  {/* 9. Buying & Selling Vehicles */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">9. Buying & Selling Vehicles</p>
+                    <p>We sell used vehicles. Test drives are available upon booking with valid ID. All sales are final unless otherwise stated. Inspection reports are available. Owners may list or exchange used or damaged vehicles with us.</p>
+                  </div>
+
+                  {/* 10. Accident-Damage Exchange */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">10. Accident-Damage Exchange</p>
+                    <p>We accept accident-damaged vehicles for exchange towards another ZUBER vehicle. Inspection and documentation are required. Final valuation is based on damage, age, and model.</p>
+                  </div>
+
+                  {/* 11. Payment & Bond */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">11. Payment & Bond</p>
+                    <p>Full payment is due before rental begins (via card or bank transfer). A refundable bond is collected and released after inspection. Admin fees may apply for bond processing or contract breach.</p>
+                  </div>
+
+                  {/* 12. Cancellation & Refunds */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">12. Cancellation & Refunds</p>
+                    <p>Full refund (excluding fees) if cancelled 24+ hours before rental. Same-day cancellations may incur a 50% charge. No refunds for early returns unless approved.</p>
+                  </div>
+
+                  {/* 13. DDR Authority */}
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-amber-800 mb-1.5">Direct Debit Request (DDR) Authority</p>
-                    <p className="text-xs text-amber-700 leading-relaxed mb-2">
-                      By submitting this form, you authorise the rental business to debit your nominated bank account via
-                      the Bulk Electronic Clearing System (BECS) for the agreed rental amount on a recurring basis.
-                    </p>
+                    <p className="text-xs font-semibold text-amber-800 mb-1.5">13. Direct Debit Request (DDR) Authority</p>
+                    <p className="text-xs text-amber-700 mb-2">By submitting this form, you authorise the rental business to debit your nominated bank account via the Bulk Electronic Clearing System (BECS) for the agreed rental amount on a recurring basis.</p>
                     <ul className="space-y-1 text-xs text-amber-700">
-                      <li>• A <strong>$10 dishonour fee</strong> applies for each failed or returned payment</li>
+                      <li>• A <strong>$10 dishonour fee</strong> applies for each failed or returned payment — this fee will be added to your next scheduled debit</li>
                       <li>• You will receive at least <strong>2 business days notice</strong> before any increase in debit amount</li>
                       <li>• Debits continue until you notify the business in writing to cancel</li>
                       <li>• Disputes must be lodged within <strong>120 days</strong> of the debit date</li>
                     </ul>
                   </div>
+
+                  {/* 14. Privacy & Data */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">14. Privacy & Data</p>
+                    <p>We collect personal data for rental, payment, and insurance purposes. We do not share your data except as required by law or with partners such as insurers or regulators.</p>
+                  </div>
+
+                  {/* 15. Amendments */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 mb-1">15. Amendments</p>
+                    <p>ZUBER reserves the right to update these Terms and Conditions at any time. Continued use of the platform constitutes acceptance of the updated terms.</p>
+                    <p className="mt-1">Email: zuber_gugarman@yahoo.com.au</p>
+                    <p>Mail: 4/64 Hillard Street, Wiley Park NSW 2195</p>
+                    <p>Phone: 0469048855</p>
+                    <p className="mt-1.5 text-gray-400">© 2025 Zuber Car Rental Pty Ltd. All rights reserved.</p>
+                  </div>
+
                 </div>
               </div>
             </div>
