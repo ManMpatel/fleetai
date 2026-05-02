@@ -186,14 +186,14 @@ cron.schedule('0 3 1 * *', async () => {
   })
 
   // Payment status check — daily at 9am Sydney time
-  cron.schedule('0 23 * * *', () => {
+  cron.schedule('*/10 * * * *', () => {
     console.log('💳 Running daily payment status check...')
     checkPaymentStatus()
   })
 
 
   // Daily PayWay schedule sync — 9am Sydney time (UTC 23:00)
-  cron.schedule('0 23 * * *', async () => {
+  cron.schedule('*/10 * * * *', async () => {
     console.log('📅 Running daily PayWay schedule sync...')
     try {
       const { getCustomerSchedule } = await import('./services/payway')
@@ -210,7 +210,14 @@ cron.schedule('0 3 1 * *', async () => {
       for (const renter of activeRenters) {
         try {
           await new Promise(r => setTimeout(r, 300))
-          const result = await getCustomerSchedule(renter.payway!.customerId!)
+          const owner = await Owner.findOne({ email: renter.ownerId })
+          const renterKeys = (owner as any)?.paywaySecretKey ? {
+            secretKey: decrypt((owner as any).paywaySecretKey),
+            publishableKey: decrypt((owner as any).paywayPublishableKey),
+            merchantId: decrypt((owner as any).paywayMerchantId),
+            bankAccountId: decrypt((owner as any).paywayBankAccountId),
+          } : undefined
+          const result = await getCustomerSchedule(renter.payway!.customerId!, renterKeys)
 
           if (!result.success || !result.nextPaymentDate) {
             console.log(`⚠️  ${renter.name} (${renter.payway!.customerId}) — PayWay returned no schedule`)

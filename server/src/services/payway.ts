@@ -11,6 +11,7 @@ export interface PayWayKeys {
 
 function getSecretAuthHeader(keys?: PayWayKeys) {
   const secretKey = keys?.secretKey || process.env.PAYWAY_SECRET_KEY || 'test_placeholder'
+  console.log(`🔑 Using secret key: ${secretKey.slice(0, 12)}...`)
   return {
     Authorization: `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`,
     'Content-Type': 'application/x-www-form-urlencoded',
@@ -464,7 +465,8 @@ export async function getPaymentHistory(
         params: { customerNumber: customerId, offset: 0, limit: 10 }
       }
     )
-    const raw = res.data.data || []
+    console.log('📦 PayWay raw response:', JSON.stringify(res.data))
+    const raw = res.data.data || res.data.transactions || res.data.items || res.data.value || []
     const payments = raw.map((t: any) => ({
       transactionId: t.transactionId || null,
       date: t.transactionTime || t.settlementDate || null,
@@ -477,7 +479,7 @@ export async function getPaymentHistory(
     }))
     return { success: true, payments }
   } catch (err: any) {
-    // Silently fail — no payment history yet is normal
+    console.error('❌ getPaymentHistory error:', err.response?.status, JSON.stringify(err.response?.data || err.message))
     return { success: true, payments: [] }
   }
 }
