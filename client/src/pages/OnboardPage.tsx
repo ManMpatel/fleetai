@@ -485,6 +485,7 @@ export default function OnboardPage() {
                       <li>Additional excess applies for drivers under 25 years of age</li>
                       <li>Drivers under 21 years are not covered under insurance</li>
                       <li>E-bikes are not covered by any insurance — renters assume full responsibility for loss or damage</li>
+                      <li><strong>If your rental payments are not up to date, Desi boys is not responsible for any insurance coverage. Insurance is only valid while your account is in good standing.</strong></li>
                     </ul>
                   </div>
 
