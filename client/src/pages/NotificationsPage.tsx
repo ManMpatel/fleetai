@@ -3,18 +3,18 @@ import { useStore } from '../store/useStore'
 import NotificationCard from '../components/NotificationCard'
 import type { NotificationType } from '../types'
 
-const typeFilters: Array<{ value: NotificationType | 'all'; label: string }> = [
+const typeFilters: Array<{ value: NotificationType | 'all' | 'declined'; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'fine', label: 'Fines' },
   { value: 'toll', label: 'Tolls' },
   { value: 'rego', label: 'Rego' },
-  { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'info', label: 'Info' },
+  { value: 'declined', label: 'Declined' },
 ]
 
 export default function NotificationsPage() {
   const { notifications, notifLoading, fetchNotifications, markAllRead } = useStore()
-  const [typeFilter, setTypeFilter] = useState<NotificationType | 'all'>('all')
+  const [typeFilter, setTypeFilter] = useState<NotificationType | 'all' | 'declined'>('all')
   const [showUnreadOnly, setShowUnreadOnly] = useState(false)
 
   useEffect(() => {
@@ -22,7 +22,8 @@ export default function NotificationsPage() {
   }, [fetchNotifications])
 
   const filtered = notifications.filter((n) => {
-    const matchType = typeFilter === 'all' || n.type === typeFilter
+    const matchType = typeFilter === 'all'
+      || (typeFilter === 'declined' ? n.title.toLowerCase().includes('payment failed') || n.title.toLowerCase().includes('declined') : n.type === typeFilter)
     const matchRead = !showUnreadOnly || !n.read
     return matchType && matchRead
   })
