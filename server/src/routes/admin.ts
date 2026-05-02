@@ -133,7 +133,17 @@ router.get('/logs', requireSuperAdmin, async (_req, res) => {
 })
 
 // GET /api/admin/stats — MongoDB platform stats
-router.get('/stats', requireSuperAdmin, async (_req, res) => {
+router.post('/trigger-payment-check', requireSuperAdmin, async (_req, res) => {
+  try {
+    const { checkPaymentStatus } = await import('../services/rag')
+    await checkPaymentStatus()
+    res.json({ success: true, message: 'Payment check triggered' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.get('/stats', requireSuperAdmin, async (req, res) => {
   try {
     const Renter  = (await import('../models/Renter')).default
     const Vehicle = (await import('../models/Vehicle')).default
