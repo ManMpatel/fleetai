@@ -465,12 +465,12 @@ export async function getPaymentHistory(
         params: { customerNumber: customerId }
       }
     )
-    console.log('📦 PayWay raw response:', JSON.stringify(res.data))
     const raw = res.data.data || res.data.transactions || res.data.items || res.data.value || []
+    if (raw.length > 0) console.log('📦 First transaction raw fields:', JSON.stringify(raw[0]))
     const payments = raw.map((t: any) => ({
       transactionId: t.transactionId || null,
       date: t.transactionTime || t.settlementDate || null,
-      amount: t.principalAmount || 0,
+      amount: t.principalAmount || t.amount || t.totalAmount || 0,
       status: t.status || (t.responseCode === '00' || t.responseCode === '08' ? 'approved' : 'declined'),
       responseCode: t.responseCode || null,
       description: t.responseText || 'Direct debit',
