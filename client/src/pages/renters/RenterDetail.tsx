@@ -571,6 +571,42 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
                     {(renter as any).docRef && <InfoRow label="Doc Ref" value={(renter as any).docRef} />}
                     <InfoRow label="Vehicle" value={renter.vehicleType} />
                     <InfoRow label="Emergency" value={renter.emergencyContactName} />
+                    {/* Identity Photo Filenames */}
+                    {(renter as any).docRef && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2">Identity Photos — File Names</p>
+                        <p className="text-[10px] text-text-muted mb-2">Copy a filename → paste into Windows Downloads search to find the photo.</p>
+                        {(() => {
+                          const ref = (renter as any).docRef
+                          const safeName = renter.name.replace(/\s+/g, '-')
+                          const files = [
+                            { label: '🪪 Licence', name: `${ref}-${safeName}-licence.jpg`, exists: !!(renter as any).licencePhotoBase64 },
+                            { label: '🤳 Selfie', name: `${ref}-${safeName}-selfie.jpg`, exists: !!(renter as any).selfieBase64 },
+                            { label: '📘 Passport', name: `${ref}-${safeName}-passport.jpg`, exists: !!(renter as any).passportPhotoBase64 },
+                          ]
+                          return (
+                            <div className="space-y-1.5">
+                              {files.map(f => (
+                                <div key={f.label} className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border ${f.exists ? 'border-border bg-surface2' : 'border-border bg-surface2 opacity-40'}`}>
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] text-text-muted">{f.label}</p>
+                                    <p className="text-[11px] text-text-primary font-mono truncate">{f.exists ? f.name : 'Not uploaded'}</p>
+                                  </div>
+                                  {f.exists && (
+                                    <button
+                                      onClick={() => navigator.clipboard.writeText(f.name)}
+                                      className="shrink-0 text-[10px] text-accent border border-accent/30 px-2 py-0.5 rounded hover:bg-accent/10 transition-colors"
+                                    >
+                                      Copy
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )}
                     <InfoRow label="Emg. Phone" value={renter.emergencyContactPhone} />
                   </div>
                 )}
