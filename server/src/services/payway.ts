@@ -469,11 +469,11 @@ export async function getPaymentHistory(
     if (raw.length > 0) console.log('📦 First transaction raw fields:', JSON.stringify(raw[0]))
     const payments = raw.map((t: any) => ({
       transactionId: t.transactionId || null,
-      date: t.transactionTime || t.settlementDate || null,
-      amount: t.principalAmount || t.amount || t.totalAmount || 0,
-      status: t.status || (t.responseCode === '00' || t.responseCode === '08' ? 'approved' : 'declined'),
+      date: t.settlementDate || null,
+      amount: t.paymentAmount || t.principalAmount || 0,
+      status: t.status || 'unknown',
       responseCode: t.responseCode || null,
-      description: t.responseText || 'Direct debit',
+      description: t.transactionType || 'Direct debit',
       isVoidable: t.voidable ?? false,
       isRefundable: t.refundable ?? false,
     }))
