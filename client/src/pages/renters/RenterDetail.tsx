@@ -580,9 +580,9 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
                           const ref = (renter as any).docRef
                           const safeName = renter.name.replace(/\s+/g, '-')
                           const files = [
-                            { label: '🪪 Licence', name: `${ref}-${safeName}-licence.jpg`, exists: !!(renter as any).licencePhotoBase64 },
+                            { label: '🪪 Licence', name: `${ref}-${safeName}-licence.jpg`, exists: true },
                             { label: '🤳 Selfie', name: `${ref}-${safeName}-selfie.jpg`, exists: !!(renter as any).selfieBase64 },
-                            { label: '📘 Passport', name: `${ref}-${safeName}-passport.jpg`, exists: !!(renter as any).passportPhotoBase64 },
+                            { label: '📘 Passport', name: `${ref}-${safeName}-passport.jpg`, exists: true },
                           ]
                           return (
                             <div className="space-y-1.5">
