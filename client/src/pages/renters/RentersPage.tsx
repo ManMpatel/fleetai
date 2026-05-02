@@ -211,9 +211,9 @@ export default function RentersPage() {
                   {renter.payway?.weeklyAmount && <span className="text-[10px] text-text-muted">${renter.payway.weeklyAmount}/wk</span>}
                 </div>
               </div>
-              {renter.currentVehicle && typeof renter.currentVehicle === 'object' && (
-                <span className="text-[10px] font-mono text-accent mt-1 block">{(renter.currentVehicle as any).plate}</span>
-              )}
+              {((renter as any).currentVehicles?.filter((v: any) => typeof v === 'object' && v?.plate) || (renter.currentVehicle && typeof renter.currentVehicle === 'object' ? [renter.currentVehicle] : [])).map((v: any, i: number) => (
+                <span key={i} className="text-[10px] font-mono text-accent mt-0.5 block">{v.plate}</span>
+              ))}
             </div>
           ))}
         </div>

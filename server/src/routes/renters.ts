@@ -53,6 +53,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const renters = await Renter.find({ ownerId: req.ownerEmail })
       .populate('currentVehicle', 'plate model type')
+      .populate('currentVehicles', 'plate model type')
       .sort({ name: 1 })
 
     const decrypted = renters.map(r => {
@@ -77,14 +78,16 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:phone', async (req: Request, res: Response) => {
   try {
     const phone = decodeURIComponent(req.params.phone)
-    const renter = await Renter.findOne({ phone, ownerId: req.ownerEmail })
+    const renter = await Renter.findOne(
+      { phone, ownerId: req.ownerEmail })
       .populate('currentVehicle', 'plate model type status')
+      .populate('currentVehicles', 'plate model type status')
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
     const obj = renter.toObject() as any
     if (obj.bsbNumber)        obj.bsbNumber        = decrypt(obj.bsbNumber)
     if (obj.accountNumber)    obj.accountNumber    = decrypt(obj.accountNumber)
-    if (obj.accountHolderName) obj.accountHolderName = decrypt(obj.accountHolderName)
+    if (obj.accountHolderName) obj.accountHolderName = decrypt(obj.accountHolderName) 
 
     res.json(obj)
   } catch (err) {
@@ -165,6 +168,8 @@ router.put('/:phone', async (req: Request, res: Response) => {
       },
       { new: true, runValidators: true }
     ).populate('currentVehicle', 'plate model type status')
+    // @ts-ignore
+    await renter!.populate('currentVehicles', 'plate model type status')
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
 
     const obj = renter.toObject() as any

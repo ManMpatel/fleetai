@@ -139,25 +139,25 @@ router.post('/:plate/assign', async (req: Request, res: Response) => {
           e => e.vehicle?.toString() === (vehicle._id as any).toString() && !e.endDate
         )
         if (h) h.endDate = now
-        ;(oldRenter as any).currentVehicle = null
+        const oldCvs: any[] = ((oldRenter as any).currentVehicles || []).filter(
+          (v: any) => v.toString() !== (vehicle._id as any).toString()
+        )
+        ;(oldRenter as any).currentVehicles = oldCvs
+        ;(oldRenter as any).currentVehicle = oldCvs.length > 0 ? oldCvs[0] : null
         await oldRenter.save()
       }
     }
 
-    // If renter already has a different vehicle — close it
-    if ((renter as any).currentVehicle &&
-        (renter as any).currentVehicle.toString() !== (vehicle._id as any).toString()) {
-      const oldVehicle = await Vehicle.findById((renter as any).currentVehicle)
-      if (oldVehicle) {
-        const h = (renter.rentalHistory as any[]).find(
-          e => e.vehicle?.toString() === (oldVehicle._id as any).toString() && !e.endDate
-        )
-        if (h) h.endDate = now
-        ;(oldVehicle as any).currentRenter = null
-        ;(oldVehicle as any).status = 'available'
-        ;(oldVehicle as any).rentStartDate = null
-        await oldVehicle.save()
-      }
+    // Check max 3 vehicles
+    const currentVehicles: any[] = (renter as any).currentVehicles || []
+    if (currentVehicles.length >= 3) {
+      return res.status(400).json({ error: 'Renter already has 3 vehicles assigned (maximum)' })
+    }
+
+    // Check not already assigned to this renter
+    const alreadyAssigned = currentVehicles.some((v: any) => v.toString() === (vehicle._id as any).toString())
+    if (alreadyAssigned) {
+      return res.status(400).json({ error: 'This vehicle is already assigned to this renter' })
     }
 
     // Do the assignment
@@ -166,7 +166,9 @@ router.post('/:plate/assign', async (req: Request, res: Response) => {
     ;(vehicle as any).rentStartDate = now
     await vehicle.save()
 
-    ;(renter as any).currentVehicle = vehicle._id
+    currentVehicles.push(vehicle._id)
+    ;(renter as any).currentVehicles = currentVehicles
+    ;(renter as any).currentVehicle = currentVehicles[0]
     ;(renter as any).rentStartDate = now
     ;(renter.rentalHistory as any[]).push({ vehicle: vehicle._id, plate: vehicle.plate, startDate: now })
     await renter.save()
@@ -230,8 +232,12 @@ router.post('/:plate/unassign', async (req: Request, res: Response) => {
           e => e.vehicle?.toString() === (vehicle._id as any).toString() && !e.endDate
         )
         if (h) h.endDate = now
-        ;(renter as any).currentVehicle = null
-        ;(renter as any).rentStartDate = null
+        const cvs: any[] = ((renter as any).currentVehicles || []).filter(
+          (v: any) => v.toString() !== (vehicle._id as any).toString()
+        )
+        ;(renter as any).currentVehicles = cvs
+        ;(renter as any).currentVehicle = cvs.length > 0 ? cvs[0] : null
+        if (cvs.length === 0) (renter as any).rentStartDate = null
         await renter.save()
       }
     }

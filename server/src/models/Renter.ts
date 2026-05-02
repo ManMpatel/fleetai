@@ -38,6 +38,7 @@ export interface IRenter extends Document {
   signatureBase64?: string
 
   currentVehicle?: mongoose.Types.ObjectId
+  currentVehicles?: mongoose.Types.ObjectId[]
   rentStartDate?: Date
   weeklyRate?: number
 
@@ -130,6 +131,7 @@ const RenterSchema = new Schema<IRenter>(
     signatureBase64:      { type: String },
 
     currentVehicle: { type: Schema.Types.ObjectId, ref: 'Vehicle', default: null },
+    currentVehicles: [{ type: Schema.Types.ObjectId, ref: 'Vehicle' }],
     rentStartDate:  { type: Date },
     weeklyRate:     { type: Number },
 

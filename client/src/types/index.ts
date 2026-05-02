@@ -79,6 +79,7 @@ export interface Renter {
   licencePhotoUrl?: string
   selfieUrl?: string
   currentVehicle?: string | object
+  currentVehicles?: (string | object)[]
   weeklyRate?: number
   payway?: {
     customerId?: string
