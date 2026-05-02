@@ -194,8 +194,8 @@ export default function RentersPage() {
                 <div className="min-w-0">
                   <p className="font-semibold text-text-primary text-sm truncate">{renter.name}</p>
                   <p className="text-text-muted text-xs mt-0.5">{renter.phone}</p>
-                  {(renter as any).updatedAt && (renter as any).status === 'active' && (
-                    <p className="text-text-muted text-xs">Approved {new Date((renter as any).updatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                  {(renter as any).approvedAt && (renter as any).status === 'active' && (
+                    <p className="text-text-muted text-xs">Approved {new Date((renter as any).approvedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0 ml-2">

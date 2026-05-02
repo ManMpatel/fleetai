@@ -160,6 +160,7 @@ const RenterSchema = new Schema<IRenter>(
 
     rentalHistory: [RentalRecordSchema],
 
+    approvedAt: { type: Date },
     changeHistory: [{
       field:     { type: String },
       oldValue:  { type: String },

@@ -804,7 +804,7 @@ router.post('/:phone/approve', async (req: Request, res: Response) => {
     const phone  = decodeURIComponent(req.params.phone)
     const renter = await Renter.findOneAndUpdate(
       { phone, ownerId: req.ownerEmail },
-      { $set: { status: 'active' }, $unset: { licencePhotoBase64: '', passportPhotoBase64: '' } },
+      { $set: { status: 'active', approvedAt: new Date() }, $unset: { licencePhotoBase64: '', passportPhotoBase64: '' } },
       { new: true }
     )
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
