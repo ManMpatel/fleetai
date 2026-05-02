@@ -462,7 +462,7 @@ export async function getPaymentHistory(
       `${PAYWAY_BASE}/transactions/search-customer`,
       {
         headers: { Authorization: getSecretAuthHeader(keys).Authorization },
-        params: { customerNumber: customerId, offset: 0, limit: 10 }
+        params: { customerNumber: customerId }
       }
     )
     console.log('📦 PayWay raw response:', JSON.stringify(res.data))
