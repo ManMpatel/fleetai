@@ -690,9 +690,9 @@ router.get('/:phone/payments', async (req: Request, res: Response) => {
     if (!renter) return res.status(404).json({ error: 'Renter not found' })
     if (!renter.payway?.customerId) return res.json({ payments: [] })
 
-    const payments = await Transaction.find({ renterId: phone, ownerId: req.ownerEmail })
-      .sort({ transactionId: -1 })
-      .lean()
+    const keys = await getOwnerPayWayKeys(req.ownerEmail!)
+    const { fetchAllTransactions } = await import('../services/payway')
+    const payments = await fetchAllTransactions(renter.payway.customerId, keys || undefined)
     res.json({ payments })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
