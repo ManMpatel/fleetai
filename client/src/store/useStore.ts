@@ -2,7 +2,30 @@ import { create } from 'zustand'
 import axios from 'axios'
 import type { Vehicle, Notification, ChatMessage, FleetStats, Renter } from '../types'
 
+export interface OrgSummary {
+  displayName: string
+  logoUrl: string | null
+  slug: string | null
+  timezone?: string
+  currency?: string
+  paywayConfigured?: boolean
+  whatsappConfigured?: boolean
+  gmailConfigured?: boolean
+  tabletLinked?: boolean
+}
+
+export interface Session {
+  email: string | null
+  isSuperAdmin: boolean
+  org: OrgSummary | null
+}
+
 interface FleetStore {
+  // Session — which tenant this dashboard is showing, and whether the signed-in user is
+  // the platform operator. Both come from the server, never from a hardcoded email.
+  session: Session | null
+  setSession: (session: Session) => void
+
   // Theme
   darkMode: boolean
   toggleDarkMode: () => void
@@ -46,6 +69,10 @@ interface FleetStore {
 }
 
 export const useStore = create<FleetStore>((set, get) => ({
+  // ── Session ──
+  session: null,
+  setSession: (session) => set({ session }),
+
   // ── Theme ──
   darkMode: localStorage.getItem('theme') === 'dark',
   toggleDarkMode: () => {

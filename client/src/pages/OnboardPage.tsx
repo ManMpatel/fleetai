@@ -32,28 +32,22 @@ export default function OnboardPage() {
   const [selfiePreview, setSelfiePreview] = useState('')
   const [passportFile, setPassportFile] = useState<File | null>(null)
   const [passportPreview, setPassportPreview] = useState('')
-  const { phone } = useParams<{ phone: string }>()
-  const [ownerEmail, setOwnerEmail] = useState('')
+  // The slug in the link is the only thing that selects an operator. The server maps it
+  // to the tenant itself — this page never learns or sends an organisation id.
+  const { slug } = useParams<{ slug: string }>()
   const [ownerName, setOwnerName] = useState('')
+  const [ownerLogo, setOwnerLogo] = useState<string | null>(null)
   const [slugError, setSlugError] = useState(false)
 
   useEffect(() => {
-    // phone param might be a slug (no digits) or actual phone number
-    const isSlug = phone && !/^\d+$/.test(decodeURIComponent(phone))
-    if (isSlug) {
-      // Resolve slug to owner email
-      axios.get(`${import.meta.env.VITE_API_URL}/api/auth/resolve/${phone}`)
-        .then(res => {
-          setOwnerEmail(res.data.email)
-          setOwnerName(res.data.name || '')
-        })
-        .catch(() => setSlugError(true))
-    } else {
-      // Old style — get owner from ?owner= query param
-      const ownerParam = new URLSearchParams(window.location.search).get('owner') || ''
-      setOwnerEmail(ownerParam)
-    }
-  }, [phone])
+    if (!slug) { setSlugError(true); return }
+    axios.get(`/api/auth/resolve/${encodeURIComponent(slug)}`)
+      .then(res => {
+        setOwnerName(res.data.name || '')
+        setOwnerLogo(res.data.logoUrl || null)
+      })
+      .catch(() => setSlugError(true))
+  }, [slug])
 
   const [form, setForm] = useState({
     mobileNumber: '',
@@ -113,10 +107,10 @@ export default function OnboardPage() {
         ...(passportFile ? [compressToBase64(passportFile, 1200, 0.8)] : [Promise.resolve(undefined)]),
       ])
 
-      await axios.post('/api/renters', {
+      await axios.post('/api/renters/public/onboard', {
+        slug,
         name: `${form.firstName} ${form.lastName}`,
         phone: form.mobileNumber,
-        ownerId: ownerEmail,
         email: form.email,
         dateOfBirth: form.dateOfBirth,
         licenceNumber: form.licenceNumber,
@@ -125,7 +119,6 @@ export default function OnboardPage() {
         selfieBase64,
         ...(passportPhotoBase64 ? { passportPhotoBase64 } : {}),
         vehicleType: form.vehicleType,
-        status: 'pending',
         address: {
           street: `${form.addressLine1}${form.addressLine2 ? ', ' + form.addressLine2 : ''}`,
           city: form.city,
@@ -174,12 +167,18 @@ export default function OnboardPage() {
     <div className="min-h-screen bg-gray-50 pb-12">
       {/* Header */}
       <div className="bg-[#1E2530] px-6 py-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-          <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
-          </svg>
-        </div>
-        <span className="text-white font-semibold text-[15px]">Fleet<span className="text-indigo-400">AI</span></span>
+        {ownerLogo ? (
+          <img src={ownerLogo} alt={ownerName} className="w-8 h-8 rounded-lg object-cover" />
+        ) : (
+          <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8" />
+            </svg>
+          </div>
+        )}
+        <span className="text-white font-semibold text-[15px]">
+          {ownerName || <>Fleet<span className="text-indigo-400">AI</span></>}
+        </span>
       </div>
 
       <div className="max-w-lg mx-auto px-4 pt-6">
@@ -205,7 +204,7 @@ export default function OnboardPage() {
               <Field label="Last Name *" name="lastName" value={form.lastName} onChange={handleChange} required />
             </div>
             <Field label="Date of Birth *" name="dateOfBirth" type="date" value={form.dateOfBirth} onChange={handleChange} required />
-            <Field label="Mobile Number *" name="mobileNumber" value={form.mobileNumber} onChange={handleChange} required={!phone} />
+            <Field label="Mobile Number *" name="mobileNumber" value={form.mobileNumber} onChange={handleChange} required />
             <Field label="Email ID *" name="email" type="email" value={form.email} onChange={handleChange} required />
             <div>
               <label className="block text-xs text-gray-500 mb-1.5">Vehicle Type *</label>

@@ -4,7 +4,6 @@ import axios from 'axios'
 interface Employee {
   _id: string
   name: string
-  pin: string
 }
 
 interface ClockRecord {
@@ -91,7 +90,7 @@ const [refreshing, setRefreshing] = useState(false)
     setEditingId(null); setFormName(''); setFormPin(''); setFormError(''); setShowForm(true)
   }
   function openEdit(emp: Employee) {
-    setEditingId(emp._id); setFormName(emp.name); setFormPin(emp.pin); setFormError(''); setShowForm(true)
+    setEditingId(emp._id); setFormName(emp.name); setFormPin(''); setFormError(''); setShowForm(true)
   }
   function closeForm() {
     setShowForm(false); setEditingId(null); setFormName(''); setFormPin(''); setFormError('')
@@ -99,11 +98,16 @@ const [refreshing, setRefreshing] = useState(false)
 
   async function saveEmployee() {
     if (!formName.trim()) return setFormError('Name is required')
-    if (!/^\d{4}$/.test(formPin)) return setFormError('PIN must be exactly 4 digits')
+    // On edit, a blank PIN means "keep the existing one".
+    if (!editingId && !/^\d{4}$/.test(formPin)) return setFormError('PIN must be exactly 4 digits')
+    if (formPin && !/^\d{4}$/.test(formPin)) return setFormError('PIN must be exactly 4 digits')
     setSaving(true); setFormError('')
     try {
       if (editingId) {
-        const { data } = await axios.put(`/api/employees/${editingId}`, { name: formName.trim(), pin: formPin })
+        const { data } = await axios.put(`/api/employees/${editingId}`, {
+          name: formName.trim(),
+          ...(formPin ? { pin: formPin } : {}),
+        })
         setEmployees(prev => prev.map(e => e._id === editingId ? data : e))
       } else {
         const { data } = await axios.post('/api/employees', { name: formName.trim(), pin: formPin })
@@ -385,7 +389,9 @@ const [refreshing, setRefreshing] = useState(false)
                 />
               </div>
               <div>
-                <label className="block text-xs text-text-muted mb-1.5">4-digit PIN</label>
+                <label className="block text-xs text-text-muted mb-1.5">
+                  4-digit PIN {editingId && <span className="text-text-muted">(leave blank to keep current)</span>}
+                </label>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -395,7 +401,9 @@ const [refreshing, setRefreshing] = useState(false)
                   placeholder="e.g. 1234"
                   className="w-full px-3 py-2.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent font-mono tracking-widest"
                 />
-                <p className="text-xs text-text-muted mt-1">Employee uses this PIN on the tablet to clock in/out</p>
+                <p className="text-xs text-text-muted mt-1">
+                  Employee uses this PIN on the tablet to clock in/out. PINs are stored hashed and cannot be viewed again.
+                </p>
               </div>
               {formError && <p className="text-xs text-red-400">{formError}</p>}
             </div>

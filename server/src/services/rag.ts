@@ -1,24 +1,32 @@
+import { Types } from 'mongoose'
 import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
 import Renter from '../models/Renter'
-
+import { scopedPopulate } from '../models/plugins/tenantScope'
 
 // ─────────────────────────────────────────────────────────
-// buildFleetContext — assembles a text snapshot of the entire
-// fleet for injection into Gemini prompts (RAG pipeline).
+// buildFleetContext — assembles a text snapshot of ONE tenant's fleet for injection
+// into Gemini prompts (RAG pipeline).
+//
+// Every query here must be scoped to orgId. This context is interpolated verbatim into
+// a prompt and returned to the caller, so an unscoped query hands one operator the
+// renter names, phone numbers and rates of every other operator on the platform.
 // ─────────────────────────────────────────────────────────
-export async function buildFleetContext(): Promise<string> {
+export async function buildFleetContext(orgId: Types.ObjectId): Promise<string> {
   const now = new Date()
   const in30 = new Date(now.getTime() + 30 * 86400000)
-  
 
-  const vehicles = await Vehicle.find()
-    .populate('currentRenter', 'name phone email')
-    .populate('fines')
-    .populate('tolls')
+  const vehicles = await Vehicle.find({ orgId })
+    .populate(scopedPopulate('currentRenter', 'name phone email'))
+    .populate(scopedPopulate('fines'))
+    .populate(scopedPopulate('tolls'))
 
-  const renters = await Renter.find()
-    .populate('currentVehicle', 'plate')
+  const renters = await Renter.find({ orgId })
+    .populate(scopedPopulate('currentVehicle', 'plate'))
+
+  const notifications = await Notification.find({ orgId, read: false })
+    .sort({ date: -1 })
+    .limit(30)
 
   const renterLines = renters.map((r) => {
     let line = `RENTER|${r.phone}|${r.name}|${r.email || ''}`
@@ -29,14 +37,10 @@ export async function buildFleetContext(): Promise<string> {
     return line
   })
 
-  const notifications = await Notification.find({ read: false })
-    .sort({ date: -1 })
-    .limit(30)
-
   const vehicleLines = vehicles.map((v) => {
     const renter = v.currentRenter as any
-    const fineList = v.fines as any[]
-    const tollList = v.tolls as any[]
+    const fineList = (v.fines as any[]) || []
+    const tollList = (v.tolls as any[]) || []
     const unpaidFines = fineList.filter((f) => !f.paid)
     const unpaidTolls = tollList.filter((f) => !f.paid)
 
@@ -76,8 +80,8 @@ export async function buildFleetContext(): Promise<string> {
     cars: vehicles.filter((v) => v.type === 'car').length,
     expiredRego: vehicles.filter((v) => v.regoExpiry && v.regoExpiry < now).length,
     dueSoonRego: vehicles.filter((v) => v.regoExpiry && v.regoExpiry >= now && v.regoExpiry <= in30).length,
-    unpaidFines: vehicles.reduce((acc, v) => acc + (v.fines as any[]).filter((f: any) => !f.paid).length, 0),
-    unpaidTolls: vehicles.reduce((acc, v) => acc + (v.tolls as any[]).filter((f: any) => !f.paid).length, 0),
+    unpaidFines: vehicles.reduce((acc, v) => acc + ((v.fines as any[]) || []).filter((f: any) => !f.paid).length, 0),
+    unpaidTolls: vehicles.reduce((acc, v) => acc + ((v.tolls as any[]) || []).filter((f: any) => !f.paid).length, 0),
   }
 
   return `=== FLEETAI DATABASE SNAPSHOT — ${now.toLocaleDateString('en-AU')} ===
@@ -88,17 +92,19 @@ ${alertLines.length > 0 ? alertLines.join('\n') : 'ALERTS|none'}`
 }
 
 // ─────────────────────────────────────────────────────────
-// checkExpiringDates — daily cron: creates notifications
-// for rego/pink slip expiring within 30 days or overdue.
+// checkExpiringDates — daily cron: creates notifications for rego/pink slip expiring
+// within 30 days or overdue. Each vehicle already carries its tenant, so the created
+// notification and the dedupe lookup are both stamped from the vehicle itself.
 // ─────────────────────────────────────────────────────────
 export async function checkExpiringDates(): Promise<void> {
   const now = new Date()
   const in30 = new Date(now.getTime() + 30 * 86400000)
 
   try {
+    // Deliberately platform-wide: the per-vehicle work below re-scopes to the owning org.
     const vehicles = await Vehicle.find({
       $or: [{ regoExpiry: { $lte: in30 } }, { pinkSlip: { $lte: in30 } }, { greenSlip: { $lte: in30 } }],
-    })
+    }).setOptions({ allowCrossTenant: true })
 
     for (const vehicle of vehicles) {
       await checkDate(vehicle, 'regoExpiry', 'rego', now)
@@ -123,8 +129,10 @@ async function checkDate(
   const daysLeft = Math.ceil((date.getTime() - now.getTime()) / 86400000)
   if (daysLeft > 30) return
 
-  // Deduplicate — skip if we already made this notification in the last 23h
+  // Deduplicate within the owning tenant — two operators may hold the same plate, and
+  // one must not suppress the other's alert.
   const existing = await Notification.findOne({
+    orgId: vehicle.orgId,
     plate: vehicle.plate,
     type: field === 'regoExpiry' ? 'rego' : 'info',
     title: { $regex: label, $options: 'i' },
@@ -137,15 +145,15 @@ async function checkDate(
   const abs = Math.abs(daysLeft)
 
   await Notification.create({
+    orgId: vehicle.orgId,
     type: isRego ? 'rego' : 'info',
     title: expired
       ? `${label} EXPIRED — ${vehicle.plate}`
       : `${label} expiring soon — ${vehicle.plate}`,
     description: expired
-      ? `${label} for ${vehicle.plate} (${(vehicle as any).model ?? ''}) expired ${abs} day${abs !== 1 ? 's' : ''} ago`
-      : `${label} for ${vehicle.plate} (${(vehicle as any).model ?? ''}) expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`,
+      ? `${label} for ${vehicle.plate} (${vehicle.model ?? ''}) expired ${abs} day${abs !== 1 ? 's' : ''} ago`
+      : `${label} for ${vehicle.plate} (${vehicle.model ?? ''}) expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`,
     plate: vehicle.plate,
     actionRequired: true,
   })
 }
-

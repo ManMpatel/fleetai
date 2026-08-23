@@ -1,6 +1,8 @@
 # FleetAI
 
-FleetAI is a full‑stack fleet and renter management platform designed for vehicle rental businesses. It allows operators to manage renters, vehicles, payments, service history, and onboarding workflows from a single dashboard.
+FleetAI is a full-stack, multi-tenant fleet and renter management platform designed for vehicle rental businesses. Each operator (organisation) manages its own renters, vehicles, payments, service history, and onboarding workflows from a single dashboard, with its own PayWay, WhatsApp, and Gmail credentials.
+
+Data is isolated per organisation: every record carries an `orgId`, and every request derives its tenant from the verified Auth0 token. See [MIGRATION.md](MIGRATION.md) if you are upgrading from the single-tenant version.
 
 The system integrates with:
 
@@ -96,12 +98,43 @@ client/                 # React frontend
 
 server/
   src/
-    models/             # MongoDB models
+    models/             # MongoDB models (every tenant-owned model carries orgId)
+      plugins/          # tenantScope - guards against unscoped queries
     routes/             # API routes
     services/           # External service integrations
-    middleware/         # Auth and request middleware
+    middleware/
+      auth.ts           # Auth0 JWT validation + platform admin check
+      tenant.ts         # Resolves the tenant from the verified token
+    scripts/            # One-off migrations
 
 ```
+
+## Tenancy model
+
+`Organization` is the tenant record (collection: `owners`). One Auth0 login maps to one
+organisation.
+
+Every request follows the same path:
+
+```
+Auth0 JWT -> requireAuth (verifies signature)
+          -> requireTenant (maps token sub -> Organization)
+          -> req.orgId   <- the only source of tenancy
+```
+
+`req.orgId` is never taken from a header, query string, or request body. Public surfaces
+resolve their tenant server-side instead: the renter onboarding form from the operator's
+slug, and the workshop tablet from a revocable device token.
+
+Tenant-owned models load the `tenantScope` plugin, which throws in development when a
+query on those collections has no `orgId` in its filter. Deliberately platform-wide
+queries opt out explicitly:
+
+```ts
+Model.find({ ... }).setOptions({ allowCrossTenant: true })
+```
+
+Populate joins from an already-scoped parent use the `scopedPopulate` helper.
 
 ---
 
@@ -112,19 +145,41 @@ Create a `.env` file in the server directory.
 Example configuration:
 
 ```
-MONGO_URI=
+MONGODB_URI=
+
+# Required. Server refuses to start without it - renter bank details and
+# tenant API credentials are encrypted with this key. Must be 32+ bytes.
+ENCRYPTION_KEY=
+
+# Platform operator. Matched against the email claim in the verified JWT.
+# Use SUPER_ADMIN_AUTH0_ID instead if your tokens carry no email claim.
+SUPER_ADMIN_EMAIL=
+SUPER_ADMIN_AUTH0_ID=
+
+AUTH0_DOMAIN=
+AUTH0_AUDIENCE=
+AUTH0_MGMT_CLIENT_ID=
+AUTH0_MGMT_CLIENT_SECRET=
+
 GEMINI_API_KEY=
+
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_REGION=
 AWS_BUCKET_NAME=
-PAYWAY_SECRET_KEY=
-PAYWAY_PUBLISHABLE_KEY=
-PAYWAY_MERCHANT_ID=
-AUTH0_DOMAIN=
-AUTH0_AUDIENCE=
-APP_URL=
+AWS_BACKUP_BUCKET=      # keep multi-tenant backups out of the uploads bucket
+
+# OAuth app for fine/toll email ingestion. Each tenant connects their own
+# mailbox from Settings; only the app credentials are platform-level.
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+
+APP_URL=                # base for renter onboarding links
+CORS_ORIGINS=           # comma-separated allowlist
 ```
+
+PayWay and WhatsApp credentials are **per tenant**, not environment variables. Each
+operator enters their own from the dashboard under **Settings**.
 
 ---
 
@@ -208,9 +263,13 @@ Sensitive information such as:
 * Passport numbers
 * Licence numbers
 
-is encrypted using **AES‑256 encryption** before being stored in MongoDB.
+is encrypted using **AES‑256 encryption** before being stored in MongoDB, along with each tenant's PayWay, WhatsApp, and Gmail credentials.
 
 The values are decrypted only when required for external services such as PayWay.
+
+Employee PINs and workshop tablet tokens are stored as HMAC hashes and cannot be read back.
+
+`ENCRYPTION_KEY` must be set in the environment; the server will not start without it.
 
 ---
 
@@ -218,17 +277,43 @@ The values are decrypted only when required for external services such as PayWay
 
 Example endpoints:
 
+Authenticated (Auth0 JWT + approved organisation):
+
 ```
-POST /api/renters
+GET  /api/fleet
+GET  /api/renters
 POST /api/renters/:phone/activate
 POST /api/renters/:phone/pause
 POST /api/renters/:phone/resume
 GET  /api/renters/:phone/payments
+GET  /api/settings
+PUT  /api/settings/payway
+PUT  /api/settings/whatsapp
+POST /api/settings/tablet-token
 
 POST /api/upload/fine
 POST /api/upload/document
 POST /api/upload/read-licence
 POST /api/upload/read-rego-bulk
+```
+
+Public (tenant resolved server-side, never from the caller):
+
+```
+GET  /api/auth/resolve/:slug        # share link -> operator display info
+POST /api/renters/public/onboard    # tenant from the slug in the body
+POST /api/whatsapp/incoming         # tenant from the receiving business number
+```
+
+Workshop tablet (device token in `Authorization: Bearer`):
+
+```
+GET   /api/tablet/session
+POST  /api/tablet/verify-pin
+POST  /api/tablet/clock
+POST  /api/tablet/log-service
+GET   /api/tablet/service-records
+PATCH /api/tablet/service-records/:id
 ```
 
 ---

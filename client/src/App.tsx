@@ -10,10 +10,11 @@ import OnboardPage from './pages/OnboardPage'
 import AdminPage from './pages/AdminPage'
 import SearchPage from './pages/SearchPage'
 import RegoImportPage from './pages/RegoImportPage'
+import SettingsPage from './pages/SettingsPage'
 import { useAuth0 } from '@auth0/auth0-react'
 import TabletPage from './pages/TabletPage'
 import StaffPage from './pages/StaffPage'
-
+import { useStore } from './store/useStore'
 
 function LoginPage() {
   const { loginWithRedirect } = useAuth0()
@@ -37,7 +38,7 @@ function LoginPage() {
           Real-time tracking, automated payments, and AI-powered insights for your fleet.
         </p>
         <div style={{ display: 'flex', gap: 32 }}>
-          {[['100+', 'Vehicles tracked'], ['24/7', 'Monitoring'], ['Auto', 'PayWay billing']].map(([num, label]) => (
+          {[['Live', 'Fleet tracking'], ['24/7', 'Monitoring'], ['Auto', 'PayWay billing']].map(([num, label]) => (
             <div key={label}>
               <div style={{ fontSize: 24, fontWeight: 600, color: '#f9fafb' }}>{num}</div>
               <div style={{ fontSize: 12, color: '#4b5563', marginTop: 2 }}>{label}</div>
@@ -104,64 +105,82 @@ function RejectedPage({ onLogout }: { onLogout: () => void }) {
   )
 }
 
+function Splash({ text }: { text: string }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ color: '#3b82f6', fontSize: 14 }}>{text}</div>
+    </div>
+  )
+}
+
 export default function App() {
-  const { isLoading, isAuthenticated, user, logout, getAccessTokenSilently } = useAuth0()  
+  const { isLoading, isAuthenticated, user, logout, getAccessTokenSilently } = useAuth0()
   const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected'>('checking')
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+  const [interceptorReady, setInterceptorReady] = useState(false)
+  const setSession = useStore(s => s.setSession)
 
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
 
-  const isPublicPath = window.location.pathname.startsWith('/onboard') || window.location.pathname.startsWith('/tablet')
+  const isPublicPath = window.location.pathname.startsWith('/onboard') ||
+                       window.location.pathname.startsWith('/tablet')
 
-  useEffect(() => {
-    if (!isAuthenticated || !user?.email) return
-    // Set axios header for ALL requests
-    axios.defaults.headers.common['x-owner-email'] = user.email
-    axios.defaults.baseURL = apiUrl
-    // Register or check status
-    axios.post('/api/auth/register', {
-      email:   user.email,
-      name:    user.name,
-      picture: user.picture,
-      auth0Id: user.sub
-    }).then(res => {
-      setOwnerStatus(res.data.status)
-    }).catch(() => {
-      setOwnerStatus('pending')
-    })
-  }, [isAuthenticated, user?.email])
-
-  useEffect(() => {
-    if (ownerStatus !== 'pending' || !isAuthenticated) return
-    const interval = setInterval(async () => {
-      try {
-        const res = await axios.post('/api/auth/register', {
-          email: user?.email, name: user?.name,
-          picture: user?.picture, auth0Id: user?.sub
-        })
-        if (res.data.status === 'approved') setOwnerStatus('approved')
-      } catch {}
-    }, 30000)
-    return () => clearInterval(interval)
-  }, [ownerStatus, user, isAuthenticated])
-
+  // The verified Auth0 token is the only thing that identifies the tenant. There is no
+  // longer an x-owner-email header — the server derives the organisation from this token.
   useEffect(() => {
     if (!isAuthenticated) return
     const interceptor = axios.interceptors.request.use(async (config) => {
       try {
         const token = await getAccessTokenSilently()
         config.headers.Authorization = `Bearer ${token}`
-      } catch {}
+      } catch {
+        // Fall through unauthenticated; the server will reject it.
+      }
       return config
     })
-    return () => axios.interceptors.request.eject(interceptor)
+    setInterceptorReady(true)
+    return () => {
+      axios.interceptors.request.eject(interceptor)
+      setInterceptorReady(false)
+    }
   }, [isAuthenticated, getAccessTokenSilently])
+
+  // Register/refresh this login and pick up the tenant's branding in one call. Runs only
+  // once the interceptor is installed, so the request actually carries the token.
+  useEffect(() => {
+    if (!isAuthenticated || !interceptorReady || !user?.email) return
+
+    let cancelled = false
+    const register = async () => {
+      try {
+        const { data } = await axios.post('/api/auth/register', {
+          email: user.email,
+          name: user.name,
+          picture: user.picture,
+        })
+        if (cancelled) return
+        setOwnerStatus(data.status)
+        setSession({ email: data.email ?? null, isSuperAdmin: !!data.isSuperAdmin, org: data.org ?? null })
+        return data.status
+      } catch {
+        if (!cancelled) setOwnerStatus('pending')
+      }
+    }
+
+    register()
+    // While pending, poll so the dashboard unlocks as soon as an admin approves.
+    const interval = setInterval(async () => {
+      const status = await register()
+      if (status === 'approved') clearInterval(interval)
+    }, 30000)
+
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [isAuthenticated, interceptorReady, user?.email, setSession])
 
   if (isPublicPath) {
     return (
       <BrowserRouter>
         <Routes>
-          <Route path="/onboard/:phone" element={<OnboardPage />} />
+          <Route path="/onboard/:slug" element={<OnboardPage />} />
           <Route path="/onboard" element={<OnboardPage />} />
           <Route path="/tablet" element={<TabletPage />} />
         </Routes>
@@ -169,20 +188,10 @@ export default function App() {
     )
   }
 
-  if (isLoading) return (
-    <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#3b82f6', fontSize: 14 }}>Loading...</div>
-    </div>
-  )
-
+  if (isLoading) return <Splash text="Loading..." />
   if (!isAuthenticated) return <LoginPage />
-  if (ownerStatus === 'checking') return (
-    <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#3b82f6', fontSize: 14 }}>Checking access...</div>
-    </div>
-  )
-
-  if (ownerStatus === 'pending')  return <PendingPage email={user?.email || ''} onLogout={handleLogout} />
+  if (ownerStatus === 'checking') return <Splash text="Checking access..." />
+  if (ownerStatus === 'pending') return <PendingPage email={user?.email || ''} onLogout={handleLogout} />
   if (ownerStatus === 'rejected') return <RejectedPage onLogout={handleLogout} />
 
   return (
@@ -199,11 +208,11 @@ export default function App() {
                 <Route path="/"              element={<FleetPage />} />
                 <Route path="/renters"       element={<RentersPage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
-                <Route path="/chat" element={<ChatPage />} />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/staff" element={<StaffPage />} />
-                <Route path="/rego-import" element={<RegoImportPage />} />
-                <Route path="/tablet/:slug" element={<TabletPage />} />
+                <Route path="/chat"          element={<ChatPage />} />
+                <Route path="/search"        element={<SearchPage />} />
+                <Route path="/staff"         element={<StaffPage />} />
+                <Route path="/settings"      element={<SettingsPage />} />
+                <Route path="/rego-import"   element={<RegoImportPage />} />
               </Routes>
             </main>
           </div>

@@ -1,15 +1,20 @@
 import { Router, Request, Response } from 'express'
 import axios from 'axios'
+import { Types } from 'mongoose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Vehicle from '../models/Vehicle'
 import Renter from '../models/Renter'
 import Notification from '../models/Notification'
-import { pauseDebit } from './payway'
+import Organization, { IOrganization } from '../models/Organization'
+import { decrypt } from './encryption'
+import { pauseDebit, paywayCredsFor } from './payway'
+import { scopedPopulate } from '../models/plugins/tenantScope'
 
 const router = Router()
 
 // ── Pending confirmations (in-memory) ─────────────────────
-// Stores return confirmations waiting for owner CONFIRM/EDIT
+// Keyed by `${orgId}:${from}` — the same phone number may legitimately be a contact for
+// more than one tenant, and their pending states must not collide.
 interface PendingReturn {
   plate: string
   renterId: string
@@ -24,9 +29,6 @@ interface PendingReturn {
   expiresAt: number
 }
 
-const pendingReturns = new Map<string, PendingReturn>()
-
-// Stores pending debit-stop waiting for YES/NO
 interface PendingDebitStop {
   plate: string
   renterPhone: string
@@ -34,7 +36,10 @@ interface PendingDebitStop {
   expiresAt: number
 }
 
+const pendingReturns = new Map<string, PendingReturn>()
 const pendingDebitStops = new Map<string, PendingDebitStop>()
+
+const sessionKey = (orgId: Types.ObjectId, from: string) => `${orgId.toString()}:${from}`
 
 // ── Intent categories ──────────────────────────────────────
 type Intent = 'returned' | 'service_in' | 'service_done' | 'damage' | 'inquiry' | 'confirm' | 'edit' | 'yes' | 'no' | 'unknown'
@@ -60,21 +65,127 @@ function detectIntent(text: string): Intent {
   return 'unknown'
 }
 
-// ── Extract plate from text ────────────────────────────────
 function extractPlateFromText(text: string): string | null {
   const match = text.match(/\b([A-Z]{1,3}[0-9]{1,4}[A-Z]{0,3}|[0-9]{1,4}[A-Z]{2,3})\b/i)
   return match ? match[1].toUpperCase().replace(/\s+/g, '') : null
 }
 
+// ── Inbound payload parsing ────────────────────────────────
+// The outbound path uses the Meta Graph API, but this webhook has historically received
+// Twilio-shaped form fields. Both are handled so the behaviour does not regress; the
+// tenant is identified by the *receiving* business number in either shape.
+interface InboundMessage {
+  phoneId: string | null
+  to: string | null
+  from: string
+  text: string
+  mediaId: string | null
+  mediaUrl: string | null
+}
+
+export function parseInbound(body: any): InboundMessage | null {
+  // Meta Cloud API (JSON)
+  const change = body?.entry?.[0]?.changes?.[0]?.value
+  if (change) {
+    const message = change.messages?.[0]
+    if (!message) return null
+    return {
+      phoneId: change.metadata?.phone_number_id ?? null,
+      to: change.metadata?.display_phone_number ?? null,
+      from: message.from ?? '',
+      text: (message.text?.body ?? '').trim(),
+      mediaId: message.image?.id ?? message.document?.id ?? null,
+      mediaUrl: null,
+    }
+  }
+
+  // Twilio (form-encoded)
+  if (typeof body?.From === 'string') {
+    return {
+      phoneId: null,
+      to: (body.To ?? '').replace('whatsapp:', '').replace('+', '') || null,
+      from: body.From ?? '',
+      text: (body.Body ?? '').trim(),
+      mediaId: null,
+      mediaUrl: parseInt(body.NumMedia ?? '0', 10) > 0 ? (body.MediaUrl0 ?? null) : null,
+    }
+  }
+
+  return null
+}
+
+/** Finds the tenant that owns the business number this message was sent to. */
+async function resolveTenant(inbound: InboundMessage): Promise<IOrganization | null> {
+  if (inbound.phoneId) {
+    const byPhoneId = await Organization.findOne({ 'whatsapp.phoneId': inbound.phoneId })
+    if (byPhoneId) return byPhoneId
+  }
+  if (inbound.to) {
+    const digits = inbound.to.replace(/[^0-9]/g, '')
+    const byNumber = await Organization.findOne({ 'whatsapp.phoneId': digits })
+    if (byNumber) return byNumber
+  }
+  return null
+}
+
+function whatsappToken(org: IOrganization): string | null {
+  return org.whatsapp?.tokenEnc ? decrypt(org.whatsapp.tokenEnc) : null
+}
+
+// ── Send WhatsApp message on behalf of a tenant ────────────
+export async function sendWhatsAppText(org: IOrganization, to: string, body: string): Promise<void> {
+  const token = whatsappToken(org)
+  const phoneId = org.whatsapp?.phoneId
+
+  if (!token || !phoneId) {
+    throw new Error('WhatsApp is not connected for this organisation')
+  }
+
+  const cleanTo = to.replace('whatsapp:', '').replace('+', '')
+
+  await axios.post(
+    `https://graph.facebook.com/v22.0/${phoneId}/messages`,
+    {
+      messaging_product: 'whatsapp',
+      to: cleanTo,
+      type: 'text',
+      text: { body },
+    },
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+  )
+}
+
+async function replyQuietly(org: IOrganization, to: string, body: string): Promise<void> {
+  try {
+    await sendWhatsAppText(org, to, body)
+  } catch (err: any) {
+    console.error('WhatsApp reply failed:', err.message)
+  }
+}
+
 // ── Gemini Vision: read plate from image ──────────────────
-async function readPlateFromImage(imageUrl: string): Promise<string | null> {
+async function readPlateFromImage(org: IOrganization, inbound: InboundMessage): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey || apiKey === 'your_key_here') return null
 
   try {
+    const token = whatsappToken(org)
+    let imageUrl = inbound.mediaUrl
+
+    // Meta returns a media id; the download URL has to be looked up and fetched with auth.
+    if (!imageUrl && inbound.mediaId && token) {
+      const meta = await axios.get(`https://graph.facebook.com/v22.0/${inbound.mediaId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 15000,
+      })
+      imageUrl = meta.data?.url ?? null
+    }
+    if (!imageUrl) return null
+
     const imgRes = await axios.get<ArrayBuffer>(imageUrl, {
       responseType: 'arraybuffer',
       timeout: 15000,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     })
 
     const mimeType = (imgRes.headers['content-type'] as string) || 'image/jpeg'
@@ -100,59 +211,21 @@ Do not include any explanation.`,
   }
 }
 
-// ── Send WhatsApp reply ────────────────────────────────────
-async function sendWhatsAppReply(to: string, body: string): Promise<void> {
-  const token = process.env.WHATSAPP_TOKEN
-  const phoneId = process.env.WHATSAPP_PHONE_ID
-
-  if (!token || !phoneId) {
-    console.warn('⚠️  Meta WhatsApp not configured')
-    return
-  }
-
-  // Convert "whatsapp:+61..." format to just "61..."
-  const cleanTo = to.replace('whatsapp:', '').replace('+', '')
-
-  await axios.post(
-    `https://graph.facebook.com/v22.0/${phoneId}/messages`,
-    {
-      messaging_product: 'whatsapp',
-      to: cleanTo,
-      type: 'text',
-      text: { body }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    }
-  )
-}
-
-// ── Calculate weeks between two dates ─────────────────────
 function calcWeeks(start: Date, end: Date): number {
   const ms = end.getTime() - start.getTime()
   return Math.max(1, Math.ceil(ms / (7 * 86400000)))
 }
 
-// ── Handle scooter return ──────────────────────────────────
-async function handleReturn(plate: string, from: string, messageText: string): Promise<string> {
-  const vehicle = await Vehicle.findOne({ plate })
-    .populate('currentRenter')
-
-  if (!vehicle) {
-    return `❌ Plate *${plate}* not found in fleet.`
-  }
-
+// ── Handle vehicle return ──────────────────────────────────
+async function handleReturn(org: IOrganization, plate: string, from: string): Promise<string> {
+  const vehicle = await Vehicle.findOne({ plate, orgId: org._id }).populate(scopedPopulate('currentRenter'))
+  if (!vehicle) return `❌ Plate *${plate}* not found in fleet.`
   if (vehicle.status !== 'rented' || !vehicle.currentRenter) {
     return `ℹ️ *${plate}* is not currently rented out.`
   }
 
-  const renter = await Renter.findById((vehicle.currentRenter as any)._id)
-  if (!renter) {
-    return `❌ Could not find renter details for *${plate}*.`
-  }
+  const renter = await Renter.findOne({ _id: (vehicle.currentRenter as any)._id, orgId: org._id })
+  if (!renter) return `❌ Could not find renter details for *${plate}*.`
 
   const endDate = new Date()
   const startDate = vehicle.rentStartDate || renter.rentStartDate || new Date()
@@ -160,28 +233,26 @@ async function handleReturn(plate: string, from: string, messageText: string): P
   const totalWeeks = calcWeeks(startDate, endDate)
   const totalAmount = weeklyRate * totalWeeks
 
-  // Store pending confirmation
-  const pending: PendingReturn = {
+  pendingReturns.set(sessionKey(org._id, from), {
     plate,
     renterId: renter._id.toString(),
     renterName: renter.name,
     renterPhone: renter.phone,
-    vehicleModel: (vehicle as any).model || 'Honda Duo',
+    vehicleModel: (vehicle as any).model || 'Vehicle',
     startDate,
     endDate,
     weeklyRate,
     totalWeeks,
     totalAmount,
-    expiresAt: Date.now() + 10 * 60 * 1000, // 10 min expiry
-  }
-  pendingReturns.set(from, pending)
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  })
 
   const fmt = (d: Date) => d.toLocaleDateString('en-AU')
 
   return `🛵 *RETURN CONFIRMATION*
 ─────────────────────
 Plate: *${plate}*
-Model: ${pending.vehicleModel}
+Model: ${(vehicle as any).model || 'Vehicle'}
 Renter: *${renter.name}*
 Phone: ${renter.phone}
 ─────────────────────
@@ -195,26 +266,26 @@ Reply *CONFIRM* or *EDIT*`
 }
 
 // ── Execute confirmed return ───────────────────────────────
-async function executeReturn(from: string): Promise<string> {
-  const pending = pendingReturns.get(from)
+async function executeReturn(org: IOrganization, from: string): Promise<string> {
+  const key = sessionKey(org._id, from)
+  const pending = pendingReturns.get(key)
   if (!pending || Date.now() > pending.expiresAt) {
-    pendingReturns.delete(from)
-    return '⚠️ Confirmation expired. Please send the scooter photo again.'
+    pendingReturns.delete(key)
+    return '⚠️ Confirmation expired. Please send the vehicle photo again.'
   }
 
-  const vehicle = await Vehicle.findOne({ plate: pending.plate })
+  const vehicle = await Vehicle.findOne({ plate: pending.plate, orgId: org._id })
   if (!vehicle) {
-    pendingReturns.delete(from)
+    pendingReturns.delete(key)
     return `❌ Vehicle ${pending.plate} not found.`
   }
 
-  const renter = await Renter.findById(pending.renterId)
+  const renter = await Renter.findOne({ _id: pending.renterId, orgId: org._id })
   if (!renter) {
-    pendingReturns.delete(from)
-    return `❌ Renter not found.`
+    pendingReturns.delete(key)
+    return '❌ Renter not found.'
   }
 
-  // Save rental history to renter profile
   renter.rentalHistory.push({
     vehicle: vehicle._id as any,
     plate: pending.plate,
@@ -224,39 +295,34 @@ async function executeReturn(from: string): Promise<string> {
     totalWeeks: pending.totalWeeks,
     totalAmount: pending.totalAmount,
   })
-
-  // Clear current rental from renter
   renter.currentVehicle = undefined
   renter.rentStartDate = undefined
   await renter.save()
 
-  // Mark vehicle available
   vehicle.status = 'available'
   vehicle.currentRenter = undefined
   vehicle.rentStartDate = undefined
   await vehicle.save()
 
-  // Create notification in dashboard
   await Notification.create({
+    orgId: org._id,
     type: 'info',
-    title: `Scooter returned — ${pending.plate}`,
+    title: `Vehicle returned — ${pending.plate}`,
     description: `${pending.renterName} returned ${pending.plate}. ${pending.totalWeeks} weeks @ $${pending.weeklyRate}/wk = $${pending.totalAmount.toFixed(2)}`,
     plate: pending.plate,
     actionRequired: false,
   })
 
-  pendingReturns.delete(from)
+  pendingReturns.delete(key)
 
-  // Store pending debit stop question
-  const debitPending: PendingDebitStop = {
+  pendingDebitStops.set(key, {
     plate: pending.plate,
     renterPhone: pending.renterPhone,
     renterName: pending.renterName,
     expiresAt: Date.now() + 10 * 60 * 1000,
-  }
-  pendingDebitStops.set(from, debitPending)
+  })
 
-  const availableCount = await Vehicle.countDocuments({ status: 'available' })
+  const availableCount = await Vehicle.countDocuments({ orgId: org._id, status: 'available' })
 
   return `✅ *${pending.plate}* marked *available*.
 ${pending.renterName} return confirmed. You now have *${availableCount}* vehicle${availableCount !== 1 ? 's' : ''} ready.
@@ -267,41 +333,41 @@ Reply *YES* or *NO*`
 }
 
 // ── Handle debit stop response ─────────────────────────────
-async function handleDebitStopResponse(from: string, answer: 'yes' | 'no'): Promise<string> {
-  const pending = pendingDebitStops.get(from)
+async function handleDebitStopResponse(org: IOrganization, from: string, answer: 'yes' | 'no'): Promise<string> {
+  const key = sessionKey(org._id, from)
+  const pending = pendingDebitStops.get(key)
   if (!pending || Date.now() > pending.expiresAt) {
-    pendingDebitStops.delete(from)
+    pendingDebitStops.delete(key)
     return '⚠️ Session expired.'
   }
 
-  pendingDebitStops.delete(from)
+  pendingDebitStops.delete(key)
 
   if (answer === 'no') {
     return `ℹ️ Auto-debit for *${pending.renterName}* left active.`
   }
 
-  // Find renter and pause debit
-  const renter = await Renter.findOne({ phone: pending.renterPhone })
+  const renter = await Renter.findOne({ phone: pending.renterPhone, orgId: org._id })
   if (!renter) {
     return `❌ Could not find renter ${pending.renterName} to pause debit.`
   }
 
   if (renter.payway?.customerId && renter.payway.status === 'active') {
-    await pauseDebit(renter.payway.customerId)
+    await pauseDebit(paywayCredsFor(org), renter.payway.customerId, renter.payway.weeklyAmount || 10)
     renter.payway.status = 'paused'
     await renter.save()
 
     await Notification.create({
+      orgId: org._id,
       type: 'info',
       title: `Auto-debit paused — ${renter.name}`,
-      description: `Auto-debit paused for ${renter.name} after scooter return (${pending.plate})`,
+      description: `Auto-debit paused for ${renter.name} after vehicle return (${pending.plate})`,
       actionRequired: false,
     })
 
     return `✅ Auto-debit *paused* for *${renter.name}*.\nYou can resume it anytime from the FleetAI dashboard.`
   }
 
-  // PayWay not setup yet — just update status
   if (renter.payway) {
     renter.payway.status = 'paused'
     await renter.save()
@@ -312,18 +378,16 @@ async function handleDebitStopResponse(from: string, answer: 'yes' | 'no'): Prom
 
 // ── Execute other intents ──────────────────────────────────
 async function executeIntent(
+  org: IOrganization,
   intent: Intent,
   plate: string,
-  messageText: string,
-  from: string
+  messageText: string
 ): Promise<string> {
-  const vehicle = await Vehicle.findOne({ plate })
-    .populate('currentRenter', 'name phone')
-    .populate('fines')
+  const vehicle = await Vehicle.findOne({ plate, orgId: org._id })
+    .populate(scopedPopulate('currentRenter', 'name phone'))
+    .populate(scopedPopulate('fines'))
 
-  if (!vehicle) {
-    return `❌ Plate *${plate}* not found in fleet.`
-  }
+  if (!vehicle) return `❌ Plate *${plate}* not found in fleet.`
 
   const modelName = (vehicle as any).model ?? 'Vehicle'
   const renterName = vehicle.currentRenter && typeof vehicle.currentRenter === 'object'
@@ -336,6 +400,7 @@ async function executeIntent(
       await vehicle.save()
 
       await Notification.create({
+        orgId: org._id,
         type: 'info',
         title: `Vehicle in for service — ${plate}`,
         description: `${modelName} ${plate} sent to service. Message: "${messageText}"`,
@@ -343,7 +408,7 @@ async function executeIntent(
         actionRequired: false,
       })
 
-      return `🔧 *${plate}* (${modelName}) marked *in service*.\nRemember to update when it's ready.`
+      return `🔧 *${plate}* (${modelName}) marked *in service*.\nRemember to update when it is ready.`
     }
 
     case 'service_done': {
@@ -351,9 +416,10 @@ async function executeIntent(
       vehicle.lastService = new Date()
       await vehicle.save()
 
-      const availableCount = await Vehicle.countDocuments({ status: 'available' })
+      const availableCount = await Vehicle.countDocuments({ orgId: org._id, status: 'available' })
 
       await Notification.create({
+        orgId: org._id,
         type: 'info',
         title: `Service complete — ${plate}`,
         description: `${modelName} ${plate} back from service and marked available.`,
@@ -366,6 +432,7 @@ async function executeIntent(
 
     case 'damage': {
       await Notification.create({
+        orgId: org._id,
         type: 'info',
         title: `Damage reported — ${plate}`,
         description: `Damage report for ${plate}: "${messageText}"${renterName ? ` (renter: ${renterName})` : ''}`,
@@ -373,7 +440,7 @@ async function executeIntent(
         actionRequired: true,
       })
 
-      return `📋 Damage report for *${plate}* logged. Owner has been notified.\n${renterName ? `${renterName}, p` : 'P'}lease don't ride until inspected.`
+      return `📋 Damage report for *${plate}* logged. Owner has been notified.\n${renterName ? `${renterName}, p` : 'P'}lease do not ride until inspected.`
     }
 
     case 'inquiry': {
@@ -399,93 +466,72 @@ async function executeIntent(
 
 // ── POST /api/whatsapp/incoming ────────────────────────────
 router.post('/incoming', async (req: Request, res: Response) => {
-  // Meta sends a hub verification token — validate it
-  const metaToken = req.headers['x-hub-signature-256']
-  if (process.env.NODE_ENV === 'production' && !metaToken) {
-    console.warn('⚠️  Missing Meta signature')
+  // Acknowledge immediately — providers expect a fast 200.
+  res.sendStatus(200)
+
+  const inbound = parseInbound(req.body)
+  if (!inbound || !inbound.from) return
+
+  // The tenant is the owner of the number that RECEIVED the message. It is never taken
+  // from the sender, who is an untrusted third party.
+  const org = await resolveTenant(inbound)
+  if (!org) {
+    console.warn('⚠️  WhatsApp message for an unrecognised business number — ignoring')
+    return
+  }
+  if (org.status !== 'approved' || !org.whatsapp?.enabled) {
+    console.warn(`⚠️  WhatsApp message for ${org.email} but the integration is not active`)
+    return
   }
 
-  // Respond immediately — Twilio requires fast response
-  res.sendStatus(200)
- 
-
-  const body = req.body as Record<string, string>
-  const messageText = (body.Body ?? '').trim()
-  const from = body.From ?? ''
-  const numMedia = parseInt(body.NumMedia ?? '0', 10)
-
-  console.log(`📱 WhatsApp from ${from}: "${messageText}" (${numMedia} media)`)
+  const { from, text: messageText } = inbound
+  console.log(`📱 WhatsApp [${org.slug || org.email}] from ${from}: "${messageText}"`)
 
   try {
+    const key = sessionKey(org._id, from)
     const intent = detectIntent(messageText)
 
-    // ── Handle CONFIRM reply ──
-    if (intent === 'confirm') {
-      if (pendingReturns.has(from)) {
-        const reply = await executeReturn(from)
-        await sendWhatsAppReply(from, reply)
-        return
-      }
+    if (intent === 'confirm' && pendingReturns.has(key)) {
+      return void await replyQuietly(org, from, await executeReturn(org, from))
     }
 
-    // ── Handle YES/NO for debit stop ──
-    if (intent === 'yes' && pendingDebitStops.has(from)) {
-      const reply = await handleDebitStopResponse(from, 'yes')
-      await sendWhatsAppReply(from, reply)
-      return
+    if (intent === 'yes' && pendingDebitStops.has(key)) {
+      return void await replyQuietly(org, from, await handleDebitStopResponse(org, from, 'yes'))
     }
 
-    if (intent === 'no' && pendingDebitStops.has(from)) {
-      const reply = await handleDebitStopResponse(from, 'no')
-      await sendWhatsAppReply(from, reply)
-      return
+    if (intent === 'no' && pendingDebitStops.has(key)) {
+      return void await replyQuietly(org, from, await handleDebitStopResponse(org, from, 'no'))
     }
 
-    // ── Handle EDIT reply ──
-    if (intent === 'edit' && pendingReturns.has(from)) {
-      pendingReturns.delete(from)
-      await sendWhatsAppReply(from, '✏️ Return cancelled. Please re-send the scooter photo to start again.')
-      return
+    if (intent === 'edit' && pendingReturns.has(key)) {
+      pendingReturns.delete(key)
+      return void await replyQuietly(org, from, '✏️ Return cancelled. Please re-send the vehicle photo to start again.')
     }
 
-    // ── Normal message flow ──
     let plate: string | null = null
-
-    // Try image first
-    if (numMedia > 0 && body.MediaUrl0) {
-      console.log(`🔍 Analysing image from ${from}...`)
-      plate = await readPlateFromImage(body.MediaUrl0)
+    if (inbound.mediaId || inbound.mediaUrl) {
+      plate = await readPlateFromImage(org, inbound)
       if (plate) console.log(`📷 Gemini Vision detected plate: ${plate}`)
     }
-
-    // Fallback to text
     if (!plate) {
       plate = extractPlateFromText(messageText)
-      if (plate) console.log(`📝 Plate from text: ${plate}`)
     }
 
     let reply: string
-
     if (!plate) {
-      if (numMedia > 0) {
-        reply = '🤔 Couldn\'t read the plate from that photo. Make sure the plate is clear and well-lit, or type the plate number.'
-      } else {
-        reply = '👋 Send me a photo of the scooter plate or type the plate + what happened.\n\nExamples:\n• *EN23AB returned*\n• *HK26GH service in*\n• *GT25EF damage* (with photo)'
-      }
+      reply = (inbound.mediaId || inbound.mediaUrl)
+        ? 'Could not read the plate from that photo. Make sure the plate is clear and well-lit, or type the plate number.'
+        : '👋 Send me a photo of the vehicle plate or type the plate + what happened.\n\nExamples:\n• *EN23AB returned*\n• *HK26GH service in*\n• *GT25EF damage* (with photo)'
     } else if (intent === 'returned') {
-      reply = await handleReturn(plate, from, messageText)
+      reply = await handleReturn(org, plate, from)
     } else {
-      reply = await executeIntent(intent, plate, messageText, from)
+      reply = await executeIntent(org, intent, plate, messageText)
     }
 
-    await sendWhatsAppReply(from, reply)
-    console.log(`💬 Replied to ${from}: ${reply.slice(0, 80)}...`)
-
+    await replyQuietly(org, from, reply)
   } catch (err: any) {
     console.error('WhatsApp processing error:', err.message)
-    try {
-      await sendWhatsAppReply(from, '⚠️ Something went wrong. Please contact the owner directly.')
-    } catch {}
+    await replyQuietly(org, from, '⚠️ Something went wrong. Please contact the owner directly.')
   }
 })
 

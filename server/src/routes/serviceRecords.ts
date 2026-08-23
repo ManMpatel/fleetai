@@ -1,14 +1,12 @@
 import { Router, Request, Response } from 'express'
 import ServiceRecord from '../models/ServiceRecord'
-import { requireOwner } from '../middleware/ownerAuth'
 
 const router = Router()
-router.use(requireOwner)
 
 // GET /api/service-records?plate=ABC123
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const filter: any = { ownerId: req.ownerEmail }
+    const filter: any = { orgId: req.orgId }
     if (req.query.plate) filter.plate = (req.query.plate as string).toUpperCase()
     if (req.query.phone) filter.customerPhone = req.query.phone
 
@@ -22,7 +20,7 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/service-records
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const record = new ServiceRecord({ ...req.body, ownerId: req.ownerEmail })
+    const record = new ServiceRecord({ ...req.body, orgId: req.orgId })
     await record.save()
     res.status(201).json(record)
   } catch (err: any) {
@@ -34,7 +32,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const record = await ServiceRecord.findOneAndUpdate(
-      { _id: req.params.id, ownerId: req.ownerEmail },
+      { _id: req.params.id, orgId: req.orgId },
       { $set: req.body },
       { new: true }
     )
@@ -48,7 +46,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 // DELETE /api/service-records/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    await ServiceRecord.findOneAndDelete({ _id: req.params.id, ownerId: req.ownerEmail })
+    await ServiceRecord.findOneAndDelete({ _id: req.params.id, orgId: req.orgId })
     res.json({ message: 'Deleted' })
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete' })

@@ -85,9 +85,7 @@ export default function RegoImportPage() {
 
   async function fetchVehicles() {
     try {
-      const { data } = await axios.get(`${API}/api/fleet`, {
-        headers: { 'x-owner-email': user?.email || '' }
-      })
+      const { data } = await axios.get(`${API}/api/fleet`)
       setVehicles(data)
     } catch {}
     setLoading(false)
@@ -169,7 +167,7 @@ export default function RegoImportPage() {
         notes: confirm.notes,
         regoStatus: 'in_stock',
         regoPhotoBase64: confirm.photoBase64,
-      }, { headers: { 'x-owner-email': user?.email || '' } })
+      })
 
       showToast(`✅ ${confirm.plate.toUpperCase()} saved`)
       setConfirm(null)
@@ -183,8 +181,7 @@ export default function RegoImportPage() {
   async function updateStatus(vehicle: RegoVehicle, status: RegoStatus) {
     try {
       await axios.put(`${API}/api/fleet/${vehicle.plate}`,
-        { regoStatus: status },
-        { headers: { 'x-owner-email': user?.email || '' } }
+        { regoStatus: status }
       )
       setVehicles(prev => prev.map(v => v._id === vehicle._id ? { ...v, regoStatus: status } : v))
     } catch { showToast('❌ Failed to update status') }
@@ -198,8 +195,7 @@ export default function RegoImportPage() {
       current.setFullYear(parseInt(editYear))
       const newExpiry = current.toISOString().split('T')[0]
       await axios.put(`${API}/api/fleet/${editVehicle.plate}`,
-        { regoExpiry: newExpiry },
-        { headers: { 'x-owner-email': user?.email || '' } }
+        { regoExpiry: newExpiry }
       )
       setVehicles(prev => prev.map(v => v._id === editVehicle._id ? { ...v, regoExpiry: newExpiry } : v))
       showToast(`✅ ${editVehicle.plate} updated`)
@@ -432,7 +428,7 @@ export default function RegoImportPage() {
                       regoExpiry: manual.regoExpiry,
                       notes: manual.notes,
                       regoStatus: 'in_stock',
-                    }, { headers: { 'x-owner-email': user?.email || '' } })
+                    })
                     showToast(`✅ ${manual.plate.toUpperCase()} saved`)
                     setShowManual(false)
                     fetchVehicles()

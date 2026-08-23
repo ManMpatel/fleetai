@@ -1,8 +1,10 @@
 import mongoose, { Schema, Document } from 'mongoose'
+import { tenantScope } from './plugins/tenantScope'
 
 export type FineType = 'fine' | 'toll'
 
 export interface IFine extends Document {
+  orgId: mongoose.Types.ObjectId
   vehicle: mongoose.Types.ObjectId
   renter?: mongoose.Types.ObjectId
   type: FineType
@@ -15,6 +17,7 @@ export interface IFine extends Document {
 
 const FineSchema = new Schema<IFine>(
   {
+    orgId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
     vehicle: { type: Schema.Types.ObjectId, ref: 'Vehicle', required: true },
     renter: { type: Schema.Types.ObjectId, ref: 'Renter', default: null },
     type: { type: String, enum: ['fine', 'toll'], required: true },
@@ -26,5 +29,7 @@ const FineSchema = new Schema<IFine>(
   },
   { timestamps: true }
 )
+
+FineSchema.plugin(tenantScope)
 
 export default mongoose.model<IFine>('Fine', FineSchema)

@@ -9,10 +9,16 @@ const s3 = new S3Client({
   },
 })
 
-const BUCKET = process.env.AWS_BUCKET_NAME || 'fleetai-uploads'
+// Backups contain every tenant's data, including encrypted bank details, so they are
+// kept out of the bucket that serves tenant uploads. Set AWS_BACKUP_BUCKET to a private
+// bucket; falling back to the uploads bucket is a deployment smell worth fixing.
+const BUCKET = process.env.AWS_BACKUP_BUCKET || process.env.AWS_BUCKET_NAME || 'fleetai-uploads'
 
 export async function runMongoBackup() {
   try {
+    if (!process.env.AWS_BACKUP_BUCKET) {
+      console.warn('⚠️  AWS_BACKUP_BUCKET not set — writing the multi-tenant backup into the uploads bucket')
+    }
     console.log('🗄️ Starting MongoDB backup...')
 
     // Get all collections

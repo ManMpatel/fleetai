@@ -1,4 +1,5 @@
 import mongoose, { Schema } from 'mongoose'
+import { tenantScope } from './plugins/tenantScope'
 
 export type VehicleType = 'scooter' | 'car'
 export type VehicleStatus = 'available' | 'rented' | 'service'
@@ -7,6 +8,7 @@ export type VehicleStatus = 'available' | 'rented' | 'service'
 // because Document.model is a reserved method. We use a plain interface here.
 export interface IVehicle {
   _id: mongoose.Types.ObjectId
+  orgId: mongoose.Types.ObjectId
   plate: string
   model: string
   year: number
@@ -20,14 +22,16 @@ export interface IVehicle {
   lastService?: Date
   fines: mongoose.Types.ObjectId[]
   tolls: mongoose.Types.ObjectId[]
-  ownerId: string
   notes?: string
 }
 
 // Using Schema without generic to avoid 'model' field clash with Document.model
 const VehicleSchema = new Schema(
   {
-    plate: { type: String, required: true, unique: true, uppercase: true, trim: true },
+    orgId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
+    // Uniqueness is per-tenant (see compound index below), not global — two operators
+    // may legitimately hold the same plate.
+    plate: { type: String, required: true, uppercase: true, trim: true },
     model: { type: String, required: true },
     year: { type: Number, required: true },
     type: { type: String, enum: ['scooter', 'car'], required: true },
@@ -40,13 +44,16 @@ const VehicleSchema = new Schema(
     lastService: { type: Date },
     fines: [{ type: Schema.Types.ObjectId, ref: 'Fine' }],
     tolls: [{ type: Schema.Types.ObjectId, ref: 'Fine' }],
-    ownerId: { type: String, required: true, index: true },
     notes: { type: String },
     regoStatus: { type: String, enum: ['in_stock', 'stolen', 'sold'], default: 'in_stock' },
     regoPhotoBase64: { type: String },
   },
   { timestamps: true }
 )
+
+VehicleSchema.index({ orgId: 1, plate: 1 }, { unique: true })
+
+VehicleSchema.plugin(tenantScope)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default mongoose.model<IVehicle & mongoose.Document<any>>('Vehicle', VehicleSchema)

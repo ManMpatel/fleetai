@@ -79,12 +79,23 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    to: '/settings',
+    label: 'Settings',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5 shrink-0">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+  },
 ]
 
 export default function Sidebar() {
-  const { darkMode, toggleDarkMode, notifications } = useStore()
+  const { darkMode, toggleDarkMode, notifications, session } = useStore()
   const [collapsed, setCollapsed] = useState(false)
   const { user, logout } = useAuth0()
+  const orgName = session?.org?.displayName
   const unread = notifications.filter((n) => !n.read).length
 
   return (
@@ -110,9 +121,14 @@ export default function Sidebar() {
                   <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="var(--logo-accent)" />
                 </svg>
               </div>
-              <span className="text-sidebar-text-active font-semibold text-[15px] tracking-tight">
-                Fleet<span className="text-logo-accent">AI</span>
-              </span>
+              <div className="min-w-0">
+                <span className="text-sidebar-text-active font-semibold text-[15px] tracking-tight block leading-tight">
+                  Fleet<span className="text-logo-accent">AI</span>
+                </span>
+                {orgName && (
+                  <span className="text-sidebar-text text-[11px] truncate block leading-tight">{orgName}</span>
+                )}
+              </div>
             </div>
           )}
           {collapsed && (
@@ -221,7 +237,7 @@ export default function Sidebar() {
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sidebar-text-active text-xs font-medium truncate">{user?.name ?? 'Owner'}</p>
-              <p className="text-sidebar-text text-[11px] truncate">{user?.email ?? 'Sydney Fleet'}</p>
+              <p className="text-sidebar-text text-[11px] truncate">{user?.email ?? ''}</p>
             </div>
           )}
           {!collapsed && (
@@ -237,7 +253,7 @@ export default function Sidebar() {
               </svg>
             </button>
           )}
-        {user?.email === 'manpatel1144@gmail.com' && (
+        {session?.isSuperAdmin && (
           <NavLink
             to="/admin"
             title={collapsed ? 'Admin' : undefined}

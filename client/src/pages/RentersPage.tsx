@@ -899,7 +899,7 @@ export default function RentersPage() {
     if (!newPhone.trim()) return
     setSendingLink(true)
     try {
-      await axios.post('/api/renters/send-onboarding', { phone: newPhone.trim(), ownerEmail: user?.email || '' })
+      await axios.post('/api/renters/send-onboarding', { phone: newPhone.trim() })
       setToast({ message: `✅ Link sent to ${newPhone.trim()}`, type: 'success' })
     } catch {
       const link = `${window.location.origin}/onboard/${encodeURIComponent(newPhone.trim())}?owner=${encodeURIComponent(user?.email || '')}`

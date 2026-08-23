@@ -4,6 +4,7 @@ import Vehicle from './models/Vehicle'
 import Renter from './models/Renter'
 import Fine from './models/Fine'
 import Notification from './models/Notification'
+import Organization from './models/Organization'
 
 dotenv.config()
 
@@ -17,17 +18,36 @@ async function seed() {
   await mongoose.connect(MONGO_URI)
   console.log('✅ Connected to MongoDB')
 
-  // Clear existing data
+  // Seed data belongs to a demo tenant. Every clear and insert below is scoped to it so
+  // running the seed can never wipe a real operator's fleet.
+  const demoEmail = process.env.SEED_ORG_EMAIL || 'demo@fleetai.local'
+  const org = await Organization.findOneAndUpdate(
+    { email: demoEmail },
+    {
+      $setOnInsert: {
+        email: demoEmail,
+        name: 'Demo Fleet',
+        displayName: 'Demo Fleet',
+        slug: 'demo',
+        status: 'approved',
+        fleetSummary: '12 Honda Duo scooters and 5 cars in Sydney',
+      },
+    },
+    { new: true, upsert: true }
+  )
+  const orgId = org._id
+  console.log(`Seeding into organization: ${org.email} (${orgId})`)
+
   await Promise.all([
-    Vehicle.deleteMany({}),
-    Renter.deleteMany({}),
-    Fine.deleteMany({}),
-    Notification.deleteMany({}),
+    Vehicle.deleteMany({ orgId }),
+    Renter.deleteMany({ orgId }),
+    Fine.deleteMany({ orgId }),
+    Notification.deleteMany({ orgId }),
   ])
   console.log('🗑️  Cleared existing data')
 
   // ── Renters ──────────────────────────────────────────────
-  const renters = await Renter.insertMany([
+  const renterSeed: any[] = [
   {
     name: 'Liam Chen',
     phone: '0412345678',
@@ -140,7 +160,8 @@ async function seed() {
     emergencyContactPhone: '0477777777',
     payway: { status: 'active', weeklyAmount: 350, startDate: daysFromNow(-30) },
   },
-])
+  ]
+  const renters = await Renter.insertMany(renterSeed.map(r => ({ ...r, orgId })))
   console.log(`👥 Created ${renters.length} renters`)
 
   // ── Scooters (12 Honda Duo) ──────────────────────────────
@@ -382,7 +403,7 @@ async function seed() {
   for (const vd of allVehicleData) {
     const { renterIdx, fineData, ...vehicleFields } = vd as any
 
-    const vehicle = new Vehicle(vehicleFields)
+    const vehicle = new Vehicle({ ...vehicleFields, orgId })
 
     // Assign renter
     if (renterIdx !== null && renters[renterIdx]) {
@@ -399,6 +420,7 @@ async function seed() {
       const createdFines = await Fine.insertMany(
         fineData.map((f: any) => ({
           ...f,
+          orgId,
           vehicle: vehicle._id,
           date: daysFromNow(-Math.floor(Math.random() * 60) - 5),
         }))
@@ -418,7 +440,7 @@ async function seed() {
   console.log(`🛵 Created ${scooterData.length} scooters`)
 
   // ── Notifications ────────────────────────────────────────
-  await Notification.insertMany([
+  const notificationSeed: any[] = [
     {
       type: 'rego',
       title: 'Rego EXPIRED — HK26GH',
@@ -514,8 +536,9 @@ async function seed() {
       read: false,
       actionRequired: true,
     },
-  ])
-  console.log('🔔 Created 12 notifications')
+  ]
+  await Notification.insertMany(notificationSeed.map(n => ({ ...n, orgId })))
+  console.log(`Created ${notificationSeed.length} notifications`)
 
   console.log('\n✅ Seed complete! Run the server and open the app to see your fleet.')
   await mongoose.disconnect()

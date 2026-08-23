@@ -1,16 +1,15 @@
 import { Router, Request, Response } from 'express'
 import Renter from '../models/Renter'
 import Vehicle from '../models/Vehicle'
-import { requireOwner } from '../middleware/ownerAuth'
+import { scopedPopulate } from '../models/plugins/tenantScope'
 
 const router = Router()
-router.use(requireOwner)
 
 // GET /api/search?q=plate|name|phone
 router.get('/', async (req: Request, res: Response) => {
   try {
     const q = (req.query.q as string || '').trim()
-    const ownerId = req.ownerEmail
+    const orgId = req.orgId
     if (!q) return res.json({ type: null, results: [] })
 
     const isPlate = /^[a-zA-Z0-9]{2,8}$/.test(q) && !/\s/.test(q)
@@ -18,16 +17,16 @@ router.get('/', async (req: Request, res: Response) => {
     if (isPlate) {
       // ── Search by plate ──────────────────────────────
       const plate = q.toUpperCase()
-      const vehicle = await Vehicle.findOne({ plate, ownerId })
-        .populate('currentRenter', 'name phone email status')
-        .populate('fines')
-        .populate('tolls')
+      const vehicle = await Vehicle.findOne({ plate, orgId })
+        .populate(scopedPopulate('currentRenter', 'name phone email status'))
+        .populate(scopedPopulate('fines'))
+        .populate(scopedPopulate('tolls'))
 
       if (!vehicle) return res.json({ type: 'plate', results: [] })
 
       // All renters who have this plate in their rentalHistory
       const previousRenters = await Renter.find({
-        ownerId,
+        orgId,
         'rentalHistory.plate': plate,
       }).select('name phone email rentalHistory status')
 
@@ -48,12 +47,12 @@ router.get('/', async (req: Request, res: Response) => {
     } else {
       // ── Search by name or phone ───────────────────────
       const renters = await Renter.find({
-        ownerId,
+        orgId,
         $or: [
           { name: { $regex: q, $options: 'i' } },
           { phone: { $regex: q, $options: 'i' } },
         ]
-      }).populate('currentVehicle', 'plate model type status')
+      }).populate(scopedPopulate('currentVehicle', 'plate model type status'))
 
       if (renters.length === 0) return res.json({ type: 'renter', results: [] })
 

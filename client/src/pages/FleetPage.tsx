@@ -16,12 +16,12 @@ function ShareLinks() {
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
-  const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-  const BASE = 'https://fleetai.co.in'
+  // Share links point at wherever this dashboard is deployed, not a baked-in domain.
+  const BASE = import.meta.env.VITE_PUBLIC_URL || window.location.origin
 
   useEffect(() => {
     if (!user?.email) return
-    axios.get(`${API}/api/auth/slug`, { headers: { 'x-owner-email': user.email } })
+    axios.get('/api/auth/slug')
       .then(r => { if (r.data.slug) setSlug(r.data.slug) })
       .catch(() => {})
   }, [user?.email])
@@ -38,7 +38,7 @@ function ShareLinks() {
     if (!slug.trim() || !user?.email) return
     setSaving(true)
     try {
-      await axios.post(`${API}/api/auth/slug`, { slug }, { headers: { 'x-owner-email': user.email } })
+      await axios.post('/api/auth/slug', { slug })
       setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch {}
     setSaving(false)
@@ -48,7 +48,7 @@ function ShareLinks() {
     const url = type === 'onboard'
       ? `${BASE}/onboard/${slug}`
       : type === 'tablet'
-      ? `${BASE}/tablet?owner=${encodeURIComponent(user?.email || '')}`
+      ? `${BASE}/tablet`
       : BASE
     navigator.clipboard.writeText(url).then(() => {
       setCopied(type); setTimeout(() => setCopied(null), 2000)
@@ -72,8 +72,8 @@ function ShareLinks() {
       <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
         <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
         {[
-          { type: 'tablet',  label: 'Tablet page',  sub: 'Open on employee tablet', icon: '📱', url: 'https://fleetai.co.in/tablet' },
-          { type: 'onboard', label: 'Onboard form', sub: 'Send link to new renters', icon: '👤', url: `https://fleetai.co.in/onboard/${slug}` },
+          { type: 'tablet',  label: 'Tablet page',  sub: 'Link it from Settings', icon: '📱', url: `${BASE}/tablet` },
+          { type: 'onboard', label: 'Onboard form', sub: 'Send link to new renters', icon: '👤', url: `${BASE}/onboard/${slug}` },
         ].map(link => (
           <div key={link.type} className="flex items-center justify-between p-3 bg-surface2 border border-border rounded-lg">
             <div className="flex items-center gap-2.5 min-w-0">

@@ -2,6 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import axios from 'axios'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const TOKEN_KEY = 'fleetai_tablet_token'
+
+// The tablet is a shared, unattended device. It authenticates with a device token issued
+// from the dashboard, so the tenant is resolved server-side. Previously it kept an owner
+// email in localStorage and sent it as ownerId, which any visitor could set themselves.
+const tabletApi = axios.create({ baseURL: API })
+tabletApi.interceptors.request.use(config => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
 
 type Screen = 'home' | 'pin' | 'selfie' | 'service-form' | 'success'
 type Action = 'in' | 'out' | 'service'
@@ -46,7 +57,11 @@ function isToday(d: string) {
 
 export default function TabletPage() {
   const [dark, setDark] = useState(() => localStorage.getItem('fleetai_tablet_theme') !== 'light')
-  const [ownerId, setOwnerId] = useState<string | null>(() => localStorage.getItem('fleetai_tablet_email'))
+  const [linked, setLinked] = useState<boolean>(() => !!localStorage.getItem(TOKEN_KEY))
+  const [orgName, setOrgName] = useState('')
+  const [linkCode, setLinkCode] = useState('')
+  const [linkError, setLinkError] = useState('')
+  const [linking, setLinking] = useState(false)
   const [navPage, setNavPage] = useState<NavPage>('home')
   const [screen, setScreen] = useState<Screen>('home')
   const [action, setAction] = useState<Action>('in')
@@ -81,31 +96,48 @@ export default function TabletPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const countdownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Confirm the stored token is still valid — the owner can revoke it at any time.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const ownerFromUrl = params.get('owner')
-    if (ownerFromUrl) {
-      localStorage.setItem('fleetai_tablet_email', ownerFromUrl)
-      setOwnerId(ownerFromUrl)
-      window.history.replaceState({}, '', '/tablet')
+    if (!linked) return
+    tabletApi.get('/api/tablet/session')
+      .then(({ data }) => setOrgName(data.orgName || ''))
+      .catch(() => {
+        localStorage.removeItem(TOKEN_KEY)
+        setLinked(false)
+      })
+  }, [linked])
+
+  async function linkTablet() {
+    if (!linkCode.trim()) return
+    setLinking(true); setLinkError('')
+    try {
+      localStorage.setItem(TOKEN_KEY, linkCode.trim())
+      const { data } = await tabletApi.get('/api/tablet/session')
+      setOrgName(data.orgName || '')
+      setLinked(true)
+      setLinkCode('')
+    } catch {
+      localStorage.removeItem(TOKEN_KEY)
+      setLinkError('That code is not valid. Generate a new one from Settings in the dashboard.')
+    } finally {
+      setLinking(false)
     }
-  }, [])
+  }
 
   const fetchRecords = useCallback(async (dateParams?: { date?: string; from?: string; to?: string }) => {
-    if (!ownerId) return
+    if (!linked) return
     try {
-      const params: any = { ownerId, ...dateParams }
-      const { data } = await axios.get(`${API}/api/employees/service-records`, { params })
+      const { data } = await tabletApi.get('/api/tablet/service-records', { params: { ...dateParams } })
       setAllRecords(data || [])
     } catch { console.error('Failed to fetch records') }
-  }, [ownerId])
+  }, [linked])
 
   useEffect(() => {
-    if (!ownerId) return
+    if (!linked) return
     fetchRecords()
     const interval = setInterval(() => fetchRecords(), 30000)
     return () => clearInterval(interval)
-  }, [ownerId, fetchRecords])
+  }, [linked, fetchRecords])
 
   useEffect(() => {
     if (navPage !== 'services') return
@@ -168,7 +200,7 @@ export default function TabletPage() {
     if (pin.length !== 4) return
     setSubmitting(true); setPinError('')
     try {
-      const { data } = await axios.post(`${API}/api/employees/verify-pin`, { pin, ownerId })
+      const { data } = await tabletApi.post('/api/tablet/verify-pin', { pin })
       setEmployee(data.employee)
       if (action === 'service') setScreen('service-form')
       else setScreen('selfie')
@@ -177,16 +209,14 @@ export default function TabletPage() {
   }
 
   async function submitClockAction() {
-    if (!employee || !selfieBlob || !ownerId) return
+    if (!employee || !selfieBlob || !linked) return
     setSubmitting(true)
     try {
       const fd = new FormData()
       fd.append('selfie', selfieBlob, 'selfie.jpg')
-      fd.append('employeeId', employee._id)
-      fd.append('employeeName', employee.name)
+      fd.append('pin', pin)
       fd.append('type', action)
-      fd.append('ownerId', ownerId)
-      await axios.post(`${API}/api/employees/clock`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      await tabletApi.post('/api/tablet/clock', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       showSuccess(action === 'in' ? `Welcome, ${employee.name}! Clocked in.` : `See you, ${employee.name}! Clocked out.`)
     } catch { setPinError('Failed to record. Please try again.'); setScreen('selfie') }
     finally { setSubmitting(false) }
@@ -195,7 +225,8 @@ export default function TabletPage() {
   async function validatePlate(plate: string) {
     if (serviceForm.vehicleCategory !== 'personal' || !plate) { setPlateError(''); return }
     try {
-      await axios.get(`${API}/api/fleet/${plate}`, { headers: { 'x-owner-email': ownerId } })
+      // Plate lookup runs against the tenant's own fleet, resolved from the device token.
+      await tabletApi.get(`/api/tablet/vehicle/${encodeURIComponent(plate)}`)
       setPlateError('')
     } catch {
       setPlateError('This vehicle is not registered in the system')
@@ -204,12 +235,12 @@ export default function TabletPage() {
 
   async function submitService() {
     setSubmitAttempted(true)
-    if (!employee || !ownerId) return
+    if (!employee || !linked) return
     if (!serviceForm.plate || !serviceForm.description) return
     if (plateError) return
     setSubmitting(true)
     try {
-      const { data } = await axios.post(`${API}/api/employees/log-service`, { pin, ownerId, ...serviceForm })
+      const { data } = await tabletApi.post('/api/tablet/log-service', { pin, ...serviceForm })
       showSuccess(`Service logged by ${employee.name}.`, data)
       fetchRecords()
     } catch { setPinError('Failed to save. Please try again.') }
@@ -218,16 +249,16 @@ export default function TabletPage() {
 
   async function markDone(record: ServiceRecord) {
     try {
-      const { data } = await axios.patch(`${API}/api/employees/service-records/${record._id}`, { ownerId, status: 'done' })
+      const { data } = await tabletApi.patch(`/api/tablet/service-records/${record._id}`, { status: 'done' })
       setAllRecords(prev => prev.map(r => r._id === record._id ? data : r))
     } catch { alert('Failed to mark as done') }
   }
 
   async function saveEdit() {
-    if (!editingRecord || !ownerId) return
+    if (!editingRecord || !linked) return
     setSavingEdit(true)
     try {
-      const { data } = await axios.patch(`${API}/api/employees/service-records/${editingRecord._id}`, { ownerId, ...editForm })
+      const { data } = await tabletApi.patch(`/api/tablet/service-records/${editingRecord._id}`, { ...editForm })
       setAllRecords(prev => prev.map(r => r._id === editingRecord._id ? data : r))
       setEditingRecord(null)
     } catch { alert('Failed to save') }
@@ -235,10 +266,10 @@ export default function TabletPage() {
   }
 
   async function markDoneFromEdit() {
-    if (!editingRecord || !ownerId) return
+    if (!editingRecord || !linked) return
     setSavingEdit(true)
     try {
-      const { data } = await axios.patch(`${API}/api/employees/service-records/${editingRecord._id}`, { ownerId, ...editForm, status: 'done' })
+      const { data } = await tabletApi.patch(`/api/tablet/service-records/${editingRecord._id}`, { ...editForm, status: 'done' })
       setAllRecords(prev => prev.map(r => r._id === editingRecord._id ? data : r))
       setEditingRecord(null)
     } catch { alert('Failed to mark as done') }
@@ -275,10 +306,26 @@ export default function TabletPage() {
       : (d ? 'bg-white/5 border-white/10 text-white/50' : 'bg-white border-gray-200 text-gray-500'),
   }
 
-  if (!ownerId) return (
+  if (!linked) return (
     <div className={`min-h-screen ${T.bg} flex flex-col items-center justify-center px-6`}>
-      <h1 className={`${T.text} text-xl font-bold mb-2`}>Tablet not linked</h1>
-      <p className={`${T.muted} text-sm text-center`}>Open the tablet link from your FleetAI dashboard.</p>
+      <h1 className={`${T.text} text-xl font-bold mb-2`}>Link this tablet</h1>
+      <p className={`${T.muted} text-sm text-center mb-6 max-w-sm`}>
+        In the FleetAI dashboard go to Settings, choose Link tablet, and enter the code here.
+      </p>
+      <input
+        value={linkCode}
+        onChange={e => { setLinkCode(e.target.value); setLinkError('') }}
+        placeholder="Paste device code"
+        className={`w-full max-w-sm px-4 py-3 rounded-xl border text-sm mb-3 ${T.input}`}
+      />
+      {linkError && <p className="text-red-500 text-sm mb-3 max-w-sm text-center">{linkError}</p>}
+      <button
+        onClick={linkTablet}
+        disabled={linking || !linkCode.trim()}
+        className="w-full max-w-sm px-4 py-3 rounded-xl bg-indigo-500 text-white text-sm font-semibold disabled:opacity-40"
+      >
+        {linking ? 'Linking...' : 'Link tablet'}
+      </button>
     </div>
   )
 
@@ -287,9 +334,10 @@ export default function TabletPage() {
 
       {/* Sidebar */}
       <div className={`${T.sidebar} w-16 flex flex-col items-center py-4 gap-1 flex-shrink-0 select-none`}>
-        <div className="w-9 h-9 rounded-xl bg-indigo-500/20 flex items-center justify-center mb-4">
+        <div className="w-9 h-9 rounded-xl bg-indigo-500/20 flex items-center justify-center mb-1" title={orgName}>
           <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#818CF8"/></svg>
         </div>
+        <span className="text-[8px] text-white/40 text-center leading-tight mb-3 px-1 truncate w-full">{orgName}</span>
 
         {/* Home nav */}
         <button onClick={() => { setNavPage('home'); goHome() }}
