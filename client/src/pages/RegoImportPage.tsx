@@ -115,9 +115,7 @@ export default function RegoImportPage() {
 
   async function fetchVehicles() {
     try {
-      const { data } = await axios.get(`${API}/api/fleet`, {
-        headers: { 'x-owner-email': user?.email || '' }
-      })
+      const { data } = await axios.get(`${API}/api/fleet`)
       setVehicles(data)
     } catch {}
     setLoading(false)
@@ -205,7 +203,7 @@ export default function RegoImportPage() {
         notes: confirm.notes,
         regoStatus: 'in_stock',
         regoPhotoBase64: confirm.photoBase64,
-      }, { headers: { 'x-owner-email': user?.email || '' } })
+      })
 
       showToast(`✅ ${confirm.plate.toUpperCase()} saved`)
       setConfirm(null)
@@ -238,7 +236,7 @@ export default function RegoImportPage() {
 
         const res = await axios.post('/api/upload/read-rego', {
           photoBase64: originalBase64,
-        }, { headers: { 'x-owner-email': user?.email || '' } })
+        })
 
         const data = res.data
         const plate = (data.plate || '').toUpperCase().trim()
@@ -283,7 +281,7 @@ export default function RegoImportPage() {
         notes: selectedPending.notes,
         regoStatus: 'in_stock',
         regoPhotoBase64: selectedPending.photoCompressed,
-      }, { headers: { 'x-owner-email': user?.email || '' } })
+      })
 
       showToast(`✅ ${selectedPending.plate} saved`)
       setPendingScans(prev => prev.filter(p => p.id !== selectedPending.id))
@@ -299,8 +297,7 @@ export default function RegoImportPage() {
   async function updateStatus(vehicle: RegoVehicle, status: RegoStatus) {
     try {
       await axios.put(`${API}/api/fleet/${vehicle.plate}`,
-        { regoStatus: status },
-        { headers: { 'x-owner-email': user?.email || '' } }
+        { regoStatus: status }
       )
       setVehicles(prev => prev.map(v => v._id === vehicle._id ? { ...v, regoStatus: status } : v))
     } catch { showToast('❌ Failed to update status') }
@@ -315,10 +312,7 @@ export default function RegoImportPage() {
       const newExpiry = current.toISOString().split('T')[0]
       const body: any = { regoExpiry: newExpiry }
       if (editPhoto) body.regoPhotoBase64 = editPhoto
-      await axios.put(`${API}/api/fleet/${editVehicle.plate}`,
-        body,
-        { headers: { 'x-owner-email': user?.email || '' } }
-      )
+      await axios.put(`${API}/api/fleet/${editVehicle.plate}`, body)
       showToast(`✅ ${editVehicle.plate} updated`)
       setEditVehicle(null)
       setEditPhoto(null)
@@ -331,10 +325,7 @@ export default function RegoImportPage() {
   async function saveNote(vehicle: RegoVehicle) {
     setSavingNote(true)
     try {
-      await axios.put(`${API}/api/fleet/${vehicle.plate}`,
-        { notes: editNoteText },
-        { headers: { 'x-owner-email': user?.email || '' } }
-      )
+      await axios.put(`${API}/api/fleet/${vehicle.plate}`, { notes: editNoteText })
       setVehicles(prev => prev.map(v => v._id === vehicle._id ? { ...v, notes: editNoteText } : v))
       showToast('✅ Note saved')
     } catch { showToast('❌ Failed to save note') }
@@ -779,7 +770,7 @@ export default function RegoImportPage() {
                       regoExpiry: manual.regoExpiry,
                       notes: manual.notes,
                       regoStatus: 'in_stock',
-                    }, { headers: { 'x-owner-email': user?.email || '' } })
+                    })
                     showToast(`✅ ${manual.plate.toUpperCase()} saved`)
                     setShowManual(false)
                     fetchVehicles()

@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose'
+import { tenantScope } from './plugins/tenantScope'
 
 export interface IRenter extends Document {
   name: string
@@ -18,7 +19,7 @@ export interface IRenter extends Document {
   passportPhotoBase64?:  string
   vehicleType?: 'scooter' | 'car'
   status?: 'pending' | 'active' | 'inactive'
-  ownerId?: string
+  orgId: mongoose.Types.ObjectId
 
   address?: {
     street?: string
@@ -112,7 +113,7 @@ const RenterSchema = new Schema<IRenter>(
     passportPhotoBase64:  { type: String },
     vehicleType:     { type: String, enum: ['scooter', 'car', 'e-bike'] },
     status:          { type: String, enum: ['pending', 'active', 'inactive'], default: 'pending' },
-    ownerId:         { type: String, index: true },
+    orgId:           { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
 
     address: {
       street:   { type: String },
@@ -173,5 +174,10 @@ const RenterSchema = new Schema<IRenter>(
   },
   { timestamps: true }
 )
-RenterSchema.index({ phone: 1, ownerId: 1 }, { unique: true })
+
+// Uniqueness is per-tenant, not global — two operators may share a renter's phone number.
+RenterSchema.index({ orgId: 1, phone: 1 }, { unique: true })
+
+RenterSchema.plugin(tenantScope)
+
 export default mongoose.model<IRenter>('Renter', RenterSchema)

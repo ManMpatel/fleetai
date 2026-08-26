@@ -1,6 +1,8 @@
 import mongoose, { Schema, Document } from 'mongoose'
+import { tenantScope } from './plugins/tenantScope'
 
 export interface IServiceRecord extends Document {
+  orgId: mongoose.Types.ObjectId
   plate: string
   vehicleType?: 'scooter' | 'car' | 'e-bike'
   vehicleCategory?: 'rental' | 'personal'
@@ -12,13 +14,13 @@ export interface IServiceRecord extends Document {
   employeeName?: string
   customerName?: string
   customerPhone?: string
-  ownerId?: string
   status?: 'pending' | 'done'
   completedAt?: Date
 }
 
 const ServiceRecordSchema = new Schema<IServiceRecord>(
   {
+    orgId:           { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
     plate:           { type: String, required: true, uppercase: true, trim: true },
     vehicleType:     { type: String, enum: ['scooter', 'car', 'e-bike'] },
     vehicleCategory: { type: String, enum: ['rental', 'personal'], default: 'rental' },
@@ -30,11 +32,12 @@ const ServiceRecordSchema = new Schema<IServiceRecord>(
     employeeName:    { type: String },
     customerName:    { type: String },
     customerPhone:   { type: String },
-    ownerId:         { type: String, index: true },
     status:          { type: String, enum: ['pending', 'done'], default: 'pending' },
     completedAt:     { type: Date },
   },
   { timestamps: true }
 )
+
+ServiceRecordSchema.plugin(tenantScope)
 
 export default mongoose.model<IServiceRecord>('ServiceRecord', ServiceRecordSchema)

@@ -1,24 +1,32 @@
+import { Types } from 'mongoose'
 import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
 import Renter from '../models/Renter'
-
+import { scopedPopulate } from '../models/plugins/tenantScope'
 
 // ─────────────────────────────────────────────────────────
-// buildFleetContext — assembles a text snapshot of the entire
-// fleet for injection into Gemini prompts (RAG pipeline).
+// buildFleetContext — assembles a text snapshot of ONE tenant's fleet for injection
+// into Gemini prompts (RAG pipeline).
+//
+// Every query here must be scoped to orgId. This context is interpolated verbatim into
+// a prompt and returned to the caller, so an unscoped query hands one operator the
+// renter names, phone numbers and rates of every other operator on the platform.
 // ─────────────────────────────────────────────────────────
-export async function buildFleetContext(): Promise<string> {
+export async function buildFleetContext(orgId: Types.ObjectId): Promise<string> {
   const now = new Date()
   const in30 = new Date(now.getTime() + 30 * 86400000)
-  
 
-  const vehicles = await Vehicle.find()
-    .populate('currentRenter', 'name phone email')
-    .populate('fines')
-    .populate('tolls')
+  const vehicles = await Vehicle.find({ orgId })
+    .populate(scopedPopulate('currentRenter', 'name phone email'))
+    .populate(scopedPopulate('fines'))
+    .populate(scopedPopulate('tolls'))
 
-  const renters = await Renter.find()
-    .populate('currentVehicle', 'plate')
+  const renters = await Renter.find({ orgId })
+    .populate(scopedPopulate('currentVehicle', 'plate'))
+
+  const notifications = await Notification.find({ orgId, read: false })
+    .sort({ date: -1 })
+    .limit(30)
 
   const renterLines = renters.map((r) => {
     let line = `RENTER|${r.phone}|${r.name}|${r.email || ''}`
@@ -29,14 +37,10 @@ export async function buildFleetContext(): Promise<string> {
     return line
   })
 
-  const notifications = await Notification.find({ read: false })
-    .sort({ date: -1 })
-    .limit(30)
-
   const vehicleLines = vehicles.map((v) => {
     const renter = v.currentRenter as any
-    const fineList = v.fines as any[]
-    const tollList = v.tolls as any[]
+    const fineList = (v.fines as any[]) || []
+    const tollList = (v.tolls as any[]) || []
     const unpaidFines = fineList.filter((f) => !f.paid)
     const unpaidTolls = tollList.filter((f) => !f.paid)
 
@@ -76,8 +80,8 @@ export async function buildFleetContext(): Promise<string> {
     cars: vehicles.filter((v) => v.type === 'car').length,
     expiredRego: vehicles.filter((v) => v.regoExpiry && v.regoExpiry < now).length,
     dueSoonRego: vehicles.filter((v) => v.regoExpiry && v.regoExpiry >= now && v.regoExpiry <= in30).length,
-    unpaidFines: vehicles.reduce((acc, v) => acc + (v.fines as any[]).filter((f: any) => !f.paid).length, 0),
-    unpaidTolls: vehicles.reduce((acc, v) => acc + (v.tolls as any[]).filter((f: any) => !f.paid).length, 0),
+    unpaidFines: vehicles.reduce((acc, v) => acc + ((v.fines as any[]) || []).filter((f: any) => !f.paid).length, 0),
+    unpaidTolls: vehicles.reduce((acc, v) => acc + ((v.tolls as any[]) || []).filter((f: any) => !f.paid).length, 0),
   }
 
   return `=== FLEETAI DATABASE SNAPSHOT — ${now.toLocaleDateString('en-AU')} ===
@@ -88,17 +92,19 @@ ${alertLines.length > 0 ? alertLines.join('\n') : 'ALERTS|none'}`
 }
 
 // ─────────────────────────────────────────────────────────
-// checkExpiringDates — daily cron: creates notifications
-// for rego/pink slip expiring within 30 days or overdue.
+// checkExpiringDates — daily cron: creates notifications for rego/pink slip expiring
+// within 30 days or overdue. Each vehicle already carries its tenant, so the created
+// notification and the dedupe lookup are both stamped from the vehicle itself.
 // ─────────────────────────────────────────────────────────
 export async function checkExpiringDates(): Promise<void> {
   const now = new Date()
   const in30 = new Date(now.getTime() + 30 * 86400000)
 
   try {
+    // Deliberately platform-wide: the per-vehicle work below re-scopes to the owning org.
     const vehicles = await Vehicle.find({
       $or: [{ regoExpiry: { $lte: in30 } }, { pinkSlip: { $lte: in30 } }, { greenSlip: { $lte: in30 } }],
-    })
+    }).setOptions({ allowCrossTenant: true })
 
     for (const vehicle of vehicles) {
       await checkDate(vehicle, 'regoExpiry', 'rego', now)
@@ -123,8 +129,10 @@ async function checkDate(
   const daysLeft = Math.ceil((date.getTime() - now.getTime()) / 86400000)
   if (daysLeft > 30) return
 
-  // Deduplicate — skip if we already made this notification in the last 23h
+  // Deduplicate within the owning tenant — two operators may hold the same plate, and
+  // one must not suppress the other's alert.
   const existing = await Notification.findOne({
+    orgId: vehicle.orgId,
     plate: vehicle.plate,
     type: field === 'regoExpiry' ? 'rego' : 'info',
     title: { $regex: label, $options: 'i' },
@@ -137,44 +145,54 @@ async function checkDate(
   const abs = Math.abs(daysLeft)
 
   await Notification.create({
+    orgId: vehicle.orgId,
     type: isRego ? 'rego' : 'info',
     title: expired
       ? `${label} EXPIRED — ${vehicle.plate}`
       : `${label} expiring soon — ${vehicle.plate}`,
     description: expired
-      ? `${label} for ${vehicle.plate} (${(vehicle as any).model ?? ''}) expired ${abs} day${abs !== 1 ? 's' : ''} ago`
-      : `${label} for ${vehicle.plate} (${(vehicle as any).model ?? ''}) expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`,
+      ? `${label} for ${vehicle.plate} (${vehicle.model ?? ''}) expired ${abs} day${abs !== 1 ? 's' : ''} ago`
+      : `${label} for ${vehicle.plate} (${vehicle.model ?? ''}) expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`,
     plate: vehicle.plate,
     actionRequired: true,
   })
 }
 
-
 // ─────────────────────────────────────────────────────────
 // checkPaymentStatus — daily cron: checks renters whose
-// nextDebitDate is today or overdue, notifies if declined
+// nextDebitDate is today or overdue, notifies if declined.
+// Genuinely cross-tenant (scans every operator), but every PayWay call and every
+// write is scoped to that renter's own org.
 // ─────────────────────────────────────────────────────────
 export async function checkPaymentStatus(): Promise<void> {
-  const now = new Date()
-  const todayStr = now.toISOString().split('T')[0]
+  const todayStr = new Date().toISOString().split('T')[0]
 
   try {
-    const { getPaymentHistory } = await import('./payway')
-    const { getOwnerPayWayKeys } = await import('../middleware/ownerAuth')
+    const { paywayCredsFor, fetchAllTransactions, getCustomerSchedule } = await import('./payway')
+    const { sendWhatsAppText } = await import('./whatsapp')
+    const Organization = (await import('../models/Organization')).default
+    const Transaction = (await import('../models/Transaction')).default
 
-    // Find all active renters whose nextDebitDate is today or in the past (overdue)
     const renters = await Renter.find({
       'payway.status': 'active',
       'payway.customerId': { $exists: true },
-    })
+    }).setOptions({ allowCrossTenant: true })
 
     console.log(`💳 Payment check — ${renters.length} renter(s) due today or overdue`)
 
+    const orgCache = new Map<string, any>()
+    async function orgFor(orgId: Types.ObjectId) {
+      const key = String(orgId)
+      if (!orgCache.has(key)) orgCache.set(key, await Organization.findById(orgId))
+      return orgCache.get(key)
+    }
+
     for (const renter of renters) {
+      const org = await orgFor(renter.orgId)
+      if (!org) continue
+      const creds = paywayCredsFor(org)
       const customerId = renter.payway!.customerId!
-      const keys = await getOwnerPayWayKeys(renter.ownerId as string) || undefined
-      const result = await getPaymentHistory(customerId, keys)
-      const payments = result.payments || []
+      const payments = await fetchAllTransactions(creds, customerId)
 
       if (!payments.length) {
         console.log(`⏳ No transactions yet for ${renter.name} — will retry tomorrow`)
@@ -190,19 +208,17 @@ export async function checkPaymentStatus(): Promise<void> {
         continue
       }
 
-      // Save new transaction to MongoDB if not already stored
-      const Transaction = (await import('../models/Transaction')).default
       if (latest.transactionId) {
         await Transaction.updateOne(
           { transactionId: latest.transactionId },
-          { $setOnInsert: { ...latest, renterId: renter.phone, ownerId: renter.ownerId } },
+          { $setOnInsert: { ...latest, renterId: renter.phone, orgId: renter.orgId } },
           { upsert: true }
         )
       }
 
       // Dedup — skip if we already notified for this renter today
       const existing = await Notification.findOne({
-        ownerId: renter.ownerId,
+        orgId: renter.orgId,
         title: { $regex: renter.name, $options: 'i' },
         type: 'info',
         createdAt: { $gte: new Date(todayStr) },
@@ -210,20 +226,15 @@ export async function checkPaymentStatus(): Promise<void> {
       if (existing) continue
 
       if (latest.status === 'approved') {
-        // Get real next date from PayWay schedule
-        const { getCustomerSchedule } = await import('./payway')
-        const schedule = await getCustomerSchedule(customerId, keys)
-        if (schedule.success && schedule.nextPaymentDate) {
-          renter.payway!.nextDebitDate = schedule.nextPaymentDate
-        } else {
-          renter.payway!.nextDebitDate = new Date(latestDate.getTime() + 7 * 86400000)
-        }
+        const schedule = await getCustomerSchedule(creds, customerId)
+        renter.payway!.nextDebitDate = schedule.success && schedule.nextPaymentDate
+          ? schedule.nextPaymentDate
+          : new Date(latestDate.getTime() + 7 * 86400000)
         await renter.save()
         console.log(`✅ Payment confirmed for ${renter.name} — next debit: ${renter.payway!.nextDebitDate!.toISOString().split('T')[0]}`)
       } else {
-        // Payment declined — create notification
         await Notification.create({
-          ownerId: renter.ownerId,
+          orgId: renter.orgId,
           type: 'info',
           title: `Payment failed — ${renter.name}`,
           description: `Direct debit of $${latest.amount} failed for ${renter.name} (${renter.phone}). Reason: ${latest.description || 'Declined'}`,
@@ -231,18 +242,15 @@ export async function checkPaymentStatus(): Promise<void> {
         })
         console.log(`❌ Payment declined for ${renter.name} — notification created`)
 
-        // Send SMS to renter
         try {
-          const { sendSMS } = await import('./sms')
           const firstName = renter.name.split(' ')[0]
-          await sendSMS(
-            renter.ownerId as string,
-            renter.phone,
+          await sendWhatsAppText(
+            org,
+            renter.phone.replace(/^0/, '61'),
             `Hi ${firstName}, your weekly payment of $${latest.amount} has been declined. Please contact us ASAP.`
           )
-          console.log(`📱 SMS sent to ${renter.name} (${renter.phone})`)
-        } catch (smsErr: any) {
-          console.error(`⚠️ SMS failed for ${renter.name}:`, smsErr.message)
+        } catch (waErr: any) {
+          console.error(`⚠️ WhatsApp decline notice failed for ${renter.name}:`, waErr.message)
         }
       }
     }

@@ -1,4 +1,5 @@
-import mongoose from 'mongoose'
+import mongoose, { Schema } from 'mongoose'
+import { tenantScope } from './plugins/tenantScope'
 
 const LineItemSchema = new mongoose.Schema({
   description: String,
@@ -8,7 +9,7 @@ const LineItemSchema = new mongoose.Schema({
 })
 
 const InvoiceSchema = new mongoose.Schema({
-  ownerId:       { type: String, required: true },
+  orgId:         { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
   templateId:    { type: String, required: true },
   templateName:  { type: String },
   number:        { type: Number, required: true },
@@ -26,5 +27,7 @@ const InvoiceSchema = new mongoose.Schema({
   total:         Number,
   balancePaid:   { type: Boolean, default: true },
 }, { timestamps: true })
+
+InvoiceSchema.plugin(tenantScope)
 
 export default mongoose.model('Invoice', InvoiceSchema)

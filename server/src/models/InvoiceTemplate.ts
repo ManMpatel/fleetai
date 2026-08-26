@@ -1,7 +1,8 @@
-import mongoose from 'mongoose'
+import mongoose, { Schema } from 'mongoose'
+import { tenantScope } from './plugins/tenantScope'
 
 const InvoiceTemplateSchema = new mongoose.Schema({
-  ownerId:      { type: String, required: true },
+  orgId:        { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
   name:         { type: String, required: true },
   logoBase64:   { type: String },
   businessName: { type: String, required: true },
@@ -14,5 +15,7 @@ const InvoiceTemplateSchema = new mongoose.Schema({
   account:      { type: String },
   usageCount:   { type: Number, default: 0 },
 }, { timestamps: true })
+
+InvoiceTemplateSchema.plugin(tenantScope)
 
 export default mongoose.model('InvoiceTemplate', InvoiceTemplateSchema)

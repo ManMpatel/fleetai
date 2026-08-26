@@ -4,8 +4,12 @@ import multerS3 from 'multer-s3'
 import { S3Client } from '@aws-sdk/client-s3'
 import path from 'path'
 import Fine from '../models/Fine'
+import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
 
+// Mounted behind requireAuth + requireTenant. These endpoints were previously open:
+// anyone could create fine records, and the Gemini extraction routes were billable
+// calls available without a login.
 const router = Router()
 
 const s3 = new S3Client({
@@ -20,9 +24,11 @@ const upload = multer({
   storage: multerS3({
     s3,
     bucket: process.env.AWS_BUCKET_NAME || 'fleetai-uploads',
-    key: (_req, file, cb) => {
+    key: (req, file, cb) => {
       const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
-      cb(null, `uploads/${unique}${path.extname(file.originalname)}`)
+      // Objects are namespaced per tenant so one operator's files are separable from
+      // another's for access control, auditing and deletion.
+      cb(null, `orgs/${(req as Request).orgId}/uploads/${unique}${path.extname(file.originalname)}`)
     },
   }),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -43,11 +49,20 @@ router.post('/fine', upload.single('file'), async (req: Request, res: Response) 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
 
     const { vehicleId, amount, description, date, type } = req.body
+    if (!vehicleId) return res.status(400).json({ error: 'vehicleId is required' })
+
+    // The vehicle must belong to the calling tenant — otherwise a fine could be attached
+    // to another operator's vehicle.
+    const vehicle = await Vehicle.findOne({ _id: vehicleId, orgId: req.orgId })
+    if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' })
+
     const pdfUrl = (req.file as any).location
+    const fineType = type === 'toll' ? 'toll' : 'fine'
 
     const fine = new Fine({
-      vehicle: vehicleId,
-      type: type || 'fine',
+      orgId: req.orgId,
+      vehicle: vehicle._id,
+      type: fineType,
       amount: parseFloat(amount) || 0,
       description: description || 'Uploaded fine',
       date: date ? new Date(date) : new Date(),
@@ -56,10 +71,19 @@ router.post('/fine', upload.single('file'), async (req: Request, res: Response) 
     })
     await fine.save()
 
+    if (fineType === 'toll') {
+      vehicle.tolls.push(fine._id as any)
+    } else {
+      vehicle.fines.push(fine._id as any)
+    }
+    await vehicle.save()
+
     await Notification.create({
-      type: type === 'toll' ? 'toll' : 'fine',
-      title: `New ${type || 'fine'} uploaded`,
-      description: description || `$${amount} ${type || 'fine'}`,
+      orgId: req.orgId,
+      type: fineType,
+      title: `New ${fineType} uploaded — ${vehicle.plate}`,
+      description: description || `$${amount} ${fineType}`,
+      plate: vehicle.plate,
       actionRequired: true,
     })
 
@@ -73,14 +97,13 @@ router.post('/fine', upload.single('file'), async (req: Request, res: Response) 
 router.post('/document', upload.single('file'), async (req: Request, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
-    const fileUrl = (req.file as any).location
-    res.status(201).json({ url: fileUrl, filename: req.file.originalname })
+    res.status(201).json({ url: (req.file as any).location, filename: req.file.originalname })
   } catch (err: any) {
     res.status(400).json({ error: err.message })
   }
 })
 
-// POST /api/upload/read-licence — extract data from licence photo using Gemini
+// POST /api/upload/read-licence — extract data from a licence photo using Gemini
 router.post('/read-licence', async (req: Request, res: Response) => {
   try {
     const { imageBase64, mimeType } = req.body
@@ -105,20 +128,18 @@ If a field is not visible or unclear, leave it as empty string.`
 
     const result = await model.generateContent([
       { inlineData: { data: imageBase64, mimeType: mimeType || 'image/jpeg' } },
-      prompt
+      prompt,
     ])
 
-    const text = result.response.text().trim()
-    const clean = text.replace(/```json|```/g, '').trim()
-    const data = JSON.parse(clean)
-    res.json(data)
+    const clean = result.response.text().trim().replace(/```json|```/g, '').trim()
+    res.json(JSON.parse(clean))
   } catch (err: any) {
     console.error('Licence read error:', err)
     res.status(500).json({ error: 'Could not read licence' })
   }
 })
 
-// POST /api/upload/read-rego-bulk — process multiple rego PDFs
+// POST /api/upload/read-rego-bulk — process multiple rego documents
 router.post('/read-rego-bulk', async (req: Request, res: Response) => {
   try {
     const { files } = req.body as { files: { name: string; base64: string; mimeType: string }[] }
@@ -128,36 +149,42 @@ router.post('/read-rego-bulk', async (req: Request, res: Response) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
-    const prompt = `You are reading an Australian vehicle registration document or certificate. This may be a photo of a physical paper taken with a phone — it may be slightly blurry or at an angle. Do your best to extract what you can.
+    const prompt = `You are reading a vehicle registration document from an image or PDF.
 
-Extract these fields and return ONLY a valid JSON object, no markdown, no explanation:
+Extract the following details from the registration document:
+
+- plate number
+- vehicle model name (for example: Honda Click, Yamaha NMAX)
+- manufacture year
+- rego expiry date
+
+Return ONLY valid JSON in this exact format:
+
 {
-  "plate": "NSW plate number e.g. FPI27U — uppercase, no spaces",
-  "make": "vehicle make e.g. Toyota",
-  "model": "vehicle model e.g. RAV4",
-  "year": "4 digit manufacture year",
-  "regoExpiry": "expiry date in YYYY-MM-DD format — look for Expiry date field",
-  "vin": "VIN or chassis number",
-  "confident": true
+  "plate": "",
+  "model": "",
+  "year": "",
+  "regoExpiry": ""
 }
 
-Important: Always set confident to true and always return your best guess even if unclear. Never return confident: false.`
+Rules:
+- Do NOT include explanations
+- Do NOT include markdown
+- Only return the JSON object
+- If a value cannot be found, return an empty string
+`
 
     const results = []
     for (const file of files) {
       try {
         const result = await model.generateContent([
           { inlineData: { data: file.base64, mimeType: file.mimeType || 'image/jpeg' } },
-          prompt
+          prompt,
         ])
-        const text = result.response.text().trim()
-        console.log('🔍 Gemini raw response:', text)
-        const clean = text.replace(/```json|```/g, '').trim()
-        const data = JSON.parse(clean)
-        console.log('✅ Gemini parsed data:', JSON.stringify(data))
-        results.push({ filename: file.name, status: 'ok', data })
+        const clean = result.response.text().trim().replace(/```json|```/g, '').trim()
+        results.push({ filename: file.name, status: 'ok', data: JSON.parse(clean) })
       } catch (err: any) {
-        console.error('❌ Gemini rego error:', err.message)
+        console.error('Gemini rego error:', err.message)
         results.push({ filename: file.name, status: 'error', data: null })
       }
       await new Promise(r => setTimeout(r, 4100))
@@ -216,4 +243,5 @@ Always return your best guess even if unclear. Never return confident: false.`
     res.status(500).json({ error: err.message })
   }
 })
+
 export default router

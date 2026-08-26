@@ -16,29 +16,15 @@ function ShareLinks() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
-  const [businessName, setBusinessName] = useState('')
-  const [bizSaving, setBizSaving] = useState(false)
-  const [bizSaved, setBizSaved] = useState(false)
-  const [mmUsername, setMmUsername] = useState('')
-  const [mmPassword, setMmPassword] = useState('')
-  const [smsSaving, setSmsSaving] = useState(false)
-  const [smsSaved, setSmsSaved] = useState(false)
-  const [smsConfigured, setSmsConfigured] = useState(false)
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
-  const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-  const BASE = 'https://fleetai.co.in'
+  // Share links point at wherever this dashboard is deployed, not a baked-in domain.
+  const BASE = import.meta.env.VITE_PUBLIC_URL || window.location.origin
 
   useEffect(() => {
     if (!user?.email) return
-    axios.get(`${API}/api/auth/slug`, { headers: { 'x-owner-email': user.email } })
+    axios.get('/api/auth/slug')
       .then(r => { if (r.data.slug) setSlug(r.data.slug) })
-      .catch(() => {})
-    axios.get(`${API}/api/auth/business-name`, { headers: { 'x-owner-email': user.email } })
-      .then(r => { if (r.data.businessName) setBusinessName(r.data.businessName) })
-      .catch(() => {})
-    axios.get(`${API}/api/auth/sms-settings`, { headers: { 'x-owner-email': user.email } })
-      .then(r => { setSmsConfigured(r.data.configured); if (r.data.mmApiUsername) setMmUsername(r.data.mmApiUsername) })
       .catch(() => {})
   }, [user?.email])
 
@@ -50,42 +36,21 @@ function ShareLinks() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  async function saveBizName() {
-    if (!businessName.trim() || !user?.email) return
-    setBizSaving(true)
-    try {
-      await axios.post(`${API}/api/auth/business-name`, { businessName }, { headers: { 'x-owner-email': user.email } })
-      setBizSaved(true); setTimeout(() => setBizSaved(false), 2000)
-    } catch {}
-    setBizSaving(false)
-  }
-
   async function saveSlug() {
     if (!slug.trim() || !user?.email) return
     setSaving(true)
     try {
-      await axios.post(`${API}/api/auth/slug`, { slug }, { headers: { 'x-owner-email': user.email } })
+      await axios.post('/api/auth/slug', { slug })
       setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch {}
     setSaving(false)
-  }
-
-  async function saveSmsSettings() {
-    if (!mmUsername.trim() || !mmPassword.trim() || !user?.email) return
-    setSmsSaving(true)
-    try {
-      await axios.post(`${API}/api/auth/sms-settings`, { mmApiUsername: mmUsername, mmApiPassword: mmPassword }, { headers: { 'x-owner-email': user.email } })
-      setSmsSaved(true); setSmsConfigured(true); setMmPassword('')
-      setTimeout(() => setSmsSaved(false), 2000)
-    } catch {}
-    setSmsSaving(false)
   }
 
   function copyLink(type: string) {
     const url = type === 'onboard'
       ? `${BASE}/onboard/${slug}`
       : type === 'tablet'
-      ? `${BASE}/tablet?owner=${encodeURIComponent(user?.email || '')}`
+      ? `${BASE}/tablet`
       : BASE
     navigator.clipboard.writeText(url).then(() => {
       setCopied(type); setTimeout(() => setCopied(null), 2000)
@@ -109,37 +74,6 @@ function ShareLinks() {
         {open && (
           <div className="absolute right-0 top-11 w-72 bg-surface border border-border rounded-xl shadow-xl z-50 p-4 space-y-3">
             <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Your links</p>
-        <div className="border border-border rounded-lg p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-text-primary">SMS (Mobile Message)</p>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${smsConfigured ? 'bg-green-bg text-green' : 'bg-amber-bg text-amber'}`}>
-              {smsConfigured ? '✓ Connected' : 'Not set'}
-            </span>
-          </div>
-          <input value={mmUsername} onChange={e => setMmUsername(e.target.value)} placeholder="API Username"
-            className="w-full text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent" />
-          <input value={mmPassword} onChange={e => setMmPassword(e.target.value)} placeholder="API Password" type="password"
-            className="w-full text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent" />
-          <button onClick={saveSmsSettings} disabled={smsSaving || !mmUsername.trim() || !mmPassword.trim()}
-            className="w-full py-1.5 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50">
-            {smsSaved ? '✓ Saved' : smsSaving ? 'Saving...' : 'Save SMS Credentials'}
-          </button>
-        </div>
-            <div className="flex gap-2 items-center">
-              <input
-                value={businessName}
-                onChange={e => setBusinessName(e.target.value)}
-                placeholder="Business name on onboard form"
-                className="flex-1 text-xs bg-surface2 border border-border rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-accent"
-              />
-              <button
-                onClick={saveBizName}
-                disabled={bizSaving || !businessName.trim()}
-                className="px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
-              >
-                {bizSaved ? '✓' : bizSaving ? '...' : 'Save'}
-              </button>
-            </div>
             <div className="flex gap-2 items-center">
               <input
                 value={slug}

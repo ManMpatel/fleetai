@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useStore } from '../store/useStore'
 import { useAuth0 } from '@auth0/auth0-react'
-import axios from 'axios'
 
 
 const navItems = [
@@ -102,29 +101,24 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    to: '/settings',
+    label: 'Settings',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5 shrink-0">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+  },
 ]
 
-interface SidebarProps {
-  onOpenSettings: () => void
-  paywayHasKeys: boolean
-  onNavigate: () => void
-}
-
-export default function Sidebar({ onOpenSettings, paywayHasKeys, onNavigate }: SidebarProps) {
-  const { darkMode, toggleDarkMode, notifications } = useStore()
+export default function Sidebar() {
+  const { darkMode, toggleDarkMode, notifications, session } = useStore()
   const [collapsed, setCollapsed] = useState(false)
   const { user, logout } = useAuth0()
+  const orgName = session?.org?.displayName
   const unread = notifications.filter((n) => !n.read).length
-  const [popupOpen, setPopupOpen] = useState(false)
-  const popupRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) setPopupOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
 
   return (
     <>
@@ -149,9 +143,14 @@ export default function Sidebar({ onOpenSettings, paywayHasKeys, onNavigate }: S
                   <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="var(--logo-accent)" />
                 </svg>
               </div>
-              <span className="text-sidebar-text-active font-semibold text-[15px] tracking-tight">
-                Fleet<span className="text-logo-accent">AI</span>
-              </span>
+              <div className="min-w-0">
+                <span className="text-sidebar-text-active font-semibold text-[15px] tracking-tight block leading-tight">
+                  Fleet<span className="text-logo-accent">AI</span>
+                </span>
+                {orgName && (
+                  <span className="text-sidebar-text text-[11px] truncate block leading-tight">{orgName}</span>
+                )}
+              </div>
             </div>
           )}
           {collapsed && (
@@ -189,7 +188,6 @@ export default function Sidebar({ onOpenSettings, paywayHasKeys, onNavigate }: S
               to={item.to}
               end={item.to === '/'}
               title={collapsed ? item.label : undefined}
-              onClick={onNavigate}
             className={({ isActive }) =>
                 `flex items-center gap-3 px-2.5 py-2.5 rounded-lg text-sm font-medium transition-colors relative group ${
                   isActive
@@ -250,59 +248,34 @@ export default function Sidebar({ onOpenSettings, paywayHasKeys, onNavigate }: S
             {!collapsed && <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>}
           </button>
 
-          <div className="relative" ref={popupRef}>
-            {popupOpen && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface border border-border rounded-xl shadow-lg z-50 overflow-hidden">
-                <button
-                  onClick={() => { onOpenSettings(); setPopupOpen(false) }}
-                  className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-text-primary hover:bg-sidebar-active transition-colors"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4 shrink-0">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                  </svg>
-                  Settings
-                  {!paywayHasKeys && <span className="ml-auto text-[10px] bg-amber/20 text-amber px-1.5 py-0.5 rounded-full">Setup needed</span>}
-                </button>
-                <div className="h-px bg-border mx-2" />
-                <button
-                  onClick={() => { logout({ logoutParams: { returnTo: window.location.origin } }); setPopupOpen(false) }}
-                  className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-red hover:bg-red-bg transition-colors"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4 shrink-0">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                    <polyline points="16 17 21 12 16 7"/>
-                    <line x1="21" y1="12" x2="9" y2="12"/>
-                  </svg>
-                  Log out
-                </button>
-              </div>
-            )}
+          <div className={`flex items-center gap-3 px-2.5 py-2.5 rounded-lg ${collapsed ? 'justify-center' : ''}`}>
+          {user?.picture ? (
+            <img src={user.picture} className="w-7 h-7 rounded-full shrink-0 object-cover" />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold shrink-0">
+              {user?.name?.charAt(0) ?? 'U'}
+            </div>
+          )}
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sidebar-text-active text-xs font-medium truncate">{user?.name ?? 'Owner'}</p>
+              <p className="text-sidebar-text text-[11px] truncate">{user?.email ?? ''}</p>
+            </div>
+          )}
+          {!collapsed && (
             <button
-              onClick={() => setPopupOpen(!popupOpen)}
-              className={`flex items-center gap-3 px-2.5 py-2.5 rounded-lg w-full hover:bg-sidebar-active/50 transition-colors ${collapsed ? 'justify-center' : ''}`}
+              onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+              title="Sign out"
+              className="p-1 rounded-md hover:bg-sidebar-active transition-colors text-sidebar-text hover:text-red shrink-0"
             >
-              {user?.picture ? (
-                <img src={user.picture} className="w-7 h-7 rounded-full shrink-0 object-cover" />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold shrink-0">
-                  {user?.name?.charAt(0) ?? 'U'}
-                </div>
-              )}
-              {!collapsed && (
-                <div className="flex-1 min-w-0 text-left">
-                  <p className="text-sidebar-text-active text-xs font-medium truncate">{user?.name ?? 'Owner'}</p>
-                  <p className="text-sidebar-text text-[11px] truncate">{user?.email ?? 'Sydney Fleet'}</p>
-                </div>
-              )}
-              {!collapsed && (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={`w-3 h-3 text-sidebar-text shrink-0 transition-transform ${popupOpen ? 'rotate-180' : ''}`}>
-                  <polyline points="18 15 12 9 6 15"/>
-                </svg>
-              )}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
             </button>
-          </div>
-        {user?.email === 'manpatel1144@gmail.com' && (
+          )}
+        {session?.isSuperAdmin && (
           <NavLink
             to="/admin"
             title={collapsed ? 'Admin' : undefined}
@@ -321,7 +294,7 @@ export default function Sidebar({ onOpenSettings, paywayHasKeys, onNavigate }: S
           </NavLink>
         )}
         </div>
-        
+        </div>
       </aside>
     </>
   )

@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useAuth0 } from '@auth0/auth0-react'
 import axios from 'axios'
-
-const ADMIN_EMAIL = 'manpatel1144@gmail.com'
+import { useStore } from '../store/useStore'
 
 interface Auth0User {
   user_id: string
@@ -54,7 +52,10 @@ interface Stats {
 }
 
 export default function AdminPage() {
-  const { user } = useAuth0()
+  // Whether this user is the platform operator is decided by the server from the
+  // verified token, not by comparing against an email baked into the bundle.
+  const session = useStore(s => s.session)
+  const isSuperAdmin = !!session?.isSuperAdmin
   const [users, setUsers]   = useState<Auth0User[]>([])
   const [logs, setLogs]     = useState<LogEntry[]>([])
   const [health, setHealth] = useState<any>(null)
@@ -64,26 +65,24 @@ export default function AdminPage() {
   const [stats, setStats]   = useState<Stats | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'owners' | 'users' | 'logs'>('overview')
 
-  if (user?.email !== ADMIN_EMAIL) {
+  if (!isSuperAdmin) {
     return (
       <div className="flex-1 flex items-center justify-center h-screen">
         <div className="text-center">
           <p className="text-4xl mb-3">🔒</p>
           <p className="text-text-primary font-semibold">Access Denied</p>
-          <p className="text-text-muted text-sm mt-1">Restricted to {ADMIN_EMAIL}</p>
+          <p className="text-text-muted text-sm mt-1">This area is restricted to the platform administrator.</p>
         </div>
       </div>
     )
   }
 
-  const headers = { 'x-owner-email': user?.email || '' }
-
   async function fetchData() {
     try {
       const [ownersRes, healthRes, statsRes] = await Promise.all([
-        axios.get('/api/admin/owners', { headers }),
+        axios.get('/api/admin/owners'),
         axios.get('/api/health'),
-        axios.get('/api/admin/stats', { headers }),
+        axios.get('/api/admin/stats'),
       ])
       setOwners(ownersRes.data || [])
       setHealth(healthRes.data)
@@ -91,12 +90,12 @@ export default function AdminPage() {
     } catch (e) { console.error(e) }
 
     try {
-      const usersRes = await axios.get('/api/admin/users', { headers })
+      const usersRes = await axios.get('/api/admin/users')
       setUsers(usersRes.data.users || [])
     } catch (e) { console.error('Auth0 users error', e) }
 
     try {
-      const logsRes = await axios.get('/api/admin/logs', { headers })
+      const logsRes = await axios.get('/api/admin/logs')
       setLogs(logsRes.data || [])
     } catch (e) { console.error('Auth0 logs error', e) }
 
@@ -113,7 +112,7 @@ export default function AdminPage() {
     setBlocking(userId)
     try {
       await axios.patch(`/api/admin/users/${encodeURIComponent(userId)}`,
-        { blocked: !currentlyBlocked }, { headers })
+        { blocked: !currentlyBlocked })
       setUsers(prev => prev.map(u =>
         u.user_id === userId ? { ...u, blocked: !currentlyBlocked } : u
       ))
@@ -140,7 +139,7 @@ export default function AdminPage() {
       <div className="px-6 py-4 border-b border-border bg-surface flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-xl font-bold text-text-primary">Super Admin</h1>
-          <p className="text-text-muted text-sm mt-0.5">Restricted to {ADMIN_EMAIL}</p>
+          <p className="text-text-muted text-sm mt-0.5">Platform administration</p>
         </div>
         <div className="flex items-center gap-3">
           {pendingOwners > 0 && (
@@ -317,23 +316,23 @@ export default function AdminPage() {
                         <div className="flex gap-2">
                           {o.status !== 'approved' && (
                             <button onClick={async () => {
-                              await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/approve`, {}, { headers })
+                              await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/approve`, {})
                               setOwners(prev => prev.map(x => x._id === o._id ? { ...x, status: 'approved' } : x))
                             }} className="text-xs px-3 py-1.5 rounded-lg border border-green/30 text-green hover:bg-green-bg">
                               Approve
                             </button>
                           )}
-                          {o.status !== 'rejected' && o.email !== ADMIN_EMAIL && (
+                          {o.status !== 'rejected' && o.email !== session?.email && (
                             <button onClick={async () => {
-                              await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/reject`, {}, { headers })
+                              await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/reject`, {})
                               setOwners(prev => prev.map(x => x._id === o._id ? { ...x, status: 'rejected' } : x))
                             }} className="text-xs px-3 py-1.5 rounded-lg border border-red/30 text-red hover:bg-red-bg">
                               Reject
                             </button>
                           )}
-                          {o.status === 'approved' && o.email !== ADMIN_EMAIL && (
+                          {o.status === 'approved' && o.email !== session?.email && (
                             <button onClick={async () => {
-                              await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/revoke`, {}, { headers })
+                              await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/revoke`, {})
                               setOwners(prev => prev.map(x => x._id === o._id ? { ...x, status: 'pending' } : x))
                             }} className="text-xs px-3 py-1.5 rounded-lg border border-amber/30 text-amber hover:bg-amber-bg">
                               Revoke
@@ -389,7 +388,7 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {u.email !== ADMIN_EMAIL && (
+                        {u.email !== session?.email && (
                           <button
                             onClick={() => toggleBlock(u.user_id, u.blocked)}
                             disabled={blocking === u.user_id}

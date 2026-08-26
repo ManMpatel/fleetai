@@ -43,7 +43,8 @@ export default function QuickLinks() {
     setTimeout(() => setCopied(''), 2000)
   }
 
-  const base = 'https://fleetai.co.in'
+  // Links point at wherever this dashboard is deployed, not a baked-in domain.
+  const base = import.meta.env.VITE_PUBLIC_URL || window.location.origin
   const links = [
     {
       key: 'dashboard',
@@ -92,7 +93,7 @@ export default function QuickLinks() {
           </p>
           <div className="flex gap-2">
             <div className="flex-1 flex items-center bg-surface border border-border rounded-lg px-3 text-sm overflow-hidden">
-              <span className="text-text-muted shrink-0">fleetai.co.in/onboard/</span>
+              <span className="text-text-muted shrink-0">{base.replace(/^https?:\/\//, '')}/onboard/</span>
               <input
                 value={input}
                 onChange={e => setInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
