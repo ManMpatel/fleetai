@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import crypto from 'crypto'
 import Organization from '../models/Organization'
 import { encrypt, hash } from '../services/encryption'
+import { integrationStatus } from '../services/integrationStatus'
 
 // Tenant self-service settings. Mounted behind requireAuth + requireTenant, so every
 // handler operates on req.orgId and never on an id supplied by the caller.
@@ -9,6 +10,7 @@ const router = Router()
 
 /** Secrets are write-only over the API — we report whether they are set, never the value. */
 function publicSettings(org: any) {
+  const status = integrationStatus(org)
   return {
     displayName: org.displayName || org.name || org.email,
     logoUrl: org.logoUrl || null,
@@ -17,19 +19,28 @@ function publicSettings(org: any) {
     currency: org.currency,
     fleetSummary: org.fleetSummary || '',
     payway: {
-      configured: !!org.payway?.secretKeyEnc,
+      configured: status.payway.configured,
+      fromEnv: status.payway.fromEnv,
       merchantId: org.payway?.merchantId || null,
       bankAccountId: org.payway?.bankAccountId || null,
     },
     whatsapp: {
-      configured: !!org.whatsapp?.tokenEnc,
+      configured: status.whatsapp.configured,
+      fromEnv: status.whatsapp.fromEnv,
       phoneId: org.whatsapp?.phoneId || null,
-      enabled: !!org.whatsapp?.enabled,
+      enabled: status.whatsapp.enabled,
     },
     gmail: {
-      configured: !!org.gmail?.refreshTokenEnc,
+      configured: status.gmail.configured,
+      fromEnv: status.gmail.fromEnv,
       address: org.gmail?.address || null,
-      enabled: !!org.gmail?.enabled,
+      enabled: status.gmail.enabled,
+    },
+    sms: {
+      configured: status.sms.configured,
+      fromEnv: status.sms.fromEnv,
+      username: org.sms?.username || null,
+      enabled: status.sms.enabled,
     },
     tabletLinked: !!org.tabletTokenHash,
   }

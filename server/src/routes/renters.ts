@@ -10,6 +10,7 @@ import { encrypt, decrypt, hash } from '../services/encryption'
 import { requireAuth } from '../middleware/auth'
 import { requireTenant } from '../middleware/tenant'
 import { sendWhatsAppText } from '../services/whatsapp'
+import { sendSMS, smsConfiguredFor } from '../services/sms'
 import { scopedPopulate } from '../models/plugins/tenantScope'
 import {
   paywayCredsFor,
@@ -118,9 +119,12 @@ router.post('/public/onboard', async (req: Request, res: Response) => {
 router.use(requireAuth, requireTenant)
 
 // POST /api/renters/send-onboarding
+// Delivered by SMS when the tenant has SMS credentials — that is how this worked before
+// multi-tenancy, and renters are not guaranteed to be reachable on WhatsApp. WhatsApp is
+// the fallback, and the response reports which channel actually carried it.
 router.post('/send-onboarding', async (req: Request, res: Response) => {
   try {
-    const { phone } = req.body as { phone?: string }
+    const { phone, method } = req.body as { phone?: string; method?: 'sms' | 'whatsapp' }
     if (!phone) return res.status(400).json({ error: 'phone is required' })
 
     const org = req.org!
@@ -135,9 +139,21 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
       'Hi! 👋 Please fill in your rental details using this link:\n\n' + link +
       '\n\nThis takes about 2 minutes. Have your licence and bank details ready.'
 
-    await sendWhatsAppText(org, cleanPhone.replace(/^0/, '61'), message)
+    const preferSms = method ? method === 'sms' : smsConfiguredFor(org)
 
-    res.json({ success: true })
+    if (preferSms) {
+      try {
+        await sendSMS(org, cleanPhone, message)
+        return res.json({ success: true, channel: 'sms' })
+      } catch (smsErr: any) {
+        // An explicit method choice is honoured rather than silently rerouted.
+        if (method === 'sms') throw smsErr
+        console.error('⚠️ SMS onboarding link failed, falling back to WhatsApp:', smsErr.message)
+      }
+    }
+
+    await sendWhatsAppText(org, cleanPhone.replace(/^0/, '61'), message)
+    res.json({ success: true, channel: 'whatsapp' })
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message })
   }
@@ -346,7 +362,7 @@ router.post('/:phone/activate', async (req: Request, res: Response) => {
       const allTxns = await fetchAllTransactions(creds, created.customerId!)
       for (const t of allTxns) {
         await Transaction.updateOne(
-          { transactionId: t.transactionId },
+          { transactionId: t.transactionId, orgId: req.orgId },
           { $setOnInsert: { ...t, renterId: renter.phone, orgId: req.orgId } },
           { upsert: true }
         )
@@ -419,7 +435,7 @@ router.post('/:phone/link-payway', async (req: Request, res: Response) => {
       const allTxns = await fetchAllTransactions(creds, paywayCustomerId.trim())
       for (const t of allTxns) {
         await Transaction.updateOne(
-          { transactionId: t.transactionId },
+          { transactionId: t.transactionId, orgId: req.orgId },
           { $setOnInsert: { ...t, renterId: renter.phone, orgId: req.orgId } },
           { upsert: true }
         )

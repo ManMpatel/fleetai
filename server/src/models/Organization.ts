@@ -42,6 +42,14 @@ export interface IOrganization extends Document {
     enabled?: boolean
   }
 
+  // Mobile Message account used for onboarding links and payment-decline notices.
+  sms?: {
+    username?: string
+    passwordEnc?: string
+    sender?: string
+    enabled?: boolean
+  }
+
   // ── Workshop tablet device token (hash only — raw token shown once) ──
   tabletTokenHash?: string
 }
@@ -80,6 +88,13 @@ const organizationSchema = new Schema<IOrganization>({
     address:         { type: String },
     refreshTokenEnc: { type: String },
     enabled:         { type: Boolean, default: false },
+  },
+
+  sms: {
+    username:    { type: String },
+    passwordEnc: { type: String },
+    sender:      { type: String },
+    enabled:     { type: Boolean, default: false },
   },
 
   tabletTokenHash: { type: String, index: true, sparse: true },

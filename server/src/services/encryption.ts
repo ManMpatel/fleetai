@@ -10,9 +10,14 @@ function loadKey(): Buffer {
   const bytes = Buffer.from(raw, 'utf8')
   if (bytes.length < 32) {
     throw new Error(
-      'ENCRYPTION_KEY is missing or shorter than 32 bytes. Set it in the server ' +
-      'environment before starting — renter bank details and tenant API credentials ' +
-      'are encrypted with it.'
+      `ENCRYPTION_KEY is ${raw ? `${bytes.length} bytes — it must be at least 32` : 'not set'}.\n\n` +
+      '      Renter bank details, licence and passport numbers, and every tenant PayWay,\n' +
+      '      WhatsApp, Gmail and SMS credential are encrypted with it.\n\n' +
+      '      This used to fall back to a literal baked into this file, so a deployment that\n' +
+      '      never set the variable has data encrypted with that default. Recover it with:\n' +
+      '        git show fc6ad67:server/src/services/encryption.ts\n' +
+      '      and set ENCRYPTION_KEY to exactly that string — this is not the place to pick a\n' +
+      '      new key, because existing data would become unreadable.'
     )
   }
   // Derivation must stay byte-identical to the original implementation: existing

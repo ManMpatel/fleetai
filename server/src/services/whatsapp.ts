@@ -9,6 +9,7 @@ import Organization, { IOrganization } from '../models/Organization'
 import { decrypt } from './encryption'
 import { pauseDebit, paywayCredsFor } from './payway'
 import { scopedPopulate } from '../models/plugins/tenantScope'
+import { isLegacyOrg, legacyOrgEmail, legacyWhatsApp } from '../config/legacyTenant'
 
 const router = Router()
 
@@ -114,6 +115,31 @@ export function parseInbound(body: any): InboundMessage | null {
   return null
 }
 
+/**
+ * Resolved WhatsApp credentials for a tenant.
+ *
+ * The founding operator's number and token are still environment variables, so the one
+ * organisation named by LEGACY_ORG_EMAIL falls back to them. Everyone else must connect
+ * their own number in Settings, or have the platform admin enter it for them.
+ */
+export function whatsappCredsFor(org: IOrganization): { phoneId: string; token: string } | null {
+  const phoneId = org.whatsapp?.phoneId
+  const token = org.whatsapp?.tokenEnc ? decrypt(org.whatsapp.tokenEnc) : null
+  if (phoneId && token) return { phoneId, token }
+
+  if (isLegacyOrg(org)) {
+    const env = legacyWhatsApp()
+    if (env) return { phoneId: phoneId || env.phoneId, token: token || env.token }
+  }
+  return null
+}
+
+/** True when this tenant may send and receive — stored config, or the legacy env pair. */
+export function whatsappActiveFor(org: IOrganization): boolean {
+  if (org.whatsapp?.enabled && org.whatsapp.tokenEnc) return true
+  return isLegacyOrg(org) && !!legacyWhatsApp()
+}
+
 /** Finds the tenant that owns the business number this message was sent to. */
 async function resolveTenant(inbound: InboundMessage): Promise<IOrganization | null> {
   if (inbound.phoneId) {
@@ -125,21 +151,35 @@ async function resolveTenant(inbound: InboundMessage): Promise<IOrganization | n
     const byNumber = await Organization.findOne({ 'whatsapp.phoneId': digits })
     if (byNumber) return byNumber
   }
+
+  // The founding operator's number is configured in the environment rather than on their
+  // organisation record, so it will not match either lookup above.
+  const env = legacyWhatsApp()
+  const legacyEmail = legacyOrgEmail()
+  if (env && legacyEmail) {
+    const matchesEnv =
+      inbound.phoneId === env.phoneId ||
+      (!!inbound.to && inbound.to.replace(/[^0-9]/g, '') === env.phoneId.replace(/[^0-9]/g, ''))
+    // Twilio-shaped payloads carry no phone_number_id at all; with the fallback configured
+    // there is exactly one tenant it can belong to.
+    if (matchesEnv || (!inbound.phoneId && !inbound.to)) {
+      return Organization.findOne({ email: legacyEmail })
+    }
+  }
   return null
 }
 
 function whatsappToken(org: IOrganization): string | null {
-  return org.whatsapp?.tokenEnc ? decrypt(org.whatsapp.tokenEnc) : null
+  return whatsappCredsFor(org)?.token ?? null
 }
 
 // ── Send WhatsApp message on behalf of a tenant ────────────
 export async function sendWhatsAppText(org: IOrganization, to: string, body: string): Promise<void> {
-  const token = whatsappToken(org)
-  const phoneId = org.whatsapp?.phoneId
-
-  if (!token || !phoneId) {
+  const creds = whatsappCredsFor(org)
+  if (!creds) {
     throw new Error('WhatsApp is not connected for this organisation')
   }
+  const { token, phoneId } = creds
 
   const cleanTo = to.replace('whatsapp:', '').replace('+', '')
 
@@ -479,7 +519,7 @@ router.post('/incoming', async (req: Request, res: Response) => {
     console.warn('⚠️  WhatsApp message for an unrecognised business number — ignoring')
     return
   }
-  if (org.status !== 'approved' || !org.whatsapp?.enabled) {
+  if (org.status !== 'approved' || !whatsappActiveFor(org)) {
     console.warn(`⚠️  WhatsApp message for ${org.email} but the integration is not active`)
     return
   }

@@ -1,6 +1,6 @@
 # FleetAI
 
-FleetAI is a full-stack, multi-tenant fleet and renter management platform designed for vehicle rental businesses. Each operator (organisation) manages its own renters, vehicles, payments, service history, and onboarding workflows from a single dashboard, with its own PayWay, WhatsApp, and Gmail credentials.
+FleetAI is a full-stack, multi-tenant fleet and renter management platform designed for vehicle rental businesses. Each operator (organisation) manages its own renters, vehicles, payments, service history, and onboarding workflows from a single dashboard, with its own PayWay, WhatsApp, email and SMS credentials.
 
 Data is isolated per organisation: every record carries an `orgId`, and every request derives its tenant from the verified Auth0 token. See [MIGRATION.md](MIGRATION.md) if you are upgrading from the single-tenant version.
 
@@ -176,10 +176,30 @@ GMAIL_CLIENT_SECRET=
 
 APP_URL=                # base for renter onboarding links
 CORS_ORIGINS=           # comma-separated allowlist
+
+# Founding operator only. Binds the PayWay/WhatsApp/Gmail/SMS variables below to the ONE
+# organisation with this login email. Every other tenant must supply its own credentials.
+LEGACY_ORG_EMAIL=
+
+PAYWAY_SECRET_KEY=
+PAYWAY_PUBLISHABLE_KEY=
+PAYWAY_MERCHANT_ID=
+PAYWAY_BANK_ACCOUNT_ID=
+WHATSAPP_PHONE_ID=
+WHATSAPP_TOKEN=
+GMAIL_REFRESH_TOKEN=
+SMS_API_USERNAME=
+SMS_API_PASSWORD=
 ```
 
-PayWay and WhatsApp credentials are **per tenant**, not environment variables. Each
-operator enters their own from the dashboard under **Settings**.
+PayWay, WhatsApp, fine/toll email and SMS credentials are **per tenant**, not environment
+variables. Each operator enters their own under **Settings**, or the platform admin enters
+them for a new client from **Admin → Owners → Credentials**.
+
+The block above is the single exception, kept so the founding operator's live integrations
+did not break when tenancy was introduced. It resolves for that one organisation only, and
+anything saved through the UI overrides it field by field — see
+[MIGRATION.md](MIGRATION.md) step 2a.
 
 ---
 
@@ -263,7 +283,7 @@ Sensitive information such as:
 * Passport numbers
 * Licence numbers
 
-is encrypted using **AES‑256 encryption** before being stored in MongoDB, along with each tenant's PayWay, WhatsApp, and Gmail credentials.
+is encrypted using **AES‑256 encryption** before being stored in MongoDB, along with each tenant's PayWay, WhatsApp, Gmail and SMS credentials.
 
 The values are decrypted only when required for external services such as PayWay.
 
@@ -295,6 +315,15 @@ POST /api/upload/fine
 POST /api/upload/document
 POST /api/upload/read-licence
 POST /api/upload/read-rego-bulk
+```
+
+Platform operator only (super admin):
+
+```
+GET  /api/admin/owners                     # tenants, with a per-integration setup summary
+PATCH /api/admin/owners/:email/approve
+PUT  /api/admin/owners/:email/credentials  # set a client's PayWay / WhatsApp / Gmail / SMS
+GET  /api/admin/stats
 ```
 
 Public (tenant resolved server-side, never from the caller):

@@ -26,6 +26,8 @@ import { checkExpiringDates, checkPaymentStatus } from './services/rag'
 import { runMongoBackup } from './services/backup'
 import { checkGmailForFines } from './services/gmail'
 import { requireAuth, requireAdmin } from './middleware/auth'
+import { describeLegacyConfig, legacyOrgEmail, legacyPayWay, legacyWhatsApp } from './config/legacyTenant'
+import { assertEncryptionKeyMatchesStoredData } from './services/encryptionCheck'
 import {
   requireTenant,
   registerOrganization,
@@ -144,12 +146,19 @@ app.use('/api/renters', renterRoutes)
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes)
 
 // ── Health check ────────────────────────────────────────────
+// Reports platform-level wiring only. WhatsApp, Gmail and PayWay are per tenant now, so
+// these flags describe the shared OAuth app and the founding operator's env fallback —
+// not whether any given tenant has finished connecting their own account.
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     services: {
       gemini: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_key_here',
+      gmail: !!(process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET),
+      whatsapp: !!legacyWhatsApp(),
+      payway: !!legacyPayWay(),
+      legacyOrg: legacyOrgEmail(),
     },
   })
 })
@@ -157,15 +166,21 @@ app.get('/api/health', (_req, res) => {
 // ── MongoDB + server start ──────────────────────────────────
 mongoose
   .connect(MONGO_URI, { dbName: 'fleetai' })
-  .then(() => {
+  .then(async () => {
     console.log('✅ MongoDB connected')
+
+    // Before accepting any traffic, prove the configured key can read what is already
+    // stored. Serving with a mismatched key means every renter, credential and bank
+    // account read throws — better to refuse to start and say why.
+    await assertEncryptionKeyMatchesStoredData()
 
     app.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`🚀 FleetAI server running on http://localhost:${PORT}`)
       console.log(`   Gemini:  ${process.env.GEMINI_API_KEY !== 'your_key_here' ? '✅' : '❌ not configured'}`)
-      if (!process.env.SUPER_ADMIN_EMAIL) {
-        console.warn('   ⚠️  SUPER_ADMIN_EMAIL not set — platform admin routes are closed to everyone')
+      if (!process.env.SUPER_ADMIN_EMAIL && !process.env.SUPER_ADMIN_AUTH0_ID) {
+        console.warn('   ⚠️  SUPER_ADMIN_EMAIL / SUPER_ADMIN_AUTH0_ID not set — platform admin routes are closed to everyone')
       }
+      for (const line of describeLegacyConfig()) console.log(`   ${line}`)
     })
 
     // ── Cron jobs ─────────────────────────────────────────
@@ -286,6 +301,13 @@ mongoose
     checkExpiringDates().catch(console.error)
   })
   .catch((err) => {
-    console.error('❌ MongoDB connection error:', err)
+    // Startup now covers two things: connecting, and proving the encryption key reads the
+    // data. Labelling a key mismatch as a connection error would send someone to the wrong
+    // dashboard for an hour.
+    if (err instanceof Error && err.message.startsWith('ENCRYPTION_KEY')) {
+      console.error(`\n❌ Refusing to start — ${err.message}\n`)
+    } else {
+      console.error('❌ MongoDB connection error:', err)
+    }
     process.exit(1)
   })

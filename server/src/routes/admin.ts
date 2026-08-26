@@ -4,6 +4,7 @@ import Organization from '../models/Organization'
 import Renter from '../models/Renter'
 import Vehicle from '../models/Vehicle'
 import ServiceRecord from '../models/ServiceRecord'
+import { encrypt } from '../services/encryption'
 
 // Platform operator routes. Mounted behind requireAuth + requireAdmin, which keys on the
 // email claim inside the verified JWT. Previously this trusted an x-owner-email header,
@@ -26,13 +27,127 @@ async function getManagementToken() {
   return data.access_token
 }
 
+// Fields safe to hand to the admin dashboard. Ciphertext and the tablet token hash are
+// deliberately excluded — the admin decides whether a credential is set, never reads it.
+const OWNER_PROJECTION =
+  '_id email name picture status approvedAt createdAt displayName slug auth0Id ' +
+  'payway.merchantId payway.bankAccountId payway.secretKeyEnc payway.publishableKeyEnc ' +
+  'whatsapp.phoneId whatsapp.enabled whatsapp.tokenEnc ' +
+  'gmail.address gmail.enabled gmail.refreshTokenEnc ' +
+  'sms.username sms.sender sms.enabled sms.passwordEnc tabletTokenHash'
+
+/** Collapses every secret to a boolean before the record leaves the server. */
+function ownerSummary(org: any) {
+  return {
+    _id: org._id,
+    email: org.email,
+    name: org.name,
+    picture: org.picture,
+    status: org.status,
+    approvedAt: org.approvedAt,
+    createdAt: org.createdAt,
+    displayName: org.displayName || org.name || org.email,
+    slug: org.slug || null,
+    hasAuth0Id: !!org.auth0Id,
+    credentials: {
+      payway: {
+        configured: !!org.payway?.secretKeyEnc,
+        merchantId: org.payway?.merchantId || null,
+        bankAccountId: org.payway?.bankAccountId || null,
+      },
+      whatsapp: {
+        configured: !!org.whatsapp?.tokenEnc,
+        phoneId: org.whatsapp?.phoneId || null,
+        enabled: !!org.whatsapp?.enabled,
+      },
+      gmail: {
+        configured: !!org.gmail?.refreshTokenEnc,
+        address: org.gmail?.address || null,
+        enabled: !!org.gmail?.enabled,
+      },
+      sms: {
+        configured: !!org.sms?.passwordEnc,
+        username: org.sms?.username || null,
+        sender: org.sms?.sender || null,
+        enabled: !!org.sms?.enabled,
+      },
+      tabletLinked: !!org.tabletTokenHash,
+    },
+  }
+}
+
 // GET /api/admin/owners
 router.get('/owners', async (_req: Request, res: Response) => {
   try {
-    const orgs = await Organization.find().sort({ createdAt: -1 })
-    res.json(orgs)
+    const orgs = await Organization.find().select(OWNER_PROJECTION).sort({ createdAt: -1 })
+    res.json(orgs.map(ownerSummary))
   } catch (err: any) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * PUT /api/admin/owners/:email/credentials
+ *
+ * The platform operator onboards a new client by entering that client's own PayWay,
+ * WhatsApp, Gmail and SMS credentials here. Secrets are encrypted on write and are never
+ * readable again through the API — a blank field means "leave whatever is stored alone",
+ * which is what makes the form safe to re-open and edit.
+ */
+router.put('/owners/:email/credentials', async (req: Request, res: Response) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase()
+    const org = await Organization.findOne({ email })
+    if (!org) return res.status(404).json({ error: 'Organization not found' })
+
+    const { payway, whatsapp, gmail, sms } = req.body as Record<string, any>
+    const set: Record<string, unknown> = {}
+
+    if (payway) {
+      if (payway.merchantId !== undefined) set['payway.merchantId'] = String(payway.merchantId).trim()
+      if (payway.bankAccountId !== undefined) set['payway.bankAccountId'] = String(payway.bankAccountId).trim() || '0000000A'
+      if (payway.secretKey) set['payway.secretKeyEnc'] = encrypt(String(payway.secretKey).trim())
+      if (payway.publishableKey) set['payway.publishableKeyEnc'] = encrypt(String(payway.publishableKey).trim())
+    }
+
+    if (whatsapp) {
+      if (whatsapp.phoneId !== undefined) {
+        const phoneId = String(whatsapp.phoneId).trim()
+        if (phoneId) {
+          // The inbound webhook routes on this value, so it must identify one tenant.
+          const clash = await Organization.findOne({ 'whatsapp.phoneId': phoneId })
+          if (clash && !clash._id.equals(org._id)) {
+            return res.status(409).json({ error: 'That WhatsApp number is already connected to another organisation' })
+          }
+        }
+        set['whatsapp.phoneId'] = phoneId
+      }
+      if (whatsapp.token) set['whatsapp.tokenEnc'] = encrypt(String(whatsapp.token).trim())
+      if (whatsapp.enabled !== undefined) set['whatsapp.enabled'] = !!whatsapp.enabled
+    }
+
+    if (gmail) {
+      if (gmail.address !== undefined) set['gmail.address'] = String(gmail.address).trim()
+      if (gmail.refreshToken) set['gmail.refreshTokenEnc'] = encrypt(String(gmail.refreshToken).trim())
+      if (gmail.enabled !== undefined) set['gmail.enabled'] = !!gmail.enabled
+    }
+
+    if (sms) {
+      if (sms.username !== undefined) set['sms.username'] = String(sms.username).trim()
+      if (sms.sender !== undefined) set['sms.sender'] = String(sms.sender).trim()
+      if (sms.password) set['sms.passwordEnc'] = encrypt(String(sms.password).trim())
+      if (sms.enabled !== undefined) set['sms.enabled'] = !!sms.enabled
+    }
+
+    if (Object.keys(set).length === 0) {
+      return res.status(400).json({ error: 'Nothing to update' })
+    }
+
+    const updated = await Organization.findByIdAndUpdate(org._id, { $set: set }, { new: true })
+      .select(OWNER_PROJECTION)
+    res.json(ownerSummary(updated))
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
   }
 })
 
@@ -42,9 +157,9 @@ async function setStatus(req: Request, res: Response, update: Record<string, unk
       { email: decodeURIComponent(req.params.email) },
       update,
       { new: true }
-    )
+    ).select(OWNER_PROJECTION)
     if (!org) return res.status(404).json({ error: 'Organization not found' })
-    res.json(org)
+    res.json(ownerSummary(org))
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -126,7 +241,7 @@ router.post('/sync-all-transactions', async (_req: Request, res: Response) => {
         let saved = 0
         for (const t of txns) {
           const r = await Transaction.updateOne(
-            { transactionId: t.transactionId },
+            { transactionId: t.transactionId, orgId: renter.orgId },
             { $setOnInsert: { ...t, renterId: renter.phone, orgId: renter.orgId } },
             { upsert: true }
           )

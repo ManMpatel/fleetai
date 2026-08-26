@@ -170,6 +170,7 @@ export async function checkPaymentStatus(): Promise<void> {
   try {
     const { paywayCredsFor, fetchAllTransactions, getCustomerSchedule } = await import('./payway')
     const { sendWhatsAppText } = await import('./whatsapp')
+    const { sendSMS, smsConfiguredFor } = await import('./sms')
     const Organization = (await import('../models/Organization')).default
     const Transaction = (await import('../models/Transaction')).default
 
@@ -199,7 +200,13 @@ export async function checkPaymentStatus(): Promise<void> {
         continue
       }
 
-      const latest = payments[0]
+      // PayWay returns transactions in its own order and paging appends to the tail, so
+      // payments[0] is not necessarily the newest. Deciding "declined" off the wrong row
+      // notifies the operator and messages the renter about a payment that is long
+      // settled, so the newest is picked explicitly.
+      const latest = payments.reduce((newest, t) =>
+        Number(t.transactionId) > Number(newest.transactionId) ? t : newest
+      )
       const latestDate = latest.date ? new Date(latest.date) : null
 
       // Only process if the latest transaction is on or after the due date
@@ -209,8 +216,11 @@ export async function checkPaymentStatus(): Promise<void> {
       }
 
       if (latest.transactionId) {
+        // PayWay transaction ids are sequential per merchant, so two tenants genuinely
+        // can hold the same id. The filter must carry orgId or one tenant's row blocks
+        // the other's from ever being inserted.
         await Transaction.updateOne(
-          { transactionId: latest.transactionId },
+          { transactionId: latest.transactionId, orgId: renter.orgId },
           { $setOnInsert: { ...latest, renterId: renter.phone, orgId: renter.orgId } },
           { upsert: true }
         )
@@ -242,15 +252,18 @@ export async function checkPaymentStatus(): Promise<void> {
         })
         console.log(`❌ Payment declined for ${renter.name} — notification created`)
 
+        // SMS was the original channel for this notice; WhatsApp covers tenants without
+        // an SMS account. A failure here must never abort the sweep for other renters.
+        const firstName = renter.name.split(' ')[0]
+        const notice = `Hi ${firstName}, your weekly payment of $${latest.amount} has been declined. Please contact us ASAP.`
         try {
-          const firstName = renter.name.split(' ')[0]
-          await sendWhatsAppText(
-            org,
-            renter.phone.replace(/^0/, '61'),
-            `Hi ${firstName}, your weekly payment of $${latest.amount} has been declined. Please contact us ASAP.`
-          )
-        } catch (waErr: any) {
-          console.error(`⚠️ WhatsApp decline notice failed for ${renter.name}:`, waErr.message)
+          if (smsConfiguredFor(org)) {
+            await sendSMS(org, renter.phone, notice)
+          } else {
+            await sendWhatsAppText(org, renter.phone.replace(/^0/, '61'), notice)
+          }
+        } catch (notifyErr: any) {
+          console.error(`⚠️ Decline notice failed for ${renter.name}:`, notifyErr.message)
         }
       }
     }

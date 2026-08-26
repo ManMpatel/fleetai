@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { decrypt } from './encryption'
+import { isLegacyOrg, legacyPayWay } from '../config/legacyTenant'
 import type { IOrganization } from '../models/Organization'
 
 const PAYWAY_BASE = 'https://api.payway.com.au/rest/v1'
@@ -16,14 +17,35 @@ export interface PayWayCreds {
   bankAccountId?: string
 }
 
-/** Decrypts a tenant's stored PayWay credentials. */
+/**
+ * Decrypts a tenant's stored PayWay credentials.
+ *
+ * The founding operator's keys still live in the server environment, so that ONE
+ * organisation — the one named by LEGACY_ORG_EMAIL — falls back to them field by field
+ * when it has nothing stored. Anything it later saves in the dashboard takes precedence.
+ * No other tenant ever reaches the environment; their debits must settle into their own
+ * merchant account, not this one.
+ */
 export function paywayCredsFor(org: IOrganization): PayWayCreds {
-  return {
+  const stored: PayWayCreds = {
     secretKey: org.payway?.secretKeyEnc ? decrypt(org.payway.secretKeyEnc) : undefined,
     publishableKey: org.payway?.publishableKeyEnc ? decrypt(org.payway.publishableKeyEnc) : undefined,
-    merchantId: org.payway?.merchantId,
-    bankAccountId: org.payway?.bankAccountId || '0000000A',
+    merchantId: org.payway?.merchantId || undefined,
+    bankAccountId: org.payway?.bankAccountId || undefined,
   }
+
+  if (isLegacyOrg(org)) {
+    const env = legacyPayWay()
+    if (env) {
+      stored.secretKey ||= env.secretKey
+      stored.publishableKey ||= env.publishableKey
+      stored.merchantId ||= env.merchantId
+      stored.bankAccountId ||= env.bankAccountId
+    }
+  }
+
+  stored.bankAccountId ||= '0000000A'
+  return stored
 }
 
 function secretAuthHeader(creds: PayWayCreds) {

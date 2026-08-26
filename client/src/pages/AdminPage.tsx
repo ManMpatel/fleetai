@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useStore } from '../store/useStore'
+import OrgCredentialsModal, { type CredentialOwner, type OrgCredentials } from './admin/OrgCredentialsModal'
 
 interface Auth0User {
   user_id: string
@@ -12,13 +13,17 @@ interface Auth0User {
   blocked: boolean
 }
 
-interface Owner {
+interface Owner extends CredentialOwner {
   _id: string
   email: string
   name: string
   picture?: string
   status: 'pending' | 'approved' | 'rejected'
   createdAt: string
+  displayName?: string
+  slug?: string | null
+  hasAuth0Id?: boolean
+  credentials?: OrgCredentials
 }
 
 interface LogEntry {
@@ -51,6 +56,31 @@ interface Stats {
   }>
 }
 
+/** At-a-glance view of what a client still has to have configured before they can trade. */
+function SetupBadges({ owner }: { owner: Owner }) {
+  const c = owner.credentials
+  const items: Array<[string, boolean]> = [
+    ['PayWay', !!c?.payway.configured],
+    ['WhatsApp', !!c?.whatsapp.configured],
+    ['Email', !!c?.gmail.configured],
+    ['SMS', !!c?.sms.configured],
+    ['Link', !!owner.slug],
+  ]
+  return (
+    <div className="flex gap-1 flex-wrap">
+      {items.map(([name, ok]) => (
+        <span key={name}
+              title={ok ? `${name} configured` : `${name} not configured`}
+              className={`text-[10px] px-1.5 py-0.5 rounded ${
+                ok ? 'bg-green-bg text-green' : 'bg-surface2 text-text-muted'
+              }`}>
+          {name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export default function AdminPage() {
   // Whether this user is the platform operator is decided by the server from the
   // verified token, not by comparing against an email baked into the bundle.
@@ -64,6 +94,9 @@ export default function AdminPage() {
   const [owners, setOwners] = useState<Owner[]>([])
   const [stats, setStats]   = useState<Stats | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'owners' | 'users' | 'logs'>('overview')
+  // Opened from an owner row, and automatically right after Approve — a newly approved
+  // client cannot take a payment or send a message until these are filled in.
+  const [credentialsFor, setCredentialsFor] = useState<Owner | null>(null)
 
   if (!isSuperAdmin) {
     return (
@@ -125,11 +158,13 @@ export default function AdminPage() {
   const blockedCount = users.filter(u => u.blocked).length
   const pendingOwners = owners.filter(o => o.status === 'pending').length
 
+  // Platform-level wiring only. WhatsApp, PayWay and email are per client now, so their
+  // per-client state lives in the Setup column of the Owners tab, not here.
   const services = [
     { name: 'Railway server', ok: !!health },
     { name: 'MongoDB',        ok: !!health },
     { name: 'Gemini AI',      ok: !!health?.services?.gemini },
-    { name: 'WhatsApp',       ok: !!(health?.services?.whatsapp) },
+    { name: 'Gmail OAuth app', ok: !!health?.services?.gmail },
   ]
 
   return (
@@ -288,7 +323,7 @@ export default function AdminPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface2">
-                    {['Owner', 'Email', 'Requested', 'Status', 'Actions'].map(h => (
+                    {['Owner', 'Email', 'Requested', 'Status', 'Setup', 'Actions'].map(h => (
                       <th key={h} className="px-4 py-2.5 text-left text-xs text-text-muted font-medium">{h}</th>
                     ))}
                   </tr>
@@ -313,11 +348,18 @@ export default function AdminPage() {
                         }`}>{o.status}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex gap-2">
+                        <SetupBadges owner={o} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2 flex-wrap">
                           {o.status !== 'approved' && (
                             <button onClick={async () => {
-                              await axios.patch(`/api/admin/owners/${encodeURIComponent(o.email)}/approve`, {})
-                              setOwners(prev => prev.map(x => x._id === o._id ? { ...x, status: 'approved' } : x))
+                              const { data } = await axios.patch<Owner>(`/api/admin/owners/${encodeURIComponent(o.email)}/approve`, {})
+                              const approved = { ...o, ...data, status: 'approved' as const }
+                              setOwners(prev => prev.map(x => x._id === o._id ? approved : x))
+                              // Approval alone leaves them unable to charge or message —
+                              // go straight to their credentials.
+                              setCredentialsFor(approved)
                             }} className="text-xs px-3 py-1.5 rounded-lg border border-green/30 text-green hover:bg-green-bg">
                               Approve
                             </button>
@@ -338,6 +380,10 @@ export default function AdminPage() {
                               Revoke
                             </button>
                           )}
+                          <button onClick={() => setCredentialsFor(o)}
+                                  className="text-xs px-3 py-1.5 rounded-lg border border-border text-text-secondary hover:bg-surface2">
+                            Credentials
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -457,6 +503,19 @@ export default function AdminPage() {
         )}
 
       </div>
+
+      {credentialsFor && (
+        <OrgCredentialsModal
+          owner={credentialsFor}
+          onClose={() => setCredentialsFor(null)}
+          onSaved={updated => {
+            setOwners(prev => prev.map(x =>
+              x._id === updated._id ? { ...x, ...updated } as Owner : x
+            ))
+            setCredentialsFor(prev => prev ? { ...prev, ...updated } as Owner : prev)
+          }}
+        />
+      )}
     </div>
   )
 }

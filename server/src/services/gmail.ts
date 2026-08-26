@@ -26,6 +26,18 @@ import Notification from '../models/Notification'
 import Renter from '../models/Renter'
 import Organization, { IOrganization } from '../models/Organization'
 import { decrypt } from './encryption'
+import { isLegacyOrg, legacyGmailRefreshToken, legacyOrgEmail } from '../config/legacyTenant'
+
+/**
+ * The mailbox refresh token for a tenant. The founding operator's still lives in
+ * GMAIL_REFRESH_TOKEN, so that one organisation falls back to it; every other tenant
+ * connects its own mailbox, and a fine found there is matched only against its own fleet.
+ */
+export function gmailRefreshTokenFor(org: IOrganization): string | null {
+  if (org.gmail?.refreshTokenEnc) return decrypt(org.gmail.refreshTokenEnc)
+  if (isLegacyOrg(org)) return legacyGmailRefreshToken()
+  return null
+}
 
 function createOAuth2Client(refreshToken: string) {
   const client = new google.auth.OAuth2(
@@ -56,11 +68,15 @@ export async function checkGmailForFines(): Promise<void> {
     return
   }
 
-  const orgs = await Organization.find({
-    status: 'approved',
-    'gmail.enabled': true,
-    'gmail.refreshTokenEnc': { $exists: true, $ne: null },
-  })
+  const clauses: Record<string, unknown>[] = [
+    { 'gmail.enabled': true, 'gmail.refreshTokenEnc': { $exists: true, $ne: null } },
+  ]
+  // The founding operator's mailbox is configured in the environment, not on their
+  // organisation record, so they would otherwise be excluded from this sweep.
+  const legacyEmail = legacyOrgEmail()
+  if (legacyEmail && legacyGmailRefreshToken()) clauses.push({ email: legacyEmail })
+
+  const orgs = await Organization.find({ status: 'approved', $or: clauses })
 
   if (orgs.length === 0) {
     console.log('📭 No tenants have Gmail ingestion connected')
@@ -77,7 +93,8 @@ export async function checkGmailForFines(): Promise<void> {
 }
 
 async function checkGmailForOrg(org: IOrganization): Promise<void> {
-  const refreshToken = decrypt(org.gmail!.refreshTokenEnc!)
+  const refreshToken = gmailRefreshTokenFor(org)
+  if (!refreshToken) return
 
   try {
     const auth = createOAuth2Client(refreshToken)

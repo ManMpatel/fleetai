@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import { Types } from 'mongoose'
 import Organization, { IOrganization } from '../models/Organization'
 import { hash } from '../services/encryption'
+import { integrationStatus } from '../services/integrationStatus'
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -114,6 +115,7 @@ export async function requireTabletToken(req: Request, res: Response, next: Next
 
 /** The single payload the dashboard needs at boot: access state plus tenant branding. */
 function statusPayload(req: Request, org: IOrganization) {
+  const status = integrationStatus(org)
   return {
     status: org.status,
     email: org.email,
@@ -124,9 +126,10 @@ function statusPayload(req: Request, org: IOrganization) {
       slug: org.slug || null,
       timezone: org.timezone,
       currency: org.currency,
-      paywayConfigured: !!org.payway?.secretKeyEnc,
-      whatsappConfigured: !!org.whatsapp?.tokenEnc,
-      gmailConfigured: !!org.gmail?.refreshTokenEnc,
+      paywayConfigured: status.payway.configured,
+      whatsappConfigured: status.whatsapp.configured,
+      gmailConfigured: status.gmail.configured,
+      smsConfigured: status.sms.configured,
       tabletLinked: !!org.tabletTokenHash,
     },
   }
