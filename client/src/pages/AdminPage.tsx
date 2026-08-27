@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import axios from 'axios'
 import { useStore } from '../store/useStore'
 import OrgCredentialsModal, { type CredentialOwner, type OrgCredentials } from './admin/OrgCredentialsModal'
+import CreateUserModal from './admin/CreateUserModal'
 
 interface Auth0User {
   user_id: string
@@ -95,9 +96,11 @@ export default function AdminPage() {
   const [owners, setOwners] = useState<Owner[]>([])
   const [stats, setStats]   = useState<Stats | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'owners' | 'users' | 'logs'>('overview')
-  // Opened from an owner row, and automatically right after Approve — a newly approved
-  // client cannot take a payment or send a message until these are filled in.
+  // Opened from an owner row, and automatically right after Approve or after a client is
+  // created — a new client cannot take a payment or send a message until these are filled in.
   const [credentialsFor, setCredentialsFor] = useState<Owner | null>(null)
+  const [creatingUser, setCreatingUser] = useState(false)
+  const [removing, setRemoving] = useState<string | null>(null)
 
   if (!isSuperAdmin) {
     return (
@@ -151,6 +154,30 @@ export default function AdminPage() {
         u.user_id === userId ? { ...u, blocked: !currentlyBlocked } : u
       ))
     } finally { setBlocking(null) }
+  }
+
+  /**
+   * Deletes the Auth0 login and revokes the organisation. Their fleet data is kept — the
+   * server never drops the organisation record, so this is recoverable.
+   */
+  async function removeUser(userId: string, email: string) {
+    const ok = window.confirm(
+      `Remove ${email}?\n\n` +
+      `Their login is deleted and their access revoked. Renters, vehicles and service ` +
+      `history are kept, and access can be restored by creating a new login for this address.`
+    )
+    if (!ok) return
+
+    setRemoving(userId)
+    try {
+      await axios.delete(`/api/admin/users/${encodeURIComponent(userId)}`)
+      setUsers(prev => prev.filter(u => u.user_id !== userId))
+      fetchData()
+    } catch (err: any) {
+      window.alert(err.response?.data?.error || 'Could not remove that user')
+    } finally {
+      setRemoving(null)
+    }
   }
 
   const activeToday = users.filter(u =>
@@ -404,7 +431,15 @@ export default function AdminPage() {
           <div className="bg-surface border border-border rounded-xl overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
               <h2 className="text-sm font-semibold text-text-primary">Auth0 users</h2>
-              <span className="text-xs text-text-muted">{users.length} total · {blockedCount} blocked</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-text-muted">{users.length} total · {blockedCount} blocked</span>
+                <button
+                  onClick={() => setCreatingUser(true)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-accent text-white font-medium"
+                >
+                  + Add user
+                </button>
+              </div>
             </div>
             {loading ? (
               <div className="p-8 text-center text-text-muted text-sm">Loading...</div>
@@ -440,17 +475,26 @@ export default function AdminPage() {
                       </td>
                       <td className="px-4 py-3">
                         {u.email !== session?.email && (
-                          <button
-                            onClick={() => toggleBlock(u.user_id, u.blocked)}
-                            disabled={blocking === u.user_id}
-                            className={`text-xs px-3 py-1.5 rounded-lg border disabled:opacity-40 ${
-                              u.blocked
-                                ? 'border-green/30 text-green hover:bg-green-bg'
-                                : 'border-red/30 text-red hover:bg-red-bg'
-                            }`}
-                          >
-                            {blocking === u.user_id ? '...' : u.blocked ? 'Unblock' : 'Block'}
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => toggleBlock(u.user_id, u.blocked)}
+                              disabled={blocking === u.user_id}
+                              className={`text-xs px-3 py-1.5 rounded-lg border disabled:opacity-40 ${
+                                u.blocked
+                                  ? 'border-green/30 text-green hover:bg-green-bg'
+                                  : 'border-red/30 text-red hover:bg-red-bg'
+                              }`}
+                            >
+                              {blocking === u.user_id ? '...' : u.blocked ? 'Unblock' : 'Block'}
+                            </button>
+                            <button
+                              onClick={() => removeUser(u.user_id, u.email)}
+                              disabled={removing === u.user_id}
+                              className="text-xs px-3 py-1.5 rounded-lg border border-red/30 text-red hover:bg-red-bg disabled:opacity-40"
+                            >
+                              {removing === u.user_id ? '...' : 'Remove'}
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -508,6 +552,19 @@ export default function AdminPage() {
         )}
 
       </div>
+
+      {creatingUser && (
+        <CreateUserModal
+          onClose={() => setCreatingUser(false)}
+          onCreated={owner => {
+            // Straight into the credentials form: the client exists but can do nothing
+            // until their PayWay and messaging keys are entered.
+            setCreatingUser(false)
+            setCredentialsFor(owner as Owner)
+            fetchData()
+          }}
+        />
+      )}
 
       {credentialsFor && (
         <OrgCredentialsModal

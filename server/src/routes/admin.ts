@@ -14,6 +14,16 @@ const router = Router()
 // Platform-wide aggregates are legitimately cross-tenant; per-tenant counts below are not.
 const platformWide = { allowCrossTenant: true }
 
+// The Auth0 database connection new client logins are created in. Override only if the
+// Auth0 tenant renamed it away from the default.
+const DB_CONNECTION = process.env.AUTH0_DB_CONNECTION || 'Username-Password-Authentication'
+
+/** The operator's own login is not removable through the UI they are removing it from. */
+function isPlatformOperator(email: string) {
+  const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || '').toLowerCase()
+  return !!superAdminEmail && email.toLowerCase() === superAdminEmail
+}
+
 async function getManagementToken() {
   const { data } = await axios.post(
     `https://${process.env.AUTH0_DOMAIN}/oauth/token`,
@@ -199,6 +209,123 @@ router.patch('/users/:userId', async (req, res) => {
     res.json(data)
   } catch (err: any) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * POST /api/admin/users — onboard a client in one step.
+ *
+ * Creates the Auth0 login they sign in with plus the Organization record every
+ * tenant-scoped query keys on, and approves it: the operator making this call is the same
+ * person who would otherwise approve the request from the Owners tab.
+ *
+ * Credentials are deliberately NOT accepted here. The dashboard opens the credentials form
+ * against the returned organisation straight after, so every secret travels through the one
+ * route that encrypts it.
+ */
+router.post('/users', async (req: Request, res: Response) => {
+  try {
+    const email    = String((req.body as any).email || '').trim().toLowerCase()
+    const name     = String((req.body as any).name || '').trim()
+    const password = String((req.body as any).password || '')
+
+    if (!email.includes('@'))  return res.status(400).json({ error: 'A valid email is required' })
+    if (password.length < 8)   return res.status(400).json({ error: 'Password must be at least 8 characters' })
+
+    const existing = await Organization.findOne({ email })
+    if (existing) return res.status(409).json({ error: 'An organisation with that email already exists' })
+
+    const token = await getManagementToken()
+
+    let auth0User: any
+    try {
+      const { data } = await axios.post(
+        `https://${process.env.AUTH0_DOMAIN}/api/v2/users`,
+        {
+          email,
+          name: name || email,
+          password,
+          connection: DB_CONNECTION,
+          email_verified: false,
+          verify_email: false,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      auth0User = data
+    } catch (err: any) {
+      // Auth0 states the actual reason — password policy, address already taken. Passing it
+      // through is the difference between an operator fixing it and guessing at it.
+      const detail = err.response?.data?.message || err.response?.data?.error || err.message
+      return res.status(err.response?.status === 409 ? 409 : 400).json({ error: detail })
+    }
+
+    try {
+      const org = await Organization.create({
+        email,
+        name: name || email,
+        displayName: name || email,
+        auth0Id: auth0User.user_id,
+        status: 'approved',
+        approvedAt: new Date(),
+      })
+      const created = await Organization.findById(org._id).select(OWNER_PROJECTION)
+      res.status(201).json({ user: auth0User, owner: ownerSummary(created) })
+    } catch (err: any) {
+      // A login with no tenancy behind it can sign in and reach nothing. Roll it back
+      // rather than leaving the operator to find the orphan in the Auth0 dashboard.
+      await axios.delete(
+        `https://${process.env.AUTH0_DOMAIN}/api/v2/users/${encodeURIComponent(auth0User.user_id)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      ).catch(() => {})
+      res.status(500).json({ error: `Login created but organisation failed: ${err.message}` })
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * DELETE /api/admin/users/:userId — remove a client's access.
+ *
+ * Deletes the Auth0 login and revokes the organisation. The organisation record and
+ * everything scoped to it — renters, vehicles, services, transactions — is deliberately
+ * kept: dropping it would orphan that data with no way back. Creating a fresh login for
+ * the same email and re-approving from the Owners tab restores access to it.
+ */
+router.delete('/users/:userId', async (req: Request, res: Response) => {
+  try {
+    const userId = decodeURIComponent(req.params.userId)
+    const token = await getManagementToken()
+
+    const { data: target } = await axios.get(
+      `https://${process.env.AUTH0_DOMAIN}/api/v2/users/${encodeURIComponent(userId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+
+    const email = String(target?.email || '').toLowerCase()
+    if (isPlatformOperator(email)) {
+      return res.status(400).json({ error: 'The platform administrator account cannot be removed here' })
+    }
+
+    await axios.delete(
+      `https://${process.env.AUTH0_DOMAIN}/api/v2/users/${encodeURIComponent(userId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+
+    // auth0Id is cleared too, so a later login for this address cannot resolve to a
+    // tenancy the operator has just closed.
+    const org = email
+      ? await Organization.findOneAndUpdate(
+          { email },
+          { $set: { status: 'rejected' }, $unset: { auth0Id: 1, approvedAt: 1 } },
+          { new: true }
+        ).select(OWNER_PROJECTION)
+      : null
+
+    res.json({ removed: userId, owner: org ? ownerSummary(org) : null })
+  } catch (err: any) {
+    const detail = err.response?.data?.message || err.message
+    res.status(err.response?.status === 404 ? 404 : 500).json({ error: detail })
   }
 })
 
