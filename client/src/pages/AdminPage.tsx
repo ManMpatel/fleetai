@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import axios from 'axios'
 import { useStore } from '../store/useStore'
 import OrgCredentialsModal, { type CredentialOwner, type OrgCredentials } from './admin/OrgCredentialsModal'
@@ -177,6 +178,10 @@ export default function AdminPage() {
           <p className="text-text-muted text-sm mt-0.5">Platform administration</p>
         </div>
         <div className="flex items-center gap-3">
+          {/* This route renders without the sidebar, so it carries its own way out. */}
+          <Link to="/" className="text-xs text-text-muted hover:text-text-primary px-3 py-1.5 rounded-full border border-border">
+            ← Dashboard
+          </Link>
           {pendingOwners > 0 && (
             <span className="text-xs bg-amber-bg text-amber px-3 py-1.5 rounded-full border border-amber/20 font-medium">
               {pendingOwners} owner{pendingOwners > 1 ? 's' : ''} pending

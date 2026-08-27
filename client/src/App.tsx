@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import { useState, useEffect, useRef } from 'react'
 import Sidebar from './components/Sidebar'
@@ -144,6 +144,25 @@ function Splash({ text }: { text: string }) {
   )
 }
 
+/**
+ * Super admins land on the platform console instead of a fleet they do not run. Fires once,
+ * and only on the root path, so deep links and later navigation stay where the user put them.
+ */
+function SuperAdminLanding() {
+  const isSuperAdmin = useStore(s => s.session?.isSuperAdmin)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const redirected = useRef(false)
+
+  useEffect(() => {
+    if (!isSuperAdmin || redirected.current) return
+    redirected.current = true
+    if (location.pathname === '/') navigate('/admin', { replace: true })
+  }, [isSuperAdmin, location.pathname, navigate])
+
+  return null
+}
+
 export default function App() {
   const { isLoading, isAuthenticated, user, logout, getAccessTokenSilently } = useAuth0()
   const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected'>('checking')
@@ -227,6 +246,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <SuperAdminLanding />
       <Routes>
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/*" element={

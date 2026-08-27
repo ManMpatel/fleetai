@@ -165,6 +165,12 @@ export async function registerOrganization(req: Request, res: Response) {
       org.auth0Id = sub
       org.name = name || org.name
       org.picture = picture || org.picture
+      // A super admin whose record predates SUPER_ADMIN_EMAIL being set would otherwise sit
+      // behind the pending gate forever — they are the only one who could approve it.
+      if (org.status !== 'approved' && isSuperAdminRequest(req)) {
+        org.status = 'approved'
+        org.approvedAt = org.approvedAt || new Date()
+      }
       await org.save()
     }
 
