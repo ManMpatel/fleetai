@@ -12,6 +12,7 @@ interface Settings {
   payway: { configured: boolean; merchantId: string | null; bankAccountId: string | null }
   whatsapp: { configured: boolean; phoneId: string | null; enabled: boolean }
   gmail: { configured: boolean; address: string | null; enabled: boolean }
+  tollEmail: { configured: boolean; address: string | null; smtpHost: string | null; smtpPort: number | null; enabled: boolean }
   tabletLinked: boolean
 }
 
@@ -51,6 +52,10 @@ export default function SettingsPage() {
   const [waToken, setWaToken] = useState('')
   const [gmailAddress, setGmailAddress] = useState('')
   const [gmailRefreshToken, setGmailRefreshToken] = useState('')
+  const [tollEmailAddress, setTollEmailAddress] = useState('')
+  const [tollEmailPassword, setTollEmailPassword] = useState('')
+  const [tollEmailHost, setTollEmailHost] = useState('')
+  const [tollEmailPort, setTollEmailPort] = useState('')
 
   useEffect(() => {
     axios.get<Settings>('/api/settings')
@@ -62,6 +67,9 @@ export default function SettingsPage() {
         setPwMerchantId(data.payway.merchantId || '')
         setWaPhoneId(data.whatsapp.phoneId || '')
         setGmailAddress(data.gmail.address || '')
+        setTollEmailAddress(data.tollEmail.address || '')
+        setTollEmailHost(data.tollEmail.smtpHost || '')
+        setTollEmailPort(data.tollEmail.smtpPort ? String(data.tollEmail.smtpPort) : '')
       })
       .catch(() => setMessage({ kind: 'err', text: 'Could not load settings' }))
       .finally(() => setLoading(false))
@@ -274,6 +282,57 @@ export default function SettingsPage() {
           {settings.gmail.enabled && (
             <button className={btnGhost} disabled={saving === 'gmail'}
                     onClick={() => save('gmail', '/api/settings/gmail', { enabled: false })}>
+              Disable
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Toll Batch sending mailbox ── */}
+      <div className={card}>
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="text-sm font-semibold text-text-primary">Toll Batch — sending mailbox</h2>
+          <Status ok={settings.tollEmail.configured && settings.tollEmail.enabled} okText="Active" offText="Not active" />
+        </div>
+        <p className="text-xs text-text-secondary mb-4">
+          Separate from the mailbox above, which only reads for fines — this one sends. Toll
+          Batch emails merged toll PDFs to renters from this address. Use an app-specific
+          password, not your normal account password (Gmail: Account → Security → App passwords).
+        </p>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className={label}>Sending address</label>
+            <input className={input} value={tollEmailAddress} onChange={e => setTollEmailAddress(e.target.value)} placeholder="tolls@yourcompany.com.au" />
+          </div>
+          <div>
+            <label className={label}>App password {settings.tollEmail.configured && <span className="text-text-secondary">(leave blank to keep)</span>}</label>
+            <input className={input} type="password" value={tollEmailPassword} onChange={e => setTollEmailPassword(e.target.value)} placeholder="••••••••" />
+          </div>
+          <div>
+            <label className={label}>SMTP host <span className="text-text-secondary">(optional — defaults to Gmail)</span></label>
+            <input className={input} value={tollEmailHost} onChange={e => setTollEmailHost(e.target.value)} placeholder="smtp.gmail.com" />
+          </div>
+          <div>
+            <label className={label}>SMTP port <span className="text-text-secondary">(optional — defaults to 465)</span></label>
+            <input className={input} type="number" value={tollEmailPort} onChange={e => setTollEmailPort(e.target.value)} placeholder="465" />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button className={btn} disabled={saving === 'tollEmail'}
+                  onClick={() => save('tollEmail', '/api/settings/toll-email',
+                    {
+                      address: tollEmailAddress,
+                      appPassword: tollEmailPassword || undefined,
+                      smtpHost: tollEmailHost || undefined,
+                      smtpPort: tollEmailPort ? parseInt(tollEmailPort, 10) : undefined,
+                      enabled: true,
+                    },
+                    () => setTollEmailPassword(''))}>
+            {saving === 'tollEmail' ? 'Saving...' : 'Save & enable'}
+          </button>
+          {settings.tollEmail.enabled && (
+            <button className={btnGhost} disabled={saving === 'tollEmail'}
+                    onClick={() => save('tollEmail', '/api/settings/toll-email', { enabled: false })}>
               Disable
             </button>
           )}

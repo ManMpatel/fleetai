@@ -68,6 +68,17 @@ const navItems = [
     ),
   },
   {
+    to: '/toll-batch',
+    label: 'Toll Batch',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5 shrink-0">
+        <path d="M4 4h16v13l-4-3-4 3-4-3-4 3V4z" />
+        <line x1="8" y1="8" x2="16" y2="8" />
+        <line x1="8" y1="11" x2="16" y2="11" />
+      </svg>
+    ),
+  },
+  {
     to: '/service-history',
     label: 'Service History',
     icon: (

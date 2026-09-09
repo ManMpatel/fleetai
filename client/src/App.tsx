@@ -16,6 +16,7 @@ import TabletPage from './pages/TabletPage'
 import StaffPage from './pages/StaffPage'
 import InvoicePage from './pages/InvoicePage'
 import ServiceHistoryPage from './pages/ServiceHistoryPage'
+import TollBatchPage from './pages/TollBatchPage'
 import { useStore } from './store/useStore'
 
 function LoginPage() {
@@ -266,6 +267,7 @@ export default function App() {
                 <Route path="/invoices"       element={<InvoicePage />} />
                 <Route path="/service-history" element={<ServiceHistoryPage />} />
                 <Route path="/rego-import"    element={<RegoImportPage />} />
+                <Route path="/toll-batch"     element={<TollBatchPage />} />
               </Routes>
             </main>
           </div>
