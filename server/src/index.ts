@@ -19,8 +19,11 @@ import employeeRoutes from './routes/employees'
 import invoiceRoutes from './routes/invoices'
 import tabletRoutes from './routes/tablet'
 import settingsRoutes from './routes/settings'
+import tollBatchRoutes from './routes/tollBatch'
 import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
+import TollBatch from './models/TollBatch'
+import TollFolder from './models/TollFolder'
 
 import { checkExpiringDates, checkPaymentStatus } from './services/rag'
 import { runMongoBackup } from './services/backup'
@@ -137,6 +140,7 @@ app.use('/api/service-records', requireAuth, requireTenant, serviceRecordRoutes)
 app.use('/api/employees', requireAuth, requireTenant, employeeRoutes)
 app.use('/api/upload', requireAuth, requireTenant, uploadRoutes)
 app.use('/api/invoices', requireAuth, requireTenant, invoiceRoutes)
+app.use('/api/toll-batch', requireAuth, requireTenant, tollBatchRoutes)
 
 // Renters router carves out its own public onboarding endpoint before applying auth.
 app.post('/api/renters/public/onboard', onboardPerCallerLimiter, onboardPerTenantLimiter)
@@ -226,6 +230,27 @@ mongoose
     cron.schedule('0 2 * * 0', () => {
       console.log('🗄️ Running weekly MongoDB backup...')
       runMongoBackup()
+    })
+
+    // Delete TollBatch uploads (and their folders' page/PDF images) older than 90 days —
+    // daily at 3:30am, same pattern as the 10-day selfie purge above but a hard delete
+    // rather than an $unset, since nothing else on these documents is worth keeping.
+    cron.schedule('30 3 * * *', async () => {
+      try {
+        const cutoff = new Date()
+        cutoff.setDate(cutoff.getDate() - 90)
+        const oldBatches = await TollBatch.find({ createdAt: { $lt: cutoff } })
+          .select('_id')
+          .setOptions({ allowCrossTenant: true })
+        if (!oldBatches.length) return
+
+        const batchIds = oldBatches.map(b => b._id)
+        const folderResult = await TollFolder.deleteMany({ batchId: { $in: batchIds } })
+          .setOptions({ allowCrossTenant: true })
+        const batchResult = await TollBatch.deleteMany({ _id: { $in: batchIds } })
+          .setOptions({ allowCrossTenant: true })
+        console.log(`🗑️ TollBatch cleanup — deleted ${batchResult.deletedCount} batches and ${folderResult.deletedCount} folders older than 90 days`)
+      } catch (err) { console.error('TollBatch cleanup error:', err) }
     })
 
     // Payment status check — daily at 9am Sydney time (UTC 23:00)

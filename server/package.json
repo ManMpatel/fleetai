@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "FleetAI backend API",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
@@ -25,10 +28,11 @@
     "multer-s3": "^3.0.1",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.9",
-    "pdf-parse": "^2.4.5"
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pdf-to-img": "^7.0.0"
   },
   "devDependencies": {
-    
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/express-rate-limit": "^5.1.3",

@@ -31,6 +31,7 @@ export interface IntegrationStatus {
   whatsapp: Flags
   gmail: Flags
   sms: Flags
+  tollEmail: Flags
 }
 
 function flags(stored: boolean, env: boolean, enabled: boolean): Flags {
@@ -49,5 +50,8 @@ export function integrationStatus(org: IOrganization): IntegrationStatus {
     whatsapp: flags(!!org.whatsapp?.tokenEnc, legacy && !!legacyWhatsApp(), !!org.whatsapp?.enabled),
     gmail: flags(!!org.gmail?.refreshTokenEnc, legacy && !!legacyGmailRefreshToken(), !!org.gmail?.enabled),
     sms: flags(!!org.sms?.passwordEnc, legacy && !!legacySms(), !!org.sms?.enabled),
+    // No legacy env fallback — this credential didn't exist before TollBatch, so unlike
+    // the others above there's no founding-operator case where it's usable but unstored.
+    tollEmail: flags(!!org.tollEmail?.appPasswordEnc, false, !!org.tollEmail?.enabled),
   }
 }

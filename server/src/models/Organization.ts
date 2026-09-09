@@ -50,6 +50,17 @@ export interface IOrganization extends Document {
     enabled?: boolean
   }
 
+  // Sending mailbox for TollBatch — an app-specific password, not OAuth. Separate from
+  // `gmail` above, which is a read-only integration with no in-app consent flow and
+  // cannot be extended to send on this tenant's behalf without a token re-paste per org.
+  tollEmail?: {
+    address?: string
+    appPasswordEnc?: string
+    smtpHost?: string
+    smtpPort?: number
+    enabled?: boolean
+  }
+
   // ── Workshop tablet device token (hash only — raw token shown once) ──
   tabletTokenHash?: string
 }
@@ -95,6 +106,14 @@ const organizationSchema = new Schema<IOrganization>({
     passwordEnc: { type: String },
     sender:      { type: String },
     enabled:     { type: Boolean, default: false },
+  },
+
+  tollEmail: {
+    address:        { type: String },
+    appPasswordEnc: { type: String },
+    smtpHost:       { type: String },
+    smtpPort:       { type: Number },
+    enabled:        { type: Boolean, default: false },
   },
 
   tabletTokenHash: { type: String, index: true, sparse: true },

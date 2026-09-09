@@ -42,6 +42,14 @@ function publicSettings(org: any) {
       username: org.sms?.username || null,
       enabled: status.sms.enabled,
     },
+    tollEmail: {
+      configured: status.tollEmail.configured,
+      fromEnv: status.tollEmail.fromEnv,
+      address: org.tollEmail?.address || null,
+      smtpHost: org.tollEmail?.smtpHost || null,
+      smtpPort: org.tollEmail?.smtpPort || null,
+      enabled: status.tollEmail.enabled,
+    },
     tabletLinked: !!org.tabletTokenHash,
   }
 }
@@ -118,6 +126,26 @@ router.put('/gmail', async (req: Request, res: Response) => {
     if (address !== undefined) updates['gmail.address'] = address
     if (refreshToken) updates['gmail.refreshTokenEnc'] = encrypt(refreshToken)
     if (enabled !== undefined) updates['gmail.enabled'] = !!enabled
+
+    const org = await Organization.findByIdAndUpdate(req.orgId, { $set: updates }, { new: true })
+    res.json(publicSettings(org))
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// PUT /api/settings/toll-email — this tenant's own sending mailbox for TollBatch.
+// An app-specific password over SMTP, not OAuth — self-serviceable in minutes, unlike
+// `gmail` above which has no in-app consent flow and can only ever read.
+router.put('/toll-email', async (req: Request, res: Response) => {
+  try {
+    const { address, appPassword, smtpHost, smtpPort, enabled } = req.body
+    const updates: Record<string, unknown> = {}
+    if (address !== undefined) updates['tollEmail.address'] = address
+    if (appPassword) updates['tollEmail.appPasswordEnc'] = encrypt(appPassword)
+    if (smtpHost !== undefined) updates['tollEmail.smtpHost'] = smtpHost
+    if (smtpPort !== undefined) updates['tollEmail.smtpPort'] = smtpPort
+    if (enabled !== undefined) updates['tollEmail.enabled'] = !!enabled
 
     const org = await Organization.findByIdAndUpdate(req.orgId, { $set: updates }, { new: true })
     res.json(publicSettings(org))
