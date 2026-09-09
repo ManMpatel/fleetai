@@ -58,18 +58,34 @@ export default function SettingsPage() {
   const [tollEmailPort, setTollEmailPort] = useState('')
 
   useEffect(() => {
-    axios.get<Settings>('/api/settings')
+    axios.get<Settings>('/api/settings', { headers: { 'Cache-Control': 'no-cache' } })
       .then(({ data }) => {
-        applySettings(data)
-        setDisplayName(data.displayName || '')
-        setLogoUrl(data.logoUrl || '')
-        setFleetSummary(data.fleetSummary || '')
-        setPwMerchantId(data.payway.merchantId || '')
-        setWaPhoneId(data.whatsapp.phoneId || '')
-        setGmailAddress(data.gmail.address || '')
-        setTollEmailAddress(data.tollEmail.address || '')
-        setTollEmailHost(data.tollEmail.smtpHost || '')
-        setTollEmailPort(data.tollEmail.smtpPort ? String(data.tollEmail.smtpPort) : '')
+        // Defensive: a cached response (e.g. a stale 304) or a mid-rollout backend can hand
+        // back a shape from before a field existed. Fall back to an empty-but-valid section
+        // rather than throwing on a nested access and blanking the whole page.
+        const normalized: Settings = {
+          displayName: data.displayName || '',
+          logoUrl: data.logoUrl || null,
+          slug: data.slug || null,
+          timezone: data.timezone,
+          currency: data.currency,
+          fleetSummary: data.fleetSummary || '',
+          payway: data.payway || { configured: false, merchantId: null, bankAccountId: null },
+          whatsapp: data.whatsapp || { configured: false, phoneId: null, enabled: false },
+          gmail: data.gmail || { configured: false, address: null, enabled: false },
+          tollEmail: data.tollEmail || { configured: false, address: null, smtpHost: null, smtpPort: null, enabled: false },
+          tabletLinked: !!data.tabletLinked,
+        }
+        applySettings(normalized)
+        setDisplayName(normalized.displayName)
+        setLogoUrl(normalized.logoUrl || '')
+        setFleetSummary(normalized.fleetSummary)
+        setPwMerchantId(normalized.payway.merchantId || '')
+        setWaPhoneId(normalized.whatsapp.phoneId || '')
+        setGmailAddress(normalized.gmail.address || '')
+        setTollEmailAddress(normalized.tollEmail.address || '')
+        setTollEmailHost(normalized.tollEmail.smtpHost || '')
+        setTollEmailPort(normalized.tollEmail.smtpPort ? String(normalized.tollEmail.smtpPort) : '')
       })
       .catch(() => setMessage({ kind: 'err', text: 'Could not load settings' }))
       .finally(() => setLoading(false))

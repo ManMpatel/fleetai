@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Component, type ReactNode } from 'react'
 import Sidebar from './components/Sidebar'
 import FleetPage from './pages/FleetPage'
 import NotificationsPage from './pages/NotificationsPage'
@@ -146,6 +146,42 @@ function Splash({ text }: { text: string }) {
 }
 
 /**
+ * Catches a render-time crash in any page below the shell so it degrades to an inline error
+ * inside that page's slot instead of unmounting the whole app to a blank white body — the
+ * exact failure mode a page that throws while reading an API response used to cause (see
+ * SettingsPage's defensive normalization for the concrete case this guards against).
+ */
+class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: { componentStack: string }) {
+    console.error('Page crashed:', error, info.componentStack)
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, color: '#94a3b8', fontSize: 14, maxWidth: 560 }}>
+          <div style={{ color: '#f9fafb', fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
+            This page hit an error.
+          </div>
+          <p style={{ marginBottom: 16, lineHeight: 1.6 }}>
+            The rest of FleetAI is unaffected — use the sidebar to go elsewhere, or reload to
+            try this page again.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ padding: '8px 16px', background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
+          >
+            Reload
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+/**
  * Super admins land on the platform console instead of a fleet they do not run. Fires once,
  * and only on the root path, so deep links and later navigation stay where the user put them.
  */
@@ -250,29 +286,40 @@ export default function App() {
       <SuperAdminLanding />
       <Routes>
         <Route path="/admin" element={<AdminPage />} />
-        <Route path="/*" element={
-          <div className="flex h-screen overflow-hidden bg-bg">
-            <div className="h-screen sticky top-0 shrink-0">
-              <Sidebar />
-            </div>
-            <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-              <Routes>
-                <Route path="/"               element={<FleetPage />} />
-                <Route path="/renters"        element={<RentersPage />} />
-                <Route path="/notifications"  element={<NotificationsPage />} />
-                <Route path="/chat"           element={<ChatPage />} />
-                <Route path="/search"         element={<SearchPage />} />
-                <Route path="/staff"          element={<StaffPage />} />
-                <Route path="/settings"       element={<SettingsPage />} />
-                <Route path="/invoices"       element={<InvoicePage />} />
-                <Route path="/service-history" element={<ServiceHistoryPage />} />
-                <Route path="/rego-import"    element={<RegoImportPage />} />
-                <Route path="/toll-batch"     element={<TollBatchPage />} />
-              </Routes>
-            </main>
-          </div>
-        } />
+        <Route path="/*" element={<DashboardShell />} />
       </Routes>
     </BrowserRouter>
+  )
+}
+
+/** The sidebar + page shell for every route except /admin. Split out from App so it can key
+ * the crash boundary by path — otherwise navigating to a different page after one page threw
+ * would stay stuck on the previous page's error screen instead of giving the new page a
+ * clean mount. */
+function DashboardShell() {
+  const location = useLocation()
+  return (
+    <div className="flex h-screen overflow-hidden bg-bg">
+      <div className="h-screen sticky top-0 shrink-0">
+        <Sidebar />
+      </div>
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        <PageErrorBoundary key={location.pathname}>
+          <Routes>
+            <Route path="/"               element={<FleetPage />} />
+            <Route path="/renters"        element={<RentersPage />} />
+            <Route path="/notifications"  element={<NotificationsPage />} />
+            <Route path="/chat"           element={<ChatPage />} />
+            <Route path="/search"         element={<SearchPage />} />
+            <Route path="/staff"          element={<StaffPage />} />
+            <Route path="/settings"       element={<SettingsPage />} />
+            <Route path="/invoices"       element={<InvoicePage />} />
+            <Route path="/service-history" element={<ServiceHistoryPage />} />
+            <Route path="/rego-import"    element={<RegoImportPage />} />
+            <Route path="/toll-batch"     element={<TollBatchPage />} />
+          </Routes>
+        </PageErrorBoundary>
+      </main>
+    </div>
   )
 }
