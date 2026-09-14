@@ -205,6 +205,7 @@ export default function App() {
   const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected'>('checking')
   const [interceptorReady, setInterceptorReady] = useState(false)
   const setSession = useStore(s => s.setSession)
+  const isSuperAdmin = useStore(s => !!s.session?.isSuperAdmin)
 
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
 
@@ -278,7 +279,6 @@ export default function App() {
   if (isLoading) return <Splash text="Loading..." />
   if (!isAuthenticated) return <LoginPage />
   if (ownerStatus === 'checking') return <Splash text="Checking access..." />
-  const { isSuperAdmin } = useStore(s => ({ isSuperAdmin: !!s.session?.isSuperAdmin }))
   if (ownerStatus === 'pending' && !isSuperAdmin) return <PendingPage email={user?.email || ''} onLogout={handleLogout} />
   if (ownerStatus === 'rejected' && !isSuperAdmin) return <RejectedPage onLogout={handleLogout} />
 
