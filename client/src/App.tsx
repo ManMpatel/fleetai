@@ -278,7 +278,7 @@ export default function App() {
   if (isLoading) return <Splash text="Loading..." />
   if (!isAuthenticated) return <LoginPage />
   if (ownerStatus === 'checking') return <Splash text="Checking access..." />
-  const isSuperAdmin = useStore(s => s.session?.isSuperAdmin)
+  const { isSuperAdmin } = useStore(s => ({ isSuperAdmin: !!s.session?.isSuperAdmin }))
   if (ownerStatus === 'pending' && !isSuperAdmin) return <PendingPage email={user?.email || ''} onLogout={handleLogout} />
   if (ownerStatus === 'rejected' && !isSuperAdmin) return <RejectedPage onLogout={handleLogout} />
 
