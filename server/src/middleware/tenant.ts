@@ -50,15 +50,6 @@ export function isSuperAdminRequest(req: Request): boolean {
   const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || '').toLowerCase()
   if (!superAdminEmail) return false
   const email = verifiedEmail(req)
-
-  // TEMP DEBUG — remove after confirming super-admin email match
-  const payload = (req as any).auth?.payload || {}
-  console.log('[DEBUG isSuperAdmin]', {
-    token_email: email,
-    env_SUPER_ADMIN_EMAIL: process.env.SUPER_ADMIN_EMAIL,
-    payload_keys: Object.keys(payload),
-  })
-
   return !!email && email === superAdminEmail
 }
 
