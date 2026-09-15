@@ -6,6 +6,7 @@ import path from 'path'
 import Fine from '../models/Fine'
 import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
+import Organization from '../models/Organization'
 
 // Mounted behind requireAuth + requireTenant. These endpoints were previously open:
 // anyone could create fine records, and the Gemini extraction routes were billable
@@ -130,6 +131,7 @@ If a field is not visible or unclear, leave it as empty string.`
       { inlineData: { data: imageBase64, mimeType: mimeType || 'image/jpeg' } },
       prompt,
     ])
+    Organization.findByIdAndUpdate(req.orgId!, { $inc: { geminiCalls: 1 } }).catch(() => {})
 
     const clean = result.response.text().trim().replace(/```json|```/g, '').trim()
     res.json(JSON.parse(clean))
@@ -181,6 +183,7 @@ Rules:
           { inlineData: { data: file.base64, mimeType: file.mimeType || 'image/jpeg' } },
           prompt,
         ])
+        Organization.findByIdAndUpdate(req.orgId!, { $inc: { geminiCalls: 1 } }).catch(() => {})
         const clean = result.response.text().trim().replace(/```json|```/g, '').trim()
         results.push({ filename: file.name, status: 'ok', data: JSON.parse(clean) })
       } catch (err: any) {
@@ -231,6 +234,7 @@ Always return your best guess even if unclear. Never return confident: false.`
       { inlineData: { data: base64, mimeType: mime } },
       prompt
     ])
+    Organization.findByIdAndUpdate(req.orgId!, { $inc: { geminiCalls: 1 } }).catch(() => {})
 
     const text = result.response.text().trim()
     const clean = text.replace(/```json|```/g, '').trim()

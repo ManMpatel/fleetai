@@ -83,6 +83,19 @@ export async function requireTenant(req: Request, res: Response, next: NextFunct
 
     req.orgId = org._id
     req.org = org
+
+    // Fire-and-forget: update last-active timestamp and monthly request counter.
+    const _now = new Date()
+    const _mk = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`
+    const _upd: Record<string, any> = { $set: { lastActiveAt: _now } }
+    if ((org as any).requestsMonthKey !== _mk) {
+      _upd.$set.requestsThisMonth = 1
+      _upd.$set.requestsMonthKey = _mk
+    } else {
+      _upd.$inc = { requestsThisMonth: 1 }
+    }
+    Organization.findByIdAndUpdate(org._id, _upd).catch(() => {})
+
     next()
   } catch (err) {
     res.status(500).json({ error: 'Auth check failed' })

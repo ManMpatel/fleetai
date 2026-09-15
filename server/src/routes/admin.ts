@@ -421,6 +421,9 @@ router.get('/stats', async (_req, res) => {
       return {
         email: o.email, name: o.displayName || o.name, status: o.status, picture: o.picture,
         renters, vehicles, services, createdAt: o.createdAt,
+        geminiCalls: o.geminiCalls ?? 0,
+        requestsThisMonth: o.requestsThisMonth ?? 0,
+        lastActiveAt: o.lastActiveAt ?? null,
       }
     }))
 

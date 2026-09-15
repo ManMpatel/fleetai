@@ -63,6 +63,12 @@ export interface IOrganization extends Document {
 
   // ── Workshop tablet device token (hash only — raw token shown once) ──
   tabletTokenHash?: string
+
+  // ── Platform usage metrics (tracked server-side, never client-supplied) ──
+  geminiCalls: number
+  requestsThisMonth: number
+  requestsMonthKey: string
+  lastActiveAt?: Date
 }
 
 const organizationSchema = new Schema<IOrganization>({
@@ -117,6 +123,16 @@ const organizationSchema = new Schema<IOrganization>({
   },
 
   tabletTokenHash: { type: String, index: true, sparse: true },
+
+  geminiCalls:       { type: Number, default: 0 },
+  requestsThisMonth: { type: Number, default: 0 },
+  requestsMonthKey:  { type: String, default: '' },
+  lastActiveAt:      { type: Date },
 })
 
-export default mongoose.model<IOrganization>('Organization', organizationSchema, 'owners')
+const Organization = mongoose.model<IOrganization>('Organization', organizationSchema, 'owners')
+export default Organization
+
+export function trackGeminiCall(orgId: Types.ObjectId | string): void {
+  Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+}

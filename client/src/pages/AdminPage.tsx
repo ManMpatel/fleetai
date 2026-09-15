@@ -55,6 +55,9 @@ interface Stats {
     vehicles: number
     services: number
     createdAt: string
+    geminiCalls: number
+    requestsThisMonth: number
+    lastActiveAt: string | null
   }>
 }
 
@@ -300,7 +303,7 @@ export default function AdminPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-surface2">
-                        {['Owner', 'Status', 'Renters', 'Vehicles', 'Services', 'Joined'].map(h => (
+                        {['Owner', 'Status', 'Renters', 'Vehicles', 'Services', 'Req/month', 'AI calls', 'Last active', 'Joined'].map(h => (
                           <th key={h} className="px-4 py-2.5 text-left text-xs text-text-muted font-medium">{h}</th>
                         ))}
                       </tr>
@@ -329,6 +332,13 @@ export default function AdminPage() {
                           <td className="px-4 py-3 text-text-primary font-medium">{o.renters}</td>
                           <td className="px-4 py-3 text-text-primary font-medium">{o.vehicles}</td>
                           <td className="px-4 py-3 text-text-primary font-medium">{o.services}</td>
+                          <td className="px-4 py-3 text-text-primary font-medium">{o.requestsThisMonth}</td>
+                          <td className="px-4 py-3 text-text-primary font-medium">{o.geminiCalls}</td>
+                          <td className="px-4 py-3 text-text-muted text-xs">
+                            {o.lastActiveAt
+                              ? new Date(o.lastActiveAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                              : '—'}
+                          </td>
                           <td className="px-4 py-3 text-text-muted text-xs">
                             {new Date(o.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
                           </td>

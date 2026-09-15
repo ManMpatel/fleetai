@@ -4,7 +4,7 @@ import Renter from '../models/Renter'
 import Vehicle from '../models/Vehicle'
 import Fine from '../models/Fine'
 import Notification from '../models/Notification'
-import Organization from '../models/Organization'
+import Organization, { trackGeminiCall } from '../models/Organization'
 import Transaction from '../models/Transaction'
 import { encrypt, decrypt, hash } from '../services/encryption'
 import { requireAuth } from '../middleware/auth'
@@ -969,6 +969,7 @@ Respond ONLY with this exact JSON (no markdown, no extra text):
 {"name":{"status":"pass|fail|warn","detail":"short reason"},"dob":{"status":"pass|fail|warn","detail":"short reason"},"address":{"status":"pass|fail|warn","detail":"short reason"},"licenceNumber":{"status":"pass|fail|warn","detail":"short reason"},"passportNumber":{"status":"pass|fail|warn","detail":"short reason"}}` })
 
     const result = await model.generateContent(parts)
+    trackGeminiCall(req.orgId!)
     const text = result.response.text().trim()
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return res.status(502).json({ error: 'Could not parse AI response' })

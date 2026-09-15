@@ -242,6 +242,7 @@ Do not include any explanation.`,
       { inlineData: { data: imageBase64, mimeType } },
     ])
 
+    Organization.findByIdAndUpdate(org._id, { $inc: { geminiCalls: 1 } }).catch(() => {})
     const raw = result.response.text().trim().toUpperCase().replace(/\s+/g, '')
     if (!raw || raw === 'NULL' || raw.length < 3 || raw.length > 8) return null
     return raw

@@ -241,6 +241,7 @@ Return ONLY valid JSON, no markdown, no explanation.`
   }
 
   const result = await model.generateContent(parts)
+  Organization.findByIdAndUpdate(org._id, { $inc: { geminiCalls: 1 } }).catch(() => {})
   const raw = result.response.text().trim()
   const jsonStr = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
 

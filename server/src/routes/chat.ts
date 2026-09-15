@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { buildFleetContext } from '../services/rag'
+import { trackGeminiCall } from '../models/Organization'
 
 const router = Router()
 
@@ -61,6 +62,7 @@ User question: ${message}
 Answer:`
 
     const result = await model.generateContent(fullPrompt)
+    trackGeminiCall(req.orgId!)
     res.json({ reply: result.response.text() })
   } catch (err: any) {
     console.error('Gemini chat error:', err.message)

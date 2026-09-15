@@ -4,6 +4,7 @@ import TollBatch from '../models/TollBatch'
 import TollFolder from '../models/TollFolder'
 import Vehicle from '../models/Vehicle'
 import Renter from '../models/Renter'
+import Organization from '../models/Organization'
 import { rasterizePdf, mergeImagesToPdf } from '../services/tollPdf'
 import { sendTollEmail } from '../services/tollEmail'
 
@@ -86,6 +87,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
 
     for (const page of pages) {
       const { plate } = await readPlateFromPage(page.imageBase64, page.mimeType)
+      Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
 
       const step = plate
         ? `Page ${page.pageNumber} of ${pages.length} — sorted to ${plate}`
