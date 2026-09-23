@@ -23,6 +23,9 @@ export interface IVehicle {
   fines: mongoose.Types.ObjectId[]
   tolls: mongoose.Types.ObjectId[]
   notes?: string
+  regoStatus?: 'in_stock' | 'stolen' | 'sold'
+  regoPhotoBase64?: string
+  regoPhotos?: Array<{ base64: string; uploadedAt: Date }>
 }
 
 // Using Schema without generic to avoid 'model' field clash with Document.model
