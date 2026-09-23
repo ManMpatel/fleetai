@@ -4,6 +4,7 @@ import type { Renter } from '../../types'
 import axios from 'axios'
 import RenterDetail from './RenterDetail'
 import PendingModal from './PendingModal'
+import { SkeletonListRow } from '../../components/Skeleton'
 
 function Toast({ message, type }: { message: string; type: 'success' | 'warning' }) {
   return (
@@ -171,7 +172,7 @@ export default function RentersPage() {
 
         <div className="flex-1 overflow-y-auto divide-y divide-border">
           {rentersLoading ? (
-            <div className="p-8 text-center text-text-muted text-sm">Loading...</div>
+            Array.from({ length: 6 }).map((_, i) => <SkeletonListRow key={i} />)
           ) : filtered.length === 0 ? (
             <div className="p-8 text-center text-text-muted text-sm">No renters found</div>
           ) : filtered.map(renter => (

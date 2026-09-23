@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
+import { SkeletonBar, SkeletonListRow } from '../components/Skeleton'
 
 interface Employee {
   _id: string
@@ -136,8 +137,26 @@ const [refreshing, setRefreshing] = useState(false)
   }
 
   if (loading) return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-text-primary">Staff</h1>
+          <p className="text-sm text-text-muted mt-0.5">Manage employees, clock records and service logs</p>
+        </div>
+        <SkeletonBar className="h-9 w-36 rounded-lg" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="bg-surface border border-border rounded-xl p-5">
+            <SkeletonBar className="h-3 w-20 mb-2" />
+            <SkeletonBar className="h-7 w-10 mb-2" />
+            <SkeletonBar className="h-3 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-surface border border-border rounded-xl overflow-hidden divide-y divide-border">
+        {Array.from({ length: 5 }).map((_, i) => <SkeletonListRow key={i} withAvatar />)}
+      </div>
     </div>
   )
 

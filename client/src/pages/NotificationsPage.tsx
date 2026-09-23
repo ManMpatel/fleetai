@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '../store/useStore'
 import NotificationCard from '../components/NotificationCard'
 import type { NotificationType } from '../types'
+import { SkeletonBar, SkeletonCircle } from '../components/Skeleton'
 
 const typeFilters: Array<{ value: NotificationType | 'all' | 'declined'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -86,7 +87,17 @@ export default function NotificationsPage() {
 
         {/* Cards */}
         {notifLoading ? (
-          <div className="text-center text-text-muted text-sm py-12">Loading notifications...</div>
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="bg-surface border border-border rounded-xl p-4 flex items-start gap-3">
+                <SkeletonCircle className="w-8 h-8" />
+                <div className="flex-1 space-y-2">
+                  <SkeletonBar className="h-3.5 w-2/3" />
+                  <SkeletonBar className="h-3 w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-10 h-10 text-text-muted mx-auto mb-3">

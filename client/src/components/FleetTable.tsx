@@ -1,5 +1,6 @@
 import type { Vehicle } from '../types'
 import { useStore } from '../store/useStore'
+import { SkeletonTableRow } from './Skeleton'
 
 interface FleetTableProps {
   vehicles: Vehicle[]
@@ -45,7 +46,20 @@ export default function FleetTable({ vehicles, loading }: FleetTableProps) {
   if (loading) {
     return (
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
-        <div className="p-8 text-center text-text-muted text-sm">Loading fleet data...</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface2">
+                {['Plate','Model','Type','Status','Renter','Rego Expiry','Pink Slip','Fines',''].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-text-muted font-medium text-xs uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 8 }).map((_, i) => <SkeletonTableRow key={i} cols={9} />)}
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }

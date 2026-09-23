@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useStore } from '../store/useStore'
+import { SkeletonBar, SkeletonCard } from '../components/Skeleton'
 
 interface Settings {
   displayName: string
@@ -154,7 +155,16 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-text-secondary text-sm">Loading settings...</div>
+  if (loading) return (
+    <div className="p-6 max-w-3xl">
+      <SkeletonBar className="h-6 w-40 mb-2" />
+      <SkeletonBar className="h-4 w-96 mb-6" />
+      <SkeletonCard />
+      <SkeletonCard />
+      <SkeletonCard />
+      <SkeletonCard />
+    </div>
+  )
   if (!settings) return <div className="p-8 text-red text-sm">Could not load settings.</div>
 
   const tabletUrl = `${window.location.origin}/tablet`

@@ -246,7 +246,7 @@ function StatusPill({ status }: { status: BatchStatus }) {
 // continuous server-side, this just stops it from reading as frozen while we wait.
 function ProcessingView({ batch, folders }: { batch: TollBatch; folders: TollFolderSummary[] }) {
   const [elapsed, setElapsed] = useState(0)
-  const startRef = useRef(Date.now())
+  const startRef = useRef(new Date(batch.createdAt).getTime())
   const prefersReducedMotion = useReducedMotion()
 
   useEffect(() => {
@@ -283,7 +283,7 @@ function ProcessingView({ batch, folders }: { batch: TollBatch; folders: TollFol
             />
           )}
         </motion.div>
-        {!prefersReducedMotion && batch.processedPages < batch.totalPages && (
+        {!prefersReducedMotion && pct < 100 && (
           <motion.div
             className="absolute inset-y-0 w-8 bg-gradient-to-r from-transparent via-accent/40 to-transparent"
             animate={{ left: ['0%', '100%'] }}
@@ -429,6 +429,8 @@ function FolderCard({ folder, batchId, onSend, onToast }: {
   // asked for. A hover almost always precedes an actual drag attempt by enough time.
   const [dragUrl, setDragUrl] = useState<string | null>(null)
   const [prefetching, setPrefetching] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const canWebShare = typeof navigator !== 'undefined' && 'share' in navigator && 'canShare' in navigator
 
   // The prefetched blob URL is only released on unmount (not after a drag completes,
   // since the same card can be dragged more than once) — otherwise it leaks for as long
@@ -444,6 +446,24 @@ function FolderCard({ folder, batchId, onSend, onToast }: {
       .then(res => setDragUrl(window.URL.createObjectURL(res.data)))
       .catch(() => { /* drag just won't work for this card — Download below still will */ })
       .finally(() => setPrefetching(false))
+  }
+
+  async function shareFile() {
+    if (!folder.hasMergedPdf || sharing) return
+    setSharing(true)
+    try {
+      const res = await axios.get(downloadUrl, { responseType: 'blob' })
+      const file = new File([res.data], `${label}.pdf`, { type: 'application/pdf' })
+      if (!navigator.canShare({ files: [file] })) {
+        onToast('✗ Sharing not supported — use Download instead')
+        return
+      }
+      await navigator.share({ files: [file], title: `${label} toll notice` })
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') onToast('✗ Share failed — use Download instead')
+    } finally {
+      setSharing(false)
+    }
   }
 
   async function download() {
@@ -496,11 +516,27 @@ function FolderCard({ folder, batchId, onSend, onToast }: {
         <p className="text-xs text-text-secondary mb-3 truncate">to {folder.sentTo}</p>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex gap-1.5">
         <button onClick={download} disabled={!folder.hasMergedPdf}
           className="flex-1 px-2.5 py-1.5 bg-surface2 border border-border text-text-secondary rounded-lg text-xs font-medium hover:border-accent disabled:opacity-50 transition-colors">
           Download
         </button>
+        {canWebShare && (
+          <button onClick={shareFile} disabled={!folder.hasMergedPdf || sharing}
+            title="Share directly to WhatsApp Desktop or other apps — no download needed"
+            className="px-2.5 py-1.5 bg-surface2 border border-border text-text-secondary rounded-lg text-xs hover:border-accent disabled:opacity-50 transition-colors shrink-0">
+            {sharing ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5 animate-spin">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+            )}
+          </button>
+        )}
         {folder.plate && (
           <button onClick={() => onSend(folder)} disabled={!folder.hasMergedPdf}
             className="flex-1 px-2.5 py-1.5 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">

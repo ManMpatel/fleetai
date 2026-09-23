@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { SkeletonBar } from '../components/Skeleton'
 
 // ── Types ──────────────────────────────────────────────────────
 interface Template {
@@ -522,7 +523,14 @@ export default function InvoicePage() {
               </button>
 
               {tLoading ? (
-                <div className="py-4 text-center text-xs text-text-muted">Loading...</div>
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-2.5 p-2.5">
+                      <SkeletonBar className="w-10 h-10 rounded-lg shrink-0" />
+                      <SkeletonBar className="h-3.5 flex-1" />
+                    </div>
+                  ))}
+                </div>
               ) : templates.length === 0 ? (
                 <div className="py-4 text-center text-xs text-text-muted">No templates yet</div>
               ) : templates.map(t => (
