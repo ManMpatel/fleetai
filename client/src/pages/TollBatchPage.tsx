@@ -60,6 +60,8 @@ export default function TollBatchPage() {
   const [uploading, setUploading] = useState(false)
   const [toast, setToast] = useState('')
   const [sendTarget, setSendTarget] = useState<TollFolderSummary | null>(null)
+  const [batchStale, setBatchStale] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function showToast(msg: string) {
@@ -85,9 +87,10 @@ export default function TollBatchPage() {
   // clearing the interval from inside itself rather than leaving it running forever.
   const fetchBatchDetail = useCallback(async (batchId: string): Promise<BatchStatus | undefined> => {
     try {
-      const { data } = await axios.get<{ batch: TollBatch; folders: TollFolderSummary[] }>(`${API_BASE}/${batchId}`)
+      const { data } = await axios.get<{ batch: TollBatch; folders: TollFolderSummary[]; stale: boolean }>(`${API_BASE}/${batchId}`)
       setActiveBatch(data.batch)
       setFolders(data.folders)
+      setBatchStale(data.stale)
       return data.batch.status
     } catch {
       showToast('✗ Lost connection to this batch')
@@ -148,6 +151,21 @@ export default function TollBatchPage() {
     fetchBatchList()
   }
 
+  async function retryBatch() {
+    if (!activeBatchId) return
+    setRetrying(true)
+    try {
+      await axios.post(`${API_BASE}/${activeBatchId}/retry`)
+      showToast('✓ Resuming — sorting in progress')
+      setBatchStale(false)
+      fetchBatchDetail(activeBatchId)
+    } catch (err: any) {
+      showToast(`✗ ${err.response?.data?.error || 'Could not resume this batch'}`)
+    } finally {
+      setRetrying(false)
+    }
+  }
+
   function handleSent(folderId: string, sentTo: string, sentAt: string) {
     setFolders(prev => prev.map(f => f._id === folderId ? { ...f, sentStatus: 'sent', sentTo, sentAt } : f))
     setSendTarget(null)
@@ -197,11 +215,18 @@ export default function TollBatchPage() {
         )}
         {activeBatchId && activeBatch ? (
           activeBatch.status === 'processing' ? (
-            <ProcessingView batch={activeBatch} folders={folders} />
+            batchStale ? (
+              <FailedView
+                batch={{ ...activeBatch, error: activeBatch.error || 'This batch stopped making progress and looks stuck.' }}
+                onBack={backToList} onRetry={retryBatch} retrying={retrying}
+              />
+            ) : (
+              <ProcessingView batch={activeBatch} folders={folders} />
+            )
           ) : activeBatch.status === 'failed' ? (
-            <FailedView batch={activeBatch} onBack={backToList} />
+            <FailedView batch={activeBatch} onBack={backToList} onRetry={retryBatch} retrying={retrying} />
           ) : (
-            <FolderGrid folders={folders} batchId={activeBatchId} onSend={setSendTarget} onToast={showToast} />
+            <FolderGrid folders={folders} batchId={activeBatchId} onSend={setSendTarget} onToast={showToast} onRefresh={() => fetchBatchDetail(activeBatchId)} />
           )
         ) : (
           <BatchList batches={batches} loading={loadingBatches} onOpen={openBatch} />
@@ -386,7 +411,7 @@ function useReducedMotion() {
   return reduced
 }
 
-function FailedView({ batch, onBack }: { batch: TollBatch; onBack: () => void }) {
+function FailedView({ batch, onBack, onRetry, retrying }: { batch: TollBatch; onBack: () => void; onRetry: () => void; retrying: boolean }) {
   return (
     <div className="text-center py-20 max-w-md mx-auto">
       <div className="w-14 h-14 rounded-full bg-red/10 flex items-center justify-center mx-auto mb-4">
@@ -396,19 +421,26 @@ function FailedView({ batch, onBack }: { batch: TollBatch; onBack: () => void })
       </div>
       <h2 className="text-sm font-semibold text-text-primary mb-1.5">Processing failed</h2>
       <p className="text-xs text-text-secondary mb-6">{batch.error || 'Something went wrong while sorting this batch.'}</p>
-      <button onClick={onBack} className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-accent transition-colors">
-        Back to batches
-      </button>
+      <p className="text-xs text-text-muted mb-6">Resuming picks up from the last page it sorted — no re-scanning finished pages.</p>
+      <div className="flex items-center justify-center gap-3">
+        <button onClick={onBack} className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-accent transition-colors">
+          Back to batches
+        </button>
+        <button onClick={onRetry} disabled={retrying} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
+          {retrying ? 'Resuming…' : 'Resume'}
+        </button>
+      </div>
     </div>
   )
 }
 
 // ── Completed batch — folder grid ───────────────────────────
-function FolderGrid({ folders, batchId, onSend, onToast }: {
+function FolderGrid({ folders, batchId, onSend, onToast, onRefresh }: {
   folders: TollFolderSummary[]
   batchId: string
   onSend: (folder: TollFolderSummary) => void
   onToast: (msg: string) => void
+  onRefresh: () => void
 }) {
   if (folders.length === 0) {
     return <div className="text-center py-20 text-text-muted text-sm">No pages were found in this batch.</div>
@@ -425,23 +457,25 @@ function FolderGrid({ folders, batchId, onSend, onToast }: {
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
         {[...known, ...(unrecognized ? [unrecognized] : [])].map(f => (
-          <FolderCard key={f._id} folder={f} batchId={batchId} onSend={onSend} onToast={onToast} />
+          <FolderCard key={f._id} folder={f} batchId={batchId} onSend={onSend} onToast={onToast} onRefresh={onRefresh} />
         ))}
       </div>
     </div>
   )
 }
 
-function FolderCard({ folder, batchId, onSend, onToast }: {
+function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   folder: TollFolderSummary
   batchId: string
   onSend: (folder: TollFolderSummary) => void
   onToast: (msg: string) => void
+  onRefresh: () => void
 }) {
   const label = folder.plate || 'Unrecognized'
   const downloadUrl = `${API_BASE}/${batchId}/folders/${folder._id}/download`
   const sent = folder.sentStatus === 'sent'
   const cfg = matchTypeConfig[folder.matchType]
+  const [reviewing, setReviewing] = useState(false)
 
   // Prefetched on hover rather than on mount — dragstart can't itself be async (browsers
   // only accept setData() synchronously within the drag gesture, so fetching the PDF ON
@@ -516,6 +550,7 @@ function FolderCard({ folder, batchId, onSend, onToast }: {
   }
 
   return (
+    <>
     <div
       draggable={!!folder.hasMergedPdf}
       onMouseEnter={prefetchForDrag}
@@ -561,11 +596,106 @@ function FolderCard({ folder, batchId, onSend, onToast }: {
             )}
           </button>
         )}
+        {folder.matchType === 'unrecognized' && (
+          <button onClick={() => setReviewing(true)}
+            className="flex-1 px-2.5 py-1.5 bg-amber-bg border border-amber/30 text-amber rounded-lg text-xs font-medium hover:border-amber transition-colors">
+            Review
+          </button>
+        )}
         {folder.plate && (
           <button onClick={() => onSend(folder)} disabled={!folder.hasMergedPdf}
             className="flex-1 px-2.5 py-1.5 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
             {sent ? 'Resend' : 'Send'}
           </button>
+        )}
+      </div>
+    </div>
+    {reviewing && (
+      <ReviewModal
+        batchId={batchId}
+        folder={folder}
+        onClose={() => setReviewing(false)}
+        onResolved={() => { setReviewing(false); onRefresh() }}
+        onToast={onToast}
+      />
+    )}
+    </>
+  )
+}
+
+// ── Review modal — Unrecognized folder only: view each page's photo, type its plate,
+// it moves out of Unrecognized immediately. No paper needed.
+function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
+  batchId: string
+  folder: TollFolderSummary
+  onClose: () => void
+  onResolved: () => void
+  onToast: (msg: string) => void
+}) {
+  const [pages, setPages] = useState<{ pageNumber: number; imageBase64: string }[]>([])
+  const [loading, setLoading] = useState(true)
+  const [plateInputs, setPlateInputs] = useState<Record<number, string>>({})
+  const [savingPage, setSavingPage] = useState<number | null>(null)
+
+  useEffect(() => {
+    axios.get<{ pages: { pageNumber: number; imageBase64: string }[] }>(`${API_BASE}/${batchId}/folders/${folder._id}/pages`)
+      .then(({ data }) => setPages(data.pages))
+      .catch(() => onToast('✗ Could not load these pages'))
+      .finally(() => setLoading(false))
+  }, [batchId, folder._id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function savePage(pageNumber: number) {
+    const plate = (plateInputs[pageNumber] || '').trim()
+    if (!plate) return
+    setSavingPage(pageNumber)
+    try {
+      await axios.post(`${API_BASE}/${batchId}/folders/${folder._id}/pages/${pageNumber}/reassign`, { plate })
+      onToast(`✓ Page moved to ${plate.toUpperCase()}`)
+      setPages(prev => prev.filter(p => p.pageNumber !== pageNumber))
+      onResolved()
+    } catch (err: any) {
+      onToast(`✗ ${err.response?.data?.error || 'Could not move this page'}`)
+    } finally {
+      setSavingPage(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-text-primary">Review unrecognized pages</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        {loading ? (
+          <p className="text-xs text-text-muted text-center py-8">Loading pages…</p>
+        ) : pages.length === 0 ? (
+          <p className="text-xs text-text-muted text-center py-8">All done — nothing left to review here.</p>
+        ) : (
+          <div className="space-y-5">
+            {pages.map(p => (
+              <div key={p.pageNumber} className="border border-border rounded-xl overflow-hidden">
+                <img src={`data:image/png;base64,${p.imageBase64}`} alt={`Page ${p.pageNumber}`} className="w-full max-h-64 object-contain bg-surface2" />
+                <div className="p-3 flex items-center gap-2">
+                  <span className="text-xs text-text-muted shrink-0">Page {p.pageNumber}</span>
+                  <input
+                    value={plateInputs[p.pageNumber] || ''}
+                    onChange={e => setPlateInputs(prev => ({ ...prev, [p.pageNumber]: e.target.value.toUpperCase() }))}
+                    placeholder="Type plate"
+                    className="flex-1 px-2.5 py-1.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
+                  />
+                  <button onClick={() => savePage(p.pageNumber)} disabled={savingPage === p.pageNumber || !plateInputs[p.pageNumber]?.trim()}
+                    className="px-3 py-1.5 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors shrink-0">
+                    {savingPage === p.pageNumber ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

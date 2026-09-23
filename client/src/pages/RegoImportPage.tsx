@@ -92,7 +92,7 @@ export default function RegoImportPage() {
   const [confirmError, setConfirmError] = useState('')
   const [scanning, setScanning] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState('')
+  const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([])
   const [editVehicle, setEditVehicle] = useState<RegoVehicle | null>(null)
   const [editYear, setEditYear] = useState('')
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
@@ -112,7 +112,9 @@ export default function RegoImportPage() {
   const [zoomScale, setZoomScale] = useState(1)
 
   function showToast(msg: string) {
-    setToast(msg); setTimeout(() => setToast(''), 3000)
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, msg }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
   }
 
   async function fetchVehicles() {
@@ -215,6 +217,42 @@ export default function RegoImportPage() {
     }
     setSaving(false)
   }
+  // One file's scan logic, pulled out of the bulk loop so a single failed item's Retry
+  // button can re-run the exact same code without re-selecting or re-scanning everything.
+  const filesById = useRef<Record<string, File>>({})
+
+  async function scanOneFile(file: File, scanId: string) {
+    setPendingScans(prev => prev.map(p => p.id === scanId ? { ...p, status: 'processing', errorMsg: undefined } : p))
+    try {
+      const originalBase64 = await new Promise<string>(resolve => {
+        const reader = new FileReader()
+        reader.onload = () => resolve((reader.result as string).split(',')[1])
+        reader.readAsDataURL(file)
+      })
+      const compressed = await compressImage(file, 800, 0.6)
+
+      const res = await axios.post('/api/upload/read-rego', { photoBase64: originalBase64 })
+      const data = res.data
+      const plate = (data.plate || '').toUpperCase().trim()
+      const existsInDB = vehicles.some(v => v.plate === plate)
+
+      setPendingScans(prev => prev.map(p => p.id === scanId ? {
+        ...p,
+        plate,
+        model: [data.make, data.model].filter(Boolean).join(' ') || '',
+        year: String(data.year || ''),
+        regoExpiry: data.regoExpiry || '',
+        photoOriginal: originalBase64,
+        photoCompressed: compressed,
+        status: existsInDB ? 'exists' : 'ready',
+        errorMsg: existsInDB ? 'Already in your fleet' : undefined,
+      } : p))
+    } catch {
+      setPendingScans(prev => prev.map(p => p.id === scanId ? { ...p, status: 'error', errorMsg: 'Failed to scan' } : p))
+      showToast(`✗ ${file.name} failed to scan`)
+    }
+  }
+
   async function handleBulkScan(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
@@ -222,49 +260,22 @@ export default function RegoImportPage() {
 
     for (const file of files) {
       const tempId = `scan_${Date.now()}_${Math.random()}`
+      filesById.current[tempId] = file
       setPendingScans(prev => [...prev, {
         id: tempId, plate: '', model: '', year: '', regoExpiry: '',
         notes: '', photoOriginal: '', photoCompressed: '',
         status: 'processing'
       }])
-
-      try {
-        const originalBase64 = await new Promise<string>(resolve => {
-          const reader = new FileReader()
-          reader.onload = () => resolve((reader.result as string).split(',')[1])
-          reader.readAsDataURL(file)
-        })
-        const compressed = await compressImage(file, 800, 0.6)
-
-        const res = await axios.post('/api/upload/read-rego', {
-          photoBase64: originalBase64,
-        })
-
-        const data = res.data
-        const plate = (data.plate || '').toUpperCase().trim()
-
-        const existsInDB = vehicles.some(v => v.plate === plate)
-
-        setPendingScans(prev => prev.map(p => p.id === tempId ? {
-          ...p,
-          plate,
-          model: [data.make, data.model].filter(Boolean).join(' ') || '',
-          year: String(data.year || ''),
-          regoExpiry: data.regoExpiry || '',
-          photoOriginal: originalBase64,
-          photoCompressed: compressed,
-          status: existsInDB ? 'exists' : 'ready',
-          errorMsg: existsInDB ? 'Already in your fleet' : undefined,
-        } : p))
-
-        await new Promise(r => setTimeout(r, 4100))
-      } catch {
-        setPendingScans(prev => prev.map(p => p.id === tempId ? {
-          ...p, status: 'error', errorMsg: 'Failed to scan'
-        } : p))
-      }
+      await scanOneFile(file, tempId)
+      await new Promise(r => setTimeout(r, 4100))
     }
     e.target.value = ''
+  }
+
+  function retryScan(scanId: string) {
+    const file = filesById.current[scanId]
+    if (!file) { showToast('✗ Can\'t retry — please re-select this file'); return }
+    scanOneFile(file, scanId)
   }
 
   async function confirmPendingScan() {
@@ -347,9 +358,11 @@ export default function RegoImportPage() {
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-bg">
 
-      {toast && (
-        <div className="fixed top-4 right-4 z-50 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-lg">{toast}</div>
-      )}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {toasts.map(t => (
+          <div key={t.id} className="bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-lg">{t.msg}</div>
+        ))}
+      </div>
 
       {/* Header */}
       <div className="px-6 py-5 border-b border-border bg-surface flex items-center justify-between">
@@ -628,7 +641,15 @@ export default function RegoImportPage() {
                     <>
                       <p className="text-xs text-text-muted">{scan.model || '—'} · {scan.year || '—'}</p>
                       {scan.errorMsg ? (
-                        <p className="text-xs text-red mt-1">{scan.errorMsg}</p>
+                        <div className="flex items-center justify-between mt-1">
+                          <p className="text-xs text-red">{scan.errorMsg}</p>
+                          {scan.status === 'error' && (
+                            <button onClick={e => { e.stopPropagation(); retryScan(scan.id) }}
+                              className="text-[10px] px-2 py-0.5 bg-surface border border-border rounded-lg text-text-secondary hover:border-accent transition-colors shrink-0 ml-2">
+                              Retry
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <p className="text-xs text-text-muted mt-0.5">Exp: {scan.regoExpiry || '—'}</p>
                       )}

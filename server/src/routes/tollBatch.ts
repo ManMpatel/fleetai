@@ -94,7 +94,15 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     const fleetVehicles = await Vehicle.find({ orgId }).select('plate')
     const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
 
+    // Resume support: pages already recorded from an earlier attempt at this batch are
+    // skipped — this is what makes Retry pick up where it left off instead of re-running
+    // the whole thing and re-spending Gemini calls.
+    const existingFolders = await TollFolder.find({ orgId, batchId }).select('pages.pageNumber')
+    const alreadyDone = new Set(existingFolders.flatMap(f => f.pages.map(p => p.pageNumber)))
+
     for (const page of pages) {
+      if (alreadyDone.has(page.pageNumber)) continue
+
       const { plate } = await readPlateFromPage(page.imageBase64, page.mimeType, knownPlates)
       Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
 
@@ -115,7 +123,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
 
       await TollBatch.findOneAndUpdate(
         { _id: batchId, orgId },
-        { $inc: { processedPages: 1 }, $set: { currentStep: step } }
+        { $inc: { processedPages: 1 }, $set: { currentStep: step, lastProgressAt: new Date() } }
       )
 
       // Gemini free-tier pacing — same 4.1s delay as the existing read-rego-bulk endpoint.
@@ -158,6 +166,8 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       totalPages: 0,
       processedPages: 0,
       currentStep: 'Starting…',
+      originalPdfBase64: req.file.buffer.toString('base64'),
+      lastProgressAt: new Date(),
     })
 
     // Fire and forget — the client polls GET /:batchId for progress instead of holding
@@ -167,6 +177,32 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     res.status(202).json({ batchId: batch._id })
   } catch (err: any) {
     res.status(400).json({ error: err.message })
+  }
+})
+
+// POST /api/toll-batch/:batchId/retry — resume a failed or stuck batch. Re-reads the
+// original PDF stored at upload time and re-runs processBatch, which skips pages already
+// recorded so this never re-spends Gemini calls on finished work.
+router.post('/:batchId/retry', async (req: Request, res: Response) => {
+  try {
+    const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId }).select('+originalPdfBase64')
+    if (!batch) return res.status(404).json({ error: 'Batch not found' })
+    if (batch.status === 'done') return res.status(409).json({ error: 'This batch already finished' })
+    if (!batch.originalPdfBase64) {
+      return res.status(410).json({ error: 'The original scan was not kept — please re-upload it as a new batch' })
+    }
+
+    await TollBatch.findOneAndUpdate(
+      { _id: batch._id, orgId: req.orgId },
+      { $set: { status: 'processing', currentStep: 'Resuming…', lastProgressAt: new Date() }, $unset: { error: '' } }
+    )
+
+    const pdfBuffer = Buffer.from(batch.originalPdfBase64, 'base64')
+    void processBatch(batch._id.toString(), req.orgId!.toString(), pdfBuffer)
+
+    res.status(202).json({ batchId: batch._id })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
   }
 })
 
@@ -228,8 +264,16 @@ router.get('/:batchId', async (req: Request, res: Response) => {
       return 'unregistered'
     }
 
+    // A process crash mid-batch leaves status stuck at 'processing' forever with no
+    // error — lastProgressAt not moving for 10+ minutes (generous next to the ~5s/page
+    // pace) is the only signal that this job actually died.
+    const stale = batch.status === 'processing' && batch.lastProgressAt
+      ? Date.now() - new Date(batch.lastProgressAt).getTime() > 10 * 60 * 1000
+      : false
+
     res.json({
       batch,
+      stale,
       folders: folders.map(f => ({
         _id: f._id,
         plate: f.plate,
@@ -291,6 +335,64 @@ router.get('/:batchId/folders/:folderId/download', async (req: Request, res: Res
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="${label}.pdf"`)
     res.send(buffer)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/toll-batch/:batchId/folders/:folderId/pages — full images for one folder,
+// fetched on demand when the owner opens it to review. Never part of the cheap poll.
+router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Response) => {
+  try {
+    const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
+    if (!folder) return res.status(404).json({ error: 'Folder not found' })
+
+    const pages = [...folder.pages]
+      .sort((a, b) => a.pageNumber - b.pageNumber)
+      .map(p => ({ pageNumber: p.pageNumber, imageBase64: p.imageBase64 }))
+
+    res.json({ pages })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/toll-batch/:batchId/folders/:folderId/pages/:pageNumber/reassign
+// Moves one page into the folder for the given plate (creating it if new) and rebuilds
+// both affected folders' merged PDFs immediately, so Download/Send are never stale.
+router.post('/:batchId/folders/:folderId/pages/:pageNumber/reassign', async (req: Request, res: Response) => {
+  try {
+    const { plate } = req.body as { plate?: string }
+    const cleanPlate = (plate || '').toUpperCase().trim()
+    if (!cleanPlate) return res.status(400).json({ error: 'Plate is required' })
+
+    const pageNumber = parseInt(req.params.pageNumber, 10)
+    const sourceFolder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
+    if (!sourceFolder) return res.status(404).json({ error: 'Folder not found' })
+
+    const page = sourceFolder.pages.find(p => p.pageNumber === pageNumber)
+    if (!page) return res.status(404).json({ error: 'Page not found in this folder' })
+    if (sourceFolder.plate === cleanPlate) return res.status(400).json({ error: 'Already in that folder' })
+
+    sourceFolder.pages = sourceFolder.pages.filter(p => p.pageNumber !== pageNumber)
+    await sourceFolder.save()
+
+    const destFolder = await TollFolder.findOneAndUpdate(
+      { orgId: req.orgId, batchId: req.params.batchId, plate: cleanPlate },
+      { $push: { pages: { pageNumber: page.pageNumber, imageBase64: page.imageBase64 } }, $setOnInsert: { orgId: req.orgId, batchId: req.params.batchId, plate: cleanPlate } },
+      { upsert: true, new: true }
+    )
+
+    for (const folder of [sourceFolder, destFolder]) {
+      if (folder.pages.length === 0) { await TollFolder.deleteOne({ _id: folder._id }); continue }
+      const sortedPages = [...folder.pages].sort((a, b) => a.pageNumber - b.pageNumber)
+      const mergedPdf = await mergeImagesToPdf(sortedPages.map(p => p.imageBase64))
+      folder.mergedPdfBase64 = mergedPdf.toString('base64')
+      folder.merged = true
+      await folder.save()
+    }
+
+    res.json({ success: true, movedTo: cleanPlate })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

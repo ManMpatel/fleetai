@@ -17,6 +17,8 @@ export interface ITollBatch extends Document {
   error?: string
   createdAt: Date
   completedAt?: Date
+  originalPdfBase64?: string
+  lastProgressAt?: Date
 }
 
 const TollBatchSchema = new Schema<ITollBatch>(
@@ -26,11 +28,16 @@ const TollBatchSchema = new Schema<ITollBatch>(
     status:           { type: String, enum: ['processing', 'done', 'failed'], default: 'processing', index: true },
     totalPages:       { type: Number, required: true },
     processedPages:   { type: Number, default: 0 },
-    // Short human-readable line the frontend polls and displays, e.g.
-    // "Reading page 142 of 300" or "Merging DEF456 (6 pages)" — real progress, not filler.
     currentStep:      { type: String },
     error:            { type: String },
     completedAt:      { type: Date },
+    // The raw uploaded PDF, kept so a failed/stuck batch can resume without asking the
+    // owner to find and re-upload the same scan. select:false — never pulled by an
+    // ordinary find(), only by /retry which asks for it explicitly.
+    originalPdfBase64: { type: String, select: false },
+    // Touched on every page processed — tells "still working" apart from "the process
+    // died and nobody's touched this row since."
+    lastProgressAt:    { type: Date },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 )
