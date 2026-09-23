@@ -218,7 +218,10 @@ export default function App() {
     if (!isAuthenticated) return
     const interceptor = axios.interceptors.request.use(async (config) => {
       try {
-        const token = await getAccessTokenSilently()
+        const token = await Promise.race([
+          getAccessTokenSilently(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 8000)),
+        ])
         config.headers.Authorization = `Bearer ${token}`
       } catch {
         // Fall through unauthenticated; the server will reject it.
