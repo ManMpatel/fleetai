@@ -7,11 +7,22 @@ const router = Router()
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const vehicles = await Vehicle.find({ orgId: req.orgId })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let query: any = Vehicle.find({ orgId: req.orgId })
       .populate(scopedPopulate('currentRenter', 'name phone email'))
       .populate(scopedPopulate('fines'))
       .populate(scopedPopulate('tolls'))
       .sort({ plate: 1 })
+
+    // Lightweight mode for list/overview screens: strips the large
+    // embedded base64 photo fields that aren't rendered there.
+    // Default behavior (no param) is unchanged, so every other
+    // caller of this route — e.g. Rego Import — is unaffected.
+    if (req.query.light === 'true') {
+      query = query.select('-regoPhotoBase64 -regoPhotos')
+    }
+
+    const vehicles = await query
     res.json(vehicles)
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch fleet' })

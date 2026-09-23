@@ -91,7 +91,10 @@ export const useStore = create<FleetStore>((set, get) => ({
   fetchVehicles: async () => {
     set({ fleetLoading: true, fleetError: null })
     try {
-      const { data } = await axios.get<Vehicle[]>('/api/fleet')
+      // ?light=true skips the large embedded rego-photo base64 fields —
+      // the Fleet Overview table never renders them, and they were the
+      // majority of this request's payload size.
+      const { data } = await axios.get<Vehicle[]>('/api/fleet?light=true')
       set({ vehicles: data, fleetLoading: false })
       get().computeStats()
     } catch (err) {
