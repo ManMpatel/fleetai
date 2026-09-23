@@ -176,11 +176,14 @@ export const useStore = create<FleetStore>((set, get) => ({
         timestamp: new Date().toISOString(),
       }
       set((state) => ({ messages: [...state.messages, aiMsg], chatLoading: false }))
-    } catch {
+    } catch (err: any) {
+      const serverDetail = err?.response?.data?.detail || err?.response?.data?.error
       const errMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Sorry, I could not process your request right now.',
+        content: serverDetail
+          ? `Sorry, something went wrong: ${serverDetail}`
+          : 'Sorry, I could not process your request right now. Check your connection and try again.',
         timestamp: new Date().toISOString(),
       }
       set((state) => ({ messages: [...state.messages, errMsg], chatLoading: false }))
