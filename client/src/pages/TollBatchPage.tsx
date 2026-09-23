@@ -70,9 +70,12 @@ export default function TollBatchPage() {
 
   const fetchBatchList = useCallback(async () => {
     try {
-      const { data } = await axios.get<{ batches: TollBatch[]; stats: { totalScanned: number; sorted: number; flagged: number; unrecognized: number } }>(API_BASE)
-      setBatches(data.batches)
-      setTollStats(data.stats)
+      const { data } = await axios.get(API_BASE)
+      // Handle both the new { batches, stats } shape and the old bare-array shape so a
+      // frontend/backend version skew during a rolling deploy doesn't crash the page.
+      const list: TollBatch[] = Array.isArray(data) ? data : (data.batches ?? [])
+      setBatches(list)
+      if (!Array.isArray(data) && data.stats) setTollStats(data.stats)
     } catch {
       showToast('✗ Could not load past batches')
     } finally {
@@ -249,7 +252,7 @@ export default function TollBatchPage() {
 // ── Past batches list ───────────────────────────────────────
 function BatchList({ batches, loading, onOpen }: { batches: TollBatch[]; loading: boolean; onOpen: (id: string) => void }) {
   if (loading) return <p className="text-text-muted text-sm text-center py-12">Loading...</p>
-  if (batches.length === 0) {
+  if (!batches || batches.length === 0) {
     return (
       <div className="text-center py-20 text-text-muted text-sm">
         No batches yet — upload a scanned PDF of this week's toll notices to get started.
