@@ -38,7 +38,7 @@ interface PlateReadResult {
  * Gemini is not confident — those pages route to the batch's "Unrecognized" folder for a
  * person to sort, rather than risk filing a toll under the wrong plate.
  */
-async function readPlateFromPage(imageBase64: string, mimeType: string): Promise<PlateReadResult> {
+async function readPlateFromPage(imageBase64: string, mimeType: string, knownPlates: string[] = []): Promise<PlateReadResult> {
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
@@ -53,8 +53,12 @@ Return ONLY a valid JSON object, no markdown, no explanation:
   "plate": "the plate in uppercase with no spaces, e.g. ABC123 — or null if you cannot read it with confidence"
 }
 
-Only return a plate you can actually read. If the text is blurry, cut off, or you are not
-sure, return null for plate — do not guess.`
+This business's actual registered plates are: ${knownPlates.length ? knownPlates.join(', ') : '(none on file)'}.
+If the plate you're reading closely matches one of these (allowing for a likely misread
+character, e.g. O/0, I/1, B/8, S/5), return that exact plate from the list.
+
+Only return a plate you can actually read or confidently match to the list above. If the
+text is blurry, cut off, or you are not sure, return null for plate — do not guess.`
 
     const result = await model.generateContent([
       { inlineData: { data: imageBase64, mimeType } },
@@ -85,8 +89,13 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     const pages = await rasterizePdf(pdfBuffer)
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { totalPages: pages.length } })
 
+    // Every plate this business has ever had on file (active, sold or stolen) — passed to
+    // Gemini so it matches against known plates instead of reading each one blind.
+    const fleetVehicles = await Vehicle.find({ orgId }).select('plate')
+    const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
+
     for (const page of pages) {
-      const { plate } = await readPlateFromPage(page.imageBase64, page.mimeType)
+      const { plate } = await readPlateFromPage(page.imageBase64, page.mimeType, knownPlates)
       Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
 
       const step = plate
@@ -165,7 +174,26 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const batches = await TollBatch.find({ orgId: req.orgId }).sort({ createdAt: -1 }).limit(50)
-    res.json(batches)
+
+    // Lifetime totals for the stat row — cheap since image data is excluded.
+    const allFolders = await TollFolder.find({ orgId: req.orgId }).select('-pages.imageBase64 -mergedPdfBase64')
+    const plates = allFolders.map(f => f.plate).filter((p): p is string => !!p)
+    const vehicles = await Vehicle.find({ orgId: req.orgId, plate: { $in: plates } }).select('plate regoStatus')
+    const statusByPlate = new Map(vehicles.map(v => [v.plate, v.regoStatus || 'in_stock']))
+
+    let sorted = 0, flagged = 0, unrecognized = 0
+    for (const f of allFolders) {
+      const count = f.pages.length
+      if (!f.plate) { unrecognized += count; continue }
+      const status = statusByPlate.get(f.plate)
+      if (status && status !== 'stolen' && status !== 'sold') sorted += count
+      else flagged += count // stolen, sold, or never registered
+    }
+
+    res.json({
+      batches,
+      stats: { totalScanned: sorted + flagged + unrecognized, sorted, flagged, unrecognized },
+    })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -179,18 +207,33 @@ router.get('/:batchId', async (req: Request, res: Response) => {
     const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId })
     if (!batch) return res.status(404).json({ error: 'Batch not found' })
 
-    // Neither page images nor the merged PDF blob are fetched here — this is what the
-    // 30s poll hits, so it stays cheap regardless of batch size. `merged` is a plain
-    // boolean set alongside mergedPdfBase64 in the background job for exactly this.
     const folders = await TollFolder.find({ orgId: req.orgId, batchId: batch._id })
       .select('-pages.imageBase64 -mergedPdfBase64')
       .sort({ plate: 1 })
+
+    // Cross-check every plated folder against this business's actual fleet, so the grid
+    // shows WHY a plate isn't a clean match — stolen, sold, or never registered at all —
+    // instead of lumping every non-match together. Computed live (not stored) so a status
+    // change in Rego after the batch ran shows up immediately.
+    const plates = folders.map(f => f.plate).filter((p): p is string => !!p)
+    const vehicles = await Vehicle.find({ orgId: req.orgId, plate: { $in: plates } }).select('plate regoStatus')
+    const statusByPlate = new Map(vehicles.map(v => [v.plate, v.regoStatus || 'in_stock']))
+
+    function matchTypeFor(plate: string | null): 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized' {
+      if (!plate) return 'unrecognized'
+      const status = statusByPlate.get(plate)
+      if (status === 'stolen') return 'stolen'
+      if (status === 'sold') return 'sold'
+      if (status) return 'sorted'
+      return 'unregistered'
+    }
 
     res.json({
       batch,
       folders: folders.map(f => ({
         _id: f._id,
         plate: f.plate,
+        matchType: matchTypeFor(f.plate),
         pageCount: f.pages.length,
         hasMergedPdf: f.merged,
         sentStatus: f.sentStatus,

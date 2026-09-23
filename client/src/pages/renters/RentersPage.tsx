@@ -5,6 +5,7 @@ import axios from 'axios'
 import RenterDetail from './RenterDetail'
 import PendingModal from './PendingModal'
 import { SkeletonListRow } from '../../components/Skeleton'
+import StatCard from '../../components/StatCard'
 
 function Toast({ message, type }: { message: string; type: 'success' | 'warning' }) {
   return (
@@ -73,7 +74,7 @@ export default function RentersPage() {
   }
 
   return (
-    <div className="flex-1 flex h-full overflow-hidden">
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
       {toast && <Toast message={toast.message} type={toast.type} />}
 
       {lightbox && (
@@ -126,6 +127,10 @@ export default function RentersPage() {
         </>
       )}
 
+      <div className="px-6 py-3 border-b border-border bg-surface">
+        <StatCard label="Total Renters" value={renters.length} color="accent" icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>} />
+      </div>
+      <div className="flex-1 flex overflow-hidden">
       {/* Left panel — list */}
       <div className="w-72 shrink-0 flex flex-col border-r border-border bg-surface overflow-hidden">
         <div className="px-4 py-4 border-b border-border space-y-3">
@@ -225,6 +230,7 @@ export default function RentersPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

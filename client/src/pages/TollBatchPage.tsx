@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import axios from 'axios'
 import { AnimatePresence, motion } from 'framer-motion'
+import StatCard from '../components/StatCard'
 
 // TollBatch — scan a week's printed toll notices into one PDF, upload it here, and the
 // pages get sorted into one folder per number plate. Processing runs as a background job
@@ -24,11 +25,20 @@ interface TollBatch {
 interface TollFolderSummary {
   _id: string
   plate: string | null
+  matchType: 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized'
   pageCount: number
   hasMergedPdf: boolean
   sentStatus: 'unsent' | 'sent'
   sentTo?: string
   sentAt?: string
+}
+
+const matchTypeConfig: Record<TollFolderSummary['matchType'], { label: string | null; box: string; badge: string }> = {
+  sorted:       { label: null,                box: 'border-border',                     badge: '' },
+  stolen:       { label: 'Stolen vehicle',    box: 'border-red/40 bg-red-bg/40',        badge: 'bg-red-bg text-red' },
+  sold:         { label: 'Sold vehicle',      box: 'border-border bg-surface2',         badge: 'bg-surface2 text-text-muted' },
+  unregistered: { label: 'Not in your fleet', box: 'border-purple/40 bg-purple-bg/40',  badge: 'bg-purple-bg text-purple' },
+  unrecognized: { label: 'Needs review',      box: 'border-amber/40 bg-amber-bg/40',    badge: 'bg-amber-bg text-amber' },
 }
 
 interface RenterMatch {
@@ -42,6 +52,7 @@ const API_BASE = '/api/toll-batch'
 
 export default function TollBatchPage() {
   const [batches, setBatches] = useState<TollBatch[]>([])
+  const [tollStats, setTollStats] = useState<{ totalScanned: number; sorted: number; flagged: number; unrecognized: number } | null>(null)
   const [loadingBatches, setLoadingBatches] = useState(true)
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
   const [activeBatch, setActiveBatch] = useState<TollBatch | null>(null)
@@ -57,8 +68,9 @@ export default function TollBatchPage() {
 
   const fetchBatchList = useCallback(async () => {
     try {
-      const { data } = await axios.get<TollBatch[]>(API_BASE)
-      setBatches(data)
+      const { data } = await axios.get<{ batches: TollBatch[]; stats: { totalScanned: number; sorted: number; flagged: number; unrecognized: number } }>(API_BASE)
+      setBatches(data.batches)
+      setTollStats(data.stats)
     } catch {
       showToast('✗ Could not load past batches')
     } finally {
@@ -175,6 +187,14 @@ export default function TollBatchPage() {
       </div>
 
       <div className="flex-1 px-6 py-6">
+        {tollStats && !activeBatchId && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <StatCard label="Total Scanned" value={tollStats.totalScanned} color="accent" icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5"><path d="M4 4h16v13l-4-3-4 3-4-3-4 3V4z"/></svg>} />
+            <StatCard label="Sorted" value={tollStats.sorted} color="green" icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5"><polyline points="20 6 9 17 4 12"/></svg>} />
+            <StatCard label="Flagged" value={tollStats.flagged} color="red" icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>} />
+            <StatCard label="Unrecognized" value={tollStats.unrecognized} color="amber" icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>} />
+          </div>
+        )}
         {activeBatchId && activeBatch ? (
           activeBatch.status === 'processing' ? (
             <ProcessingView batch={activeBatch} folders={folders} />
@@ -421,6 +441,7 @@ function FolderCard({ folder, batchId, onSend, onToast }: {
   const label = folder.plate || 'Unrecognized'
   const downloadUrl = `${API_BASE}/${batchId}/folders/${folder._id}/download`
   const sent = folder.sentStatus === 'sent'
+  const cfg = matchTypeConfig[folder.matchType]
 
   // Prefetched on hover rather than on mount — dragstart can't itself be async (browsers
   // only accept setData() synchronously within the drag gesture, so fetching the PDF ON
@@ -500,12 +521,15 @@ function FolderCard({ folder, batchId, onSend, onToast }: {
       onMouseEnter={prefetchForDrag}
       onDragStart={handleDragStart}
       className={`bg-surface border rounded-xl p-4 transition-colors ${
-        sent ? 'border-border bg-surface2/60' : 'border-border hover:border-accent'
+        sent ? `${cfg.box} bg-surface2/60` : `${cfg.box} hover:border-accent`
       } ${folder.hasMergedPdf ? 'cursor-grab active:cursor-grabbing' : ''}`}
       title={folder.hasMergedPdf ? 'Drag onto WhatsApp Desktop to send manually (or use Download for WhatsApp Web)' : undefined}
     >
       <div className="flex items-start justify-between mb-2">
-        <p className={`text-sm font-semibold truncate ${folder.plate ? 'text-text-primary' : 'text-text-muted'}`}>{label}</p>
+        <div className="min-w-0">
+          {cfg.label && <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>}
+          <p className={`text-sm font-semibold truncate ${folder.plate ? 'text-text-primary' : 'text-text-muted'}`}>{label}</p>
+        </div>
         {sent && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-green/10 text-green shrink-0">Sent</span>
         )}
