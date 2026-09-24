@@ -26,6 +26,7 @@ export interface ITollFolder extends Document {
   sentTo?: string
   sentAt?: Date
   sentRenter?: mongoose.Types.ObjectId
+  imagesDeleted: boolean
   createdAt: Date
 }
 
@@ -52,6 +53,7 @@ const TollFolderSchema = new Schema<ITollFolder>(
     sentTo:     { type: String },
     sentAt:     { type: Date },
     sentRenter: { type: Schema.Types.ObjectId, ref: 'Renter', default: null },
+    imagesDeleted: { type: Boolean, default: false },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 )

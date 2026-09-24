@@ -29,6 +29,17 @@ const upload = multer({
 
 const GEMINI_DELAY_MS = 4100 // free-tier cap is 15 req/min — same pacing as read-rego-bulk
 
+type MatchType = 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized'
+
+function matchTypeFor(plate: string | null, statusByPlate: Map<string, string>): MatchType {
+  if (!plate) return 'unrecognized'
+  const status = statusByPlate.get(plate)
+  if (status === 'stolen') return 'stolen'
+  if (status === 'sold') return 'sold'
+  if (status) return 'sorted'
+  return 'unregistered'
+}
+
 interface PlateReadResult {
   plate: string | null
 }
@@ -206,7 +217,7 @@ router.post('/:batchId/retry', async (req: Request, res: Response) => {
   }
 })
 
-// GET /api/toll-batch — list batches, newest first
+// GET /api/toll-batch — list batches, newest first, with lifetime stats and date-grouped folders
 router.get('/', async (req: Request, res: Response) => {
   try {
     const batches = await TollBatch.find({ orgId: req.orgId }).sort({ createdAt: -1 }).limit(50)
@@ -226,9 +237,63 @@ router.get('/', async (req: Request, res: Response) => {
       else flagged += count // stolen, sold, or never registered
     }
 
+    // Date-grouped view — one entry per upload day (Sydney local date), newest first.
+    // Stolen/sold folders surface first within each group for quick action, then alphabetical.
+    const PRIORITY: Record<MatchType, number> = { stolen: 0, sold: 1, unrecognized: 2, unregistered: 3, sorted: 4 }
+    const DAY_NAMES  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const MON_NAMES  = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+    type DateGroup = { batches: typeof batches; folders: any[] }
+    const groupMap = new Map<string, DateGroup>()
+
+    for (const f of allFolders) {
+      const dateKey = new Date(f.createdAt).toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
+      if (!groupMap.has(dateKey)) groupMap.set(dateKey, { batches: [], folders: [] })
+      const mt = matchTypeFor(f.plate, statusByPlate)
+      groupMap.get(dateKey)!.folders.push({
+        _id: f._id,
+        batchId: f.batchId,
+        plate: f.plate,
+        matchType: mt,
+        pageCount: f.pages.length,
+        sentStatus: f.sentStatus,
+        merged: f.merged,
+        imagesDeleted: f.imagesDeleted ?? false,
+      })
+    }
+
+    // Include processing/failed batches so the date row shows their status inline.
+    for (const b of batches) {
+      if (b.status === 'done') continue
+      const dateKey = new Date(b.createdAt).toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
+      if (!groupMap.has(dateKey)) groupMap.set(dateKey, { batches: [], folders: [] })
+      groupMap.get(dateKey)!.batches.push(b)
+    }
+
+    for (const group of groupMap.values()) {
+      group.folders.sort((a: any, b: any) => {
+        const pa = PRIORITY[a.matchType as MatchType] ?? 4
+        const pb = PRIORITY[b.matchType as MatchType] ?? 4
+        if (pa !== pb) return pa - pb
+        return (a.plate || '').localeCompare(b.plate || '')
+      })
+    }
+
+    const now = Date.now()
+    const dateGroups = [...groupMap.entries()]
+      .sort(([a], [b]) => b.localeCompare(a)) // YYYY-MM-DD sorts lexicographically → newest first
+      .map(([dateKey, group]) => {
+        const [y, m, d] = dateKey.split('-').map(Number)
+        const dateObj = new Date(Date.UTC(y, m - 1, d))
+        const dateLabel = `${d} ${MON_NAMES[m - 1]} ${y}, ${DAY_NAMES[dateObj.getUTCDay()]}`
+        const daysRemaining = Math.max(0, 90 - Math.floor((now - dateObj.getTime()) / 86400000))
+        return { date: dateKey, dateLabel, daysRemaining, batches: group.batches, folders: group.folders }
+      })
+
     res.json({
       batches,
       stats: { totalScanned: sorted + flagged + unrecognized, sorted, flagged, unrecognized },
+      dateGroups,
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -255,15 +320,6 @@ router.get('/:batchId', async (req: Request, res: Response) => {
     const vehicles = await Vehicle.find({ orgId: req.orgId, plate: { $in: plates } }).select('plate regoStatus')
     const statusByPlate = new Map(vehicles.map(v => [v.plate, v.regoStatus || 'in_stock']))
 
-    function matchTypeFor(plate: string | null): 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized' {
-      if (!plate) return 'unrecognized'
-      const status = statusByPlate.get(plate)
-      if (status === 'stolen') return 'stolen'
-      if (status === 'sold') return 'sold'
-      if (status) return 'sorted'
-      return 'unregistered'
-    }
-
     // A process crash mid-batch leaves status stuck at 'processing' forever with no
     // error — lastProgressAt not moving for 10+ minutes (generous next to the ~5s/page
     // pace) is the only signal that this job actually died.
@@ -277,7 +333,7 @@ router.get('/:batchId', async (req: Request, res: Response) => {
       folders: folders.map(f => ({
         _id: f._id,
         plate: f.plate,
-        matchType: matchTypeFor(f.plate),
+        matchType: matchTypeFor(f.plate, statusByPlate),
         pageCount: f.pages.length,
         hasMergedPdf: f.merged,
         sentStatus: f.sentStatus,
@@ -328,6 +384,7 @@ router.get('/:batchId/folders/:folderId/download', async (req: Request, res: Res
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 90 days' })
     if (!folder.mergedPdfBase64) return res.status(409).json({ error: 'This folder is still processing' })
 
     const label = folder.plate || 'Unrecognized'
@@ -346,6 +403,7 @@ router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Respon
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 90 days' })
 
     const pages = [...folder.pages]
       .sort((a, b) => a.pageNumber - b.pageNumber)
@@ -406,6 +464,7 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 90 days' })
     if (!folder.mergedPdfBase64) return res.status(409).json({ error: 'This folder is still processing' })
 
     const { renterId, email } = req.body as { renterId?: string; email?: string }

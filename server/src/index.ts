@@ -239,18 +239,18 @@ mongoose
       try {
         const cutoff = new Date()
         cutoff.setDate(cutoff.getDate() - 90)
-        const oldBatches = await TollBatch.find({ createdAt: { $lt: cutoff } })
-          .select('_id')
+        const oldFolders = await TollFolder.find({ createdAt: { $lt: cutoff }, imagesDeleted: { $ne: true } })
           .setOptions({ allowCrossTenant: true })
-        if (!oldBatches.length) return
+        if (!oldFolders.length) return
 
-        const batchIds = oldBatches.map(b => b._id)
-        const folderResult = await TollFolder.deleteMany({ batchId: { $in: batchIds } })
-          .setOptions({ allowCrossTenant: true })
-        const batchResult = await TollBatch.deleteMany({ _id: { $in: batchIds } })
-          .setOptions({ allowCrossTenant: true })
-        console.log(`🗑️ TollBatch cleanup — deleted ${batchResult.deletedCount} batches and ${folderResult.deletedCount} folders older than 90 days`)
-      } catch (err) { console.error('TollBatch cleanup error:', err) }
+        for (const folder of oldFolders) {
+          folder.pages = folder.pages.map((p: any) => ({ pageNumber: p.pageNumber, imageBase64: '' }))
+          folder.mergedPdfBase64 = undefined
+          folder.imagesDeleted = true
+          await folder.save()
+        }
+        console.log(`🗑️ TollBatch image purge — stripped images from ${oldFolders.length} folder(s) older than 90 days (plate/date/sent-status kept)`)
+      } catch (err) { console.error('TollBatch image purge error:', err) }
     })
 
     // Payment status check — daily at 9am Sydney time (UTC 23:00)

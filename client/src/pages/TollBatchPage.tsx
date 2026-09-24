@@ -24,16 +24,26 @@ interface TollBatch {
 
 interface TollFolderSummary {
   _id: string
+  batchId: string
   plate: string | null
-  matchType: 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized'
   pageCount: number
   hasMergedPdf: boolean
   sentStatus: 'unsent' | 'sent'
   sentTo?: string
   sentAt?: string
+  imagesDeleted?: boolean
+  matchType?: 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized'
 }
 
-const matchTypeConfig: Record<TollFolderSummary['matchType'], { label: string | null; box: string; badge: string }> = {
+interface TollDateGroup {
+  date: string
+  dateLabel: string
+  daysRemaining: number
+  batches: TollBatch[]
+  folders: TollFolderSummary[]
+}
+
+const matchTypeConfig: Record<'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized', { label: string | null; box: string; badge: string }> = {
   sorted:       { label: null,                box: 'border-border',                     badge: '' },
   stolen:       { label: 'Stolen vehicle',    box: 'border-red/40 bg-red-bg/40',        badge: 'bg-red-bg text-red' },
   sold:         { label: 'Sold vehicle',      box: 'border-border bg-surface2',         badge: 'bg-surface2 text-text-muted' },
@@ -52,6 +62,7 @@ const API_BASE = '/api/toll-batch'
 
 export default function TollBatchPage() {
   const [batches, setBatches] = useState<TollBatch[]>([])
+  const [dateGroups, setDateGroups] = useState<TollDateGroup[]>([])
   const [tollStats, setTollStats] = useState<{ totalScanned: number; sorted: number; flagged: number; unrecognized: number } | null>(null)
   const [loadingBatches, setLoadingBatches] = useState(true)
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
@@ -71,11 +82,10 @@ export default function TollBatchPage() {
   const fetchBatchList = useCallback(async () => {
     try {
       const { data } = await axios.get(API_BASE)
-      // Handle both the new { batches, stats } shape and the old bare-array shape so a
-      // frontend/backend version skew during a rolling deploy doesn't crash the page.
       const list: TollBatch[] = Array.isArray(data) ? data : (data.batches ?? [])
       setBatches(list)
       if (!Array.isArray(data) && data.stats) setTollStats(data.stats)
+      if (!Array.isArray(data) && data.dateGroups) setDateGroups(data.dateGroups)
     } catch {
       showToast('✗ Could not load past batches')
     } finally {
@@ -232,7 +242,7 @@ export default function TollBatchPage() {
             <FolderGrid folders={folders} batchId={activeBatchId} onSend={setSendTarget} onToast={showToast} onRefresh={() => fetchBatchDetail(activeBatchId)} />
           )
         ) : (
-          <BatchList batches={batches} loading={loadingBatches} onOpen={openBatch} />
+          <DateGroupedBatchList dateGroups={dateGroups} loading={loadingBatches} onOpen={openBatch} />
         )}
       </div>
 
@@ -249,10 +259,10 @@ export default function TollBatchPage() {
   )
 }
 
-// ── Past batches list ───────────────────────────────────────
-function BatchList({ batches, loading, onOpen }: { batches: TollBatch[]; loading: boolean; onOpen: (id: string) => void }) {
+// ── Past batches — date-grouped view ───────────────────────
+function DateGroupedBatchList({ dateGroups, loading, onOpen }: { dateGroups: TollDateGroup[]; loading: boolean; onOpen: (id: string) => void }) {
   if (loading) return <p className="text-text-muted text-sm text-center py-12">Loading...</p>
-  if (!batches || batches.length === 0) {
+  if (dateGroups.length === 0) {
     return (
       <div className="text-center py-20 text-text-muted text-sm">
         No batches yet — upload a scanned PDF of this week's toll notices to get started.
@@ -260,32 +270,48 @@ function BatchList({ batches, loading, onOpen }: { batches: TollBatch[]; loading
     )
   }
 
-  const fmt = (d: string) => new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-
   return (
-    <div className="space-y-2">
-      {batches.map(b => (
-        <button key={b._id} onClick={() => onOpen(b._id)}
-          className="w-full flex items-center justify-between px-5 py-4 bg-surface border border-border rounded-xl hover:border-accent transition-colors text-left">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-text-primary truncate">{b.originalFilename}</p>
-            <p className="text-xs text-text-secondary mt-0.5">{fmt(b.createdAt)} · {b.totalPages || '?'} pages</p>
+    <div className="space-y-6">
+      {dateGroups.map(group => (
+        <div key={group.date}>
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-sm font-semibold text-text-primary">{group.dateLabel}</p>
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+              group.daysRemaining <= 3 ? 'bg-red/10 text-red' : group.daysRemaining <= 14 ? 'bg-amber-bg text-amber' : 'bg-surface2 text-text-secondary'
+            }`}>
+              {group.daysRemaining}d until images purged
+            </span>
           </div>
-          <StatusPill status={b.status} />
-        </button>
+
+          {group.batches.map(b => (
+            b.status === 'processing'
+              ? <ProcessingView key={b._id} batch={b} folders={[]} />
+              : b.status === 'failed'
+                ? <FailedView key={b._id} batch={b} onBack={() => onOpen(b._id)} onRetry={() => onOpen(b._id)} retrying={false} />
+                : null
+          ))}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {group.folders.map(f => {
+              const cfg = matchTypeConfig[f.matchType ?? 'sorted']
+              return (
+                <button key={f._id} onClick={() => onOpen(f.batchId)}
+                  className="flex flex-col items-start gap-1 px-4 py-3 bg-surface border border-border rounded-xl hover:border-accent transition-colors text-left">
+                  {cfg.label && (
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>
+                  )}
+                  <span className="font-mono font-semibold text-text-primary">{f.plate || 'Unrecognized'}</span>
+                  <span className="text-xs text-text-secondary">
+                    {f.pageCount} page{f.pageCount !== 1 ? 's' : ''}{f.imagesDeleted ? ' · images removed (90+ days)' : ''}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       ))}
     </div>
   )
-}
-
-function StatusPill({ status }: { status: BatchStatus }) {
-  const styles: Record<BatchStatus, string> = {
-    processing: 'bg-amber-bg text-amber',
-    done: 'bg-green/10 text-green',
-    failed: 'bg-red/10 text-red',
-  }
-  const text: Record<BatchStatus, string> = { processing: 'Processing', done: 'Done', failed: 'Failed' }
-  return <span className={`text-xs px-2.5 py-1 rounded-full font-medium shrink-0 ${styles[status]}`}>{text[status]}</span>
 }
 
 // ── Animated processing view ────────────────────────────────
@@ -477,7 +503,7 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   const label = folder.plate || 'Unrecognized'
   const downloadUrl = `${API_BASE}/${batchId}/folders/${folder._id}/download`
   const sent = folder.sentStatus === 'sent'
-  const cfg = matchTypeConfig[folder.matchType]
+  const cfg = matchTypeConfig[folder.matchType ?? 'sorted']
   const [reviewing, setReviewing] = useState(false)
 
   // Prefetched on hover rather than on mount — dragstart can't itself be async (browsers
