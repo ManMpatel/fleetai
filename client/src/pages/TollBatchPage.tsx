@@ -305,7 +305,7 @@ function DateGroupedBatchList({ dateGroups, loading, onOpen }: { dateGroups: Tol
             b.status === 'processing'
               ? <ProcessingView key={b._id} batch={b} folders={[]} />
               : b.status === 'failed'
-                ? <FailedView key={b._id} batch={b} onBack={() => onOpen(b._id)} onRetry={() => onOpen(b._id)} retrying={false} />
+                ? <FailedView key={b._id} batch={b} onRetry={() => onOpen(b._id)} retrying={false} retryLabel="View batch" />
                 : null
           ))}
 
@@ -463,7 +463,9 @@ function useReducedMotion() {
   return reduced
 }
 
-function FailedView({ batch, onBack, onRetry, retrying, onCancel }: { batch: TollBatch; onBack: () => void; onRetry: () => void; retrying: boolean; onCancel?: () => void }) {
+function FailedView({ batch, onBack, onRetry, retrying, onCancel, retryLabel = 'Resume' }: {
+  batch: TollBatch; onBack?: () => void; onRetry: () => void; retrying: boolean; onCancel?: () => void; retryLabel?: string
+}) {
   return (
     <div className="text-center py-20 max-w-md mx-auto">
       <div className="w-14 h-14 rounded-full bg-red/10 flex items-center justify-center mx-auto mb-4">
@@ -475,16 +477,18 @@ function FailedView({ batch, onBack, onRetry, retrying, onCancel }: { batch: Tol
       <p className="text-xs text-text-secondary mb-6">{batch.error || 'Something went wrong while sorting this batch.'}</p>
       <p className="text-xs text-text-muted mb-6">Resuming picks up from the last page it sorted — no re-scanning finished pages.</p>
       <div className="flex items-center justify-center gap-3">
-        <button onClick={onBack} className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-accent transition-colors">
-          Back to batches
-        </button>
+        {onBack && (
+          <button onClick={onBack} className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-accent transition-colors">
+            Back to batches
+          </button>
+        )}
         {onCancel && (
           <button onClick={onCancel} className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-red/50 transition-colors">
             Cancel batch
           </button>
         )}
         <button onClick={onRetry} disabled={retrying} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
-          {retrying ? 'Resuming…' : 'Resume'}
+          {retrying ? 'Resuming…' : retryLabel}
         </button>
       </div>
     </div>
