@@ -23,10 +23,10 @@ const execFileAsync = promisify(execFile)
 export interface RasterizedPage {
   pageNumber: number
   imageBase64: string
-  mimeType: 'image/png'
+  mimeType: 'image/jpeg'
 }
 
-/** Rasterizes every page of a scanned PDF into a PNG, 1-indexed to match how pages are numbered on screen. */
+/** Rasterizes every page of a scanned PDF into a JPEG, 1-indexed to match how pages are numbered on screen. */
 export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]> {
   const workDir = await mkdtemp(join(tmpdir(), 'tollbatch-'))
   const inputPath = join(workDir, 'input.pdf')
@@ -39,7 +39,7 @@ export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]>
     // and is already above what Gemini's own vision tiling uses — higher just costs more
     // memory and upload size for zero OCR benefit on a printed toll notice.
     try {
-      await execFileAsync('pdftoppm', ['-png', '-r', '150', inputPath, outPrefix])
+      await execFileAsync('pdftoppm', ['-jpeg', '-jpegopt', 'quality=80', '-r', '150', inputPath, outPrefix])
     } catch (err: any) {
       const detail = err.stderr?.toString().trim() || err.message
       throw new Error(`pdftoppm failed to rasterize this PDF: ${detail}`)
@@ -49,13 +49,13 @@ export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]>
     // width (page-1.png / page-01.png / page-001.png…), so a plain alphabetical sort
     // already puts the files back in true page order.
     const files = (await readdir(workDir))
-      .filter(f => f.startsWith('page') && f.endsWith('.png'))
+      .filter(f => f.startsWith('page') && f.endsWith('.jpg'))
       .sort()
 
     const pages: RasterizedPage[] = []
     for (let i = 0; i < files.length; i++) {
       const imageBuffer = await readFile(join(workDir, files[i]))
-      pages.push({ pageNumber: i + 1, imageBase64: imageBuffer.toString('base64'), mimeType: 'image/png' })
+      pages.push({ pageNumber: i + 1, imageBase64: imageBuffer.toString('base64'), mimeType: 'image/jpeg' })
     }
     return pages
   } finally {
@@ -69,7 +69,7 @@ export async function mergeImagesToPdf(pageImagesBase64: string[]): Promise<Buff
 
   for (const base64 of pageImagesBase64) {
     const bytes = Buffer.from(base64, 'base64')
-    const image = await out.embedPng(bytes)
+    const image = await out.embedJpg(bytes)
     const page = out.addPage([image.width, image.height])
     page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height })
   }
