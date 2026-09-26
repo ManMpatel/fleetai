@@ -225,11 +225,11 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
 router.post('/:batchId/cancel', async (req: Request, res: Response) => {
   try {
     const batch = await TollBatch.findOneAndUpdate(
-      { _id: req.params.batchId, orgId: req.orgId, status: 'processing' },
-      { $set: { status: 'cancelled', currentStep: 'Cancelling…' } },
+      { _id: req.params.batchId, orgId: req.orgId, status: { $in: ['processing', 'failed'] } },
+      { $set: { status: 'cancelled', currentStep: 'Cancelled' } },
       { new: true }
     )
-    if (!batch) return res.status(400).json({ error: 'This batch is not currently processing' })
+    if (!batch) return res.status(400).json({ error: 'This batch cannot be cancelled' })
     res.json({ success: true })
   } catch (err: any) {
     res.status(400).json({ error: err.message })

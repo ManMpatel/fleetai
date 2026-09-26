@@ -123,7 +123,7 @@ export default function TollBatchPage() {
         clearInterval(interval)
         fetchBatchList()
       }
-    }, 30000)
+    }, 5000)
 
     return () => { cancelled = true; clearInterval(interval) }
   }, [activeBatchId, fetchBatchDetail, fetchBatchList])
@@ -243,12 +243,14 @@ export default function TollBatchPage() {
               <FailedView
                 batch={{ ...activeBatch, error: activeBatch.error || 'This batch stopped making progress and looks stuck.' }}
                 onBack={backToList} onRetry={retryBatch} retrying={retrying}
+                onCancel={() => cancelBatch(activeBatchId!)}
               />
             ) : (
               <ProcessingView batch={activeBatch} folders={folders} batchId={activeBatchId!} onCancel={cancelBatch} />
             )
           ) : activeBatch.status === 'failed' ? (
-            <FailedView batch={activeBatch} onBack={backToList} onRetry={retryBatch} retrying={retrying} />
+            <FailedView batch={activeBatch} onBack={backToList} onRetry={retryBatch} retrying={retrying}
+              onCancel={() => cancelBatch(activeBatchId!)} />
           ) : (
             <>
               {activeBatch.status === 'cancelled' && (
@@ -461,7 +463,7 @@ function useReducedMotion() {
   return reduced
 }
 
-function FailedView({ batch, onBack, onRetry, retrying }: { batch: TollBatch; onBack: () => void; onRetry: () => void; retrying: boolean }) {
+function FailedView({ batch, onBack, onRetry, retrying, onCancel }: { batch: TollBatch; onBack: () => void; onRetry: () => void; retrying: boolean; onCancel?: () => void }) {
   return (
     <div className="text-center py-20 max-w-md mx-auto">
       <div className="w-14 h-14 rounded-full bg-red/10 flex items-center justify-center mx-auto mb-4">
@@ -476,6 +478,11 @@ function FailedView({ batch, onBack, onRetry, retrying }: { batch: TollBatch; on
         <button onClick={onBack} className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-accent transition-colors">
           Back to batches
         </button>
+        {onCancel && (
+          <button onClick={onCancel} className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-red/50 transition-colors">
+            Cancel batch
+          </button>
+        )}
         <button onClick={onRetry} disabled={retrying} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
           {retrying ? 'Resuming…' : 'Resume'}
         </button>
