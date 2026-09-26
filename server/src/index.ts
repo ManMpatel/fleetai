@@ -24,9 +24,11 @@ import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
 import TollBatch from './models/TollBatch'
 import TollFolder from './models/TollFolder'
+import TollPage from './models/TollPage'
 
 import { checkExpiringDates, checkPaymentStatus } from './services/rag'
 import { runMongoBackup } from './services/backup'
+import { deleteMergedPdf } from './services/tollStorage'
 import { checkGmailForFines } from './services/gmail'
 import { requireAuth, requireAdmin } from './middleware/auth'
 import { describeLegacyConfig, legacyOrgEmail, legacyPayWay, legacyWhatsApp } from './config/legacyTenant'
@@ -232,25 +234,26 @@ mongoose
       runMongoBackup()
     })
 
-    // Delete TollBatch uploads (and their folders' page/PDF images) older than 90 days —
-    // daily at 3:30am, same pattern as the 10-day selfie purge above but a hard delete
-    // rather than an $unset, since nothing else on these documents is worth keeping.
+    // Hard-delete TollBatch documents (and all associated TollFolder, TollPage records,
+    // plus GridFS merged PDFs) older than 90 days — daily at 3:30am.
     cron.schedule('30 3 * * *', async () => {
       try {
-        const cutoff = new Date()
-        cutoff.setDate(cutoff.getDate() - 90)
-        const oldFolders = await TollFolder.find({ createdAt: { $lt: cutoff }, imagesDeleted: { $ne: true } })
-          .setOptions({ allowCrossTenant: true })
-        if (!oldFolders.length) return
-
-        for (const folder of oldFolders) {
-          folder.pages = folder.pages.map((p: any) => ({ pageNumber: p.pageNumber, imageBase64: '' }))
-          folder.mergedPdfBase64 = undefined
-          folder.imagesDeleted = true
-          await folder.save()
+        const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        const oldBatches = await TollBatch.find({ createdAt: { $lt: cutoff } })
+          .select('_id').setOptions({ allowCrossTenant: true })
+        if (!oldBatches.length) return
+        const batchIds = oldBatches.map(b => b._id)
+        const folders = await TollFolder.find({ batchId: { $in: batchIds } })
+          .select('_id mergedPdfFileId').setOptions({ allowCrossTenant: true })
+        for (const folder of folders) {
+          if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId as any).catch(() => {})
         }
-        console.log(`🗑️ TollBatch image purge — stripped images from ${oldFolders.length} folder(s) older than 90 days (plate/date/sent-status kept)`)
-      } catch (err) { console.error('TollBatch image purge error:', err) }
+        const folderIds = folders.map(f => f._id)
+        await TollPage.deleteMany({ folderId: { $in: folderIds } }).setOptions({ allowCrossTenant: true })
+        await TollFolder.deleteMany({ batchId: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
+        await TollBatch.deleteMany({ _id: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
+        console.log(`🗑️ TollBatch purge — hard-deleted ${oldBatches.length} batch(es) and all associated data older than 90 days`)
+      } catch (err) { console.error('TollBatch purge error:', err) }
     })
 
     // Payment status check — daily at 9am Sydney time (UTC 23:00)
