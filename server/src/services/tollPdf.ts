@@ -1,4 +1,6 @@
 import { PDFDocument } from 'pdf-lib'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse') as (buffer: Buffer, options?: Record<string, unknown>) => Promise<{ text: string; numpages: number }>
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { mkdtemp, writeFile, readdir, readFile, rm } from 'fs/promises'
@@ -19,6 +21,37 @@ const execFileAsync = promisify(execFile)
 // viewers and handles JBig2/CCITT/JPEG2000 correctly. A native-canvas npm rasterizer was
 // avoided earlier only because it failed to build in this environment — poppler sidesteps
 // that entirely since it installs as a prebuilt system package, not an npm native module.
+
+/**
+ * Extracts the text layer from every page of a PDF — instant and exact for digital
+ * PDFs (WestConnex, Linkt notices are computer-generated, not scanned). Returns an
+ * empty map if the PDF has no text layer (scanned image PDFs), so callers can
+ * fall back to Gemini vision without any extra error handling.
+ */
+export async function extractPageTexts(pdfBuffer: Buffer): Promise<Map<number, string>> {
+  const pageTexts: string[] = []
+  try {
+    await pdfParse(pdfBuffer, {
+      // Called once per page in document order; return value becomes the page's text.
+      pagerender: async (pageData: any): Promise<string> => {
+        try {
+          const content = await pageData.getTextContent()
+          const text = (content.items as any[]).map(item => (item.str as string) + ' ').join('')
+          pageTexts.push(text)
+          return text
+        } catch {
+          pageTexts.push('')
+          return ''
+        }
+      },
+    } as any)
+  } catch {
+    // Scanned PDF, encrypted, or malformed — return empty so caller falls back to Gemini.
+  }
+  const result = new Map<number, string>()
+  pageTexts.forEach((text, idx) => { if (text.trim()) result.set(idx + 1, text) })
+  return result
+}
 
 export interface RasterizedPage {
   pageNumber: number

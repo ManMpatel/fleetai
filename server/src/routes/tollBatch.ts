@@ -5,7 +5,7 @@ import TollFolder from '../models/TollFolder'
 import Vehicle from '../models/Vehicle'
 import Renter from '../models/Renter'
 import Organization from '../models/Organization'
-import { rasterizePdf, mergeImagesToPdf } from '../services/tollPdf'
+import { rasterizePdf, mergeImagesToPdf, extractPageTexts } from '../services/tollPdf'
 import { sendTollEmail } from '../services/tollEmail'
 import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay, isRetryableError } from '../config/gemini'
 import TollPage from '../models/TollPage'
@@ -43,6 +43,24 @@ function matchTypeFor(plate: string | null, statusByPlate: Map<string, string>):
 
 interface PlateReadResult {
   plates: string[]
+}
+
+/**
+ * Regex-extracts plates from the text layer of a digital PDF page. Covers the
+ * "Licence plate number: ABC123 (NSW)" pattern used by WestConnex, Linkt, and
+ * Transport for NSW notices. Returns [] when the page has no matching text so the
+ * caller can fall through to Gemini vision.
+ */
+function platesFromText(text: string): string[] {
+  const upper = text.toUpperCase()
+  const plates: string[] = []
+  const re = /LICEN[SC]E\s+PLATE\s+NUMBER[:\s]+([A-Z0-9]{3,8})/g
+  let match
+  while ((match = re.exec(upper)) !== null) {
+    const p = match[1].trim()
+    if (!plates.includes(p)) plates.push(p)
+  }
+  return plates
 }
 
 /**
@@ -124,6 +142,11 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     const fleetVehicles = await Vehicle.find({ orgId }).select('plate')
     const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
 
+    // Extract the text layer from the PDF once — instant and 100% accurate for digital
+    // PDFs (WestConnex, Linkt notices are computer-generated). Returns an empty map for
+    // scanned PDFs, which then fall through to Gemini vision as before.
+    const pageTexts = await extractPageTexts(pdfBuffer).catch(() => new Map<number, string>())
+
     // Resume support: pages already recorded from an earlier attempt at this batch are
     // skipped — this is what makes Retry pick up where it left off instead of re-running
     // the whole thing and re-spending Gemini calls.
@@ -144,16 +167,23 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         break
       }
 
-      let { plates } = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
-      Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+      // Primary: text extraction — exact and instant for digital PDFs, no Gemini cost.
+      // Fallback: Gemini vision for scanned/image-only pages where text layer is absent.
+      let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
 
-      // Retry once on empty — handles transient low-confidence responses and cases where
-      // Gemini included the state suffix ("EZL98K(NSW)" → 11 chars, filtered) on first pass.
       if (plates.length === 0) {
-        await geminiPacingDelay()
-        const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
+        // No text layer on this page — use Gemini vision with retry on empty result.
+        plates = (await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)).plates
         Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
-        plates = retry.plates
+
+        if (plates.length === 0) {
+          await geminiPacingDelay()
+          const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
+          Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+          plates = retry.plates
+        }
+        // Pace before the next Gemini call (skipped entirely for text-extracted pages).
+        await geminiPacingDelay()
       }
 
       // When a page has 2 toll notices for 2 different plates, the same image goes into
@@ -183,8 +213,6 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         { _id: batchId, orgId },
         { $inc: { processedPages: 1 }, $set: { currentStep: step, lastProgressAt: new Date() } }
       )
-
-      await geminiPacingDelay()
     }
 
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Merging folders into PDFs' } })
@@ -613,6 +641,29 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
   } catch (err: any) {
     // Never reported as a partial success — the folder's sentStatus was not touched above.
     res.status(400).json({ error: err.message || 'Send failed' })
+  }
+})
+
+// POST /api/toll-batch/:batchId/folders/:folderId/pages/:pageNumber/rescan
+// Re-runs Gemini on an existing stored page image — used by the Review modal's
+// "Auto-detect" button to fix unrecognized pages without manual typing.
+router.post('/:batchId/folders/:folderId/pages/:pageNumber/rescan', async (req: Request, res: Response) => {
+  try {
+    const pageNumber = parseInt(req.params.pageNumber, 10)
+    const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
+    if (!folder) return res.status(404).json({ error: 'Folder not found' })
+
+    const pageDoc = await TollPage.findOne({ folderId: folder._id, pageNumber })
+    const imageBase64 = pageDoc?.imageBase64 ?? folder.pages?.find(p => p.pageNumber === pageNumber)?.imageBase64
+    if (!imageBase64) return res.status(404).json({ error: 'Page not found' })
+
+    const fleetVehicles = await Vehicle.find({ orgId: req.orgId }).select('plate')
+    const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
+
+    const { plates } = await readPlatesFromPage(imageBase64, 'image/jpeg', knownPlates)
+    res.json({ plates })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
   }
 })
 

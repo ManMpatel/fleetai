@@ -776,6 +776,7 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
   const [loading, setLoading] = useState(true)
   const [plateInputs, setPlateInputs] = useState<Record<number, string>>({})
   const [savingPage, setSavingPage] = useState<number | null>(null)
+  const [detecting, setDetecting] = useState<number | null>(null)
 
   useEffect(() => {
     axios.get<{ pages: { pageNumber: number; imageBase64: string }[] }>(`${API_BASE}/${batchId}/folders/${folder._id}/pages`)
@@ -783,6 +784,25 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
       .catch(() => onToast('✗ Could not load these pages'))
       .finally(() => setLoading(false))
   }, [batchId, folder._id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function autoDetect(pageNumber: number) {
+    setDetecting(pageNumber)
+    try {
+      const { data } = await axios.post<{ plates: string[] }>(
+        `${API_BASE}/${batchId}/folders/${folder._id}/pages/${pageNumber}/rescan`
+      )
+      if (data.plates.length > 0) {
+        setPlateInputs(prev => ({ ...prev, [pageNumber]: data.plates[0] }))
+        onToast(`✓ Detected: ${data.plates[0]} — click Save to confirm`)
+      } else {
+        onToast('✗ Could not auto-detect — type the plate manually')
+      }
+    } catch {
+      onToast('✗ Auto-detect failed — type the plate manually')
+    } finally {
+      setDetecting(null)
+    }
+  }
 
   async function savePage(pageNumber: number) {
     const plate = (plateInputs[pageNumber] || '').trim()
@@ -820,18 +840,26 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
             {pages.map(p => (
               <div key={p.pageNumber} className="border border-border rounded-xl overflow-hidden">
                 <img src={`data:image/png;base64,${p.imageBase64}`} alt={`Page ${p.pageNumber}`} className="w-full max-h-64 object-contain bg-surface2" />
-                <div className="p-3 flex items-center gap-2">
-                  <span className="text-xs text-text-muted shrink-0">Page {p.pageNumber}</span>
-                  <input
-                    value={plateInputs[p.pageNumber] || ''}
-                    onChange={e => setPlateInputs(prev => ({ ...prev, [p.pageNumber]: e.target.value.toUpperCase() }))}
-                    placeholder="Type plate"
-                    className="flex-1 px-2.5 py-1.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
-                  />
-                  <button onClick={() => savePage(p.pageNumber)} disabled={savingPage === p.pageNumber || !plateInputs[p.pageNumber]?.trim()}
-                    className="px-3 py-1.5 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors shrink-0">
-                    {savingPage === p.pageNumber ? 'Saving…' : 'Save'}
-                  </button>
+                <div className="p-3 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-text-muted shrink-0">Page {p.pageNumber}</span>
+                    <input
+                      value={plateInputs[p.pageNumber] || ''}
+                      onChange={e => setPlateInputs(prev => ({ ...prev, [p.pageNumber]: e.target.value.toUpperCase() }))}
+                      placeholder="Type plate"
+                      className="flex-1 px-2.5 py-1.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => autoDetect(p.pageNumber)} disabled={detecting === p.pageNumber}
+                      className="flex-1 px-3 py-1.5 bg-surface2 border border-border text-text-secondary rounded-lg text-xs font-medium hover:border-accent disabled:opacity-50 transition-colors">
+                      {detecting === p.pageNumber ? 'Detecting…' : 'Auto-detect'}
+                    </button>
+                    <button onClick={() => savePage(p.pageNumber)} disabled={savingPage === p.pageNumber || !plateInputs[p.pageNumber]?.trim()}
+                      className="flex-1 px-3 py-1.5 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
+                      {savingPage === p.pageNumber ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
