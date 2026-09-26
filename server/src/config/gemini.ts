@@ -6,9 +6,9 @@ export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite'
 
 const MAX_RETRIES = 2
 const RETRY_BACKOFF_MS = 3000   // wait before retrying after a rate-limit/transient error
-const PACING_DELAY_MS = 300     // small gap between calls in a bulk loop, paid-tier pacing
+const PACING_DELAY_MS = 4100    // ~14 req/min — matches Rego Import's bulk-scan pacing
 
-function isRetryableError(err: any): boolean {
+export function isRetryableError(err: any): boolean {
   const msg = String(err?.message || '').toLowerCase()
   return err?.status === 429 || msg.includes('429') || msg.includes('rate limit') ||
          msg.includes('quota') || msg.includes('unavailable') || msg.includes('timeout')

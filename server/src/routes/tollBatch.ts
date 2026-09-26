@@ -7,7 +7,7 @@ import Renter from '../models/Renter'
 import Organization from '../models/Organization'
 import { rasterizePdf, mergeImagesToPdf } from '../services/tollPdf'
 import { sendTollEmail } from '../services/tollEmail'
-import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay } from '../config/gemini'
+import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay, isRetryableError } from '../config/gemini'
 import TollPage from '../models/TollPage'
 import { saveMergedPdf, readMergedPdf, deleteMergedPdf } from '../services/tollStorage'
 
@@ -84,6 +84,10 @@ text is blurry, cut off, or you are not sure, return null for plate — do not g
     return { plate }
   } catch (err: any) {
     console.error('TollBatch plate read error:', err.message)
+    // Quota/rate errors mean "try again later" — re-throw so processBatch fails the batch
+    // rather than silently routing this page to Unrecognized. isRetryableError is the same
+    // predicate generateWithRetry uses, so the two layers can never disagree.
+    if (isRetryableError(err)) throw err
     return { plate: null }
   }
 }
