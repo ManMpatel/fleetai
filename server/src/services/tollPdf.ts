@@ -63,17 +63,21 @@ export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]>
   }
 }
 
+function isPngBuffer(buffer: Buffer): boolean {
+  return buffer.length > 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47
+}
+
 /** Merges a folder's page images (in page order) into one PDF, ready to attach or download. */
 export async function mergeImagesToPdf(pageImagesBase64: string[]): Promise<Buffer> {
   const out = await PDFDocument.create()
 
   for (const base64 of pageImagesBase64) {
     const bytes = Buffer.from(base64, 'base64')
-    const image = await out.embedJpg(bytes)
+    const image = isPngBuffer(bytes) ? await out.embedPng(bytes) : await out.embedJpg(bytes)
     const page = out.addPage([image.width, image.height])
     page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height })
   }
 
-  const bytes = await out.save()
-  return Buffer.from(bytes)
+  const pdfBytes = await out.save()
+  return Buffer.from(pdfBytes)
 }
