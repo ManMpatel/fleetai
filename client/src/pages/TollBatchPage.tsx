@@ -191,7 +191,9 @@ export default function TollBatchPage() {
   }
 
   function handleSent(folderId: string, sentTo: string, sentAt: string) {
-    setFolders(prev => prev.map(f => f._id === folderId ? { ...f, sentStatus: 'sent', sentTo, sentAt } : f))
+    const update = { sentStatus: 'sent' as const, sentTo, sentAt }
+    setFolders(prev => prev.map(f => f._id === folderId ? { ...f, ...update } : f))
+    setDateGroups(prev => prev.map(g => ({ ...g, folders: g.folders.map(f => f._id === folderId ? { ...f, ...update } : f) })))
     setSendTarget(null)
     showToast(`✓ Sent to ${sentTo}`)
   }
@@ -260,13 +262,20 @@ export default function TollBatchPage() {
             </>
           )
         ) : (
-          <DateGroupedBatchList dateGroups={dateGroups} loading={loadingBatches} onOpen={openBatch} />
+          <DateGroupedBatchList
+            dateGroups={dateGroups}
+            loading={loadingBatches}
+            onOpen={openBatch}
+            onSend={setSendTarget}
+            onToast={showToast}
+            onRefresh={fetchBatchList}
+          />
         )}
       </div>
 
-      {sendTarget && activeBatchId && (
+      {sendTarget && (
         <SendModal
-          batchId={activeBatchId}
+          batchId={sendTarget.batchId || activeBatchId || ''}
           folder={sendTarget}
           onClose={() => setSendTarget(null)}
           onSent={handleSent}
@@ -278,7 +287,14 @@ export default function TollBatchPage() {
 }
 
 // ── Past batches — date-grouped view ───────────────────────
-function DateGroupedBatchList({ dateGroups, loading, onOpen }: { dateGroups: TollDateGroup[]; loading: boolean; onOpen: (id: string) => void }) {
+function DateGroupedBatchList({ dateGroups, loading, onOpen, onSend, onToast, onRefresh }: {
+  dateGroups: TollDateGroup[]
+  loading: boolean
+  onOpen: (id: string) => void
+  onSend: (folder: TollFolderSummary) => void
+  onToast: (msg: string) => void
+  onRefresh: () => void
+}) {
   if (loading) return <p className="text-text-muted text-sm text-center py-12">Loading...</p>
   if (dateGroups.length === 0) {
     return (
@@ -289,45 +305,78 @@ function DateGroupedBatchList({ dateGroups, loading, onOpen }: { dateGroups: Tol
   }
 
   return (
-    <div className="space-y-6">
-      {dateGroups.map(group => (
-        <div key={group.date}>
-          <div className="flex items-center justify-between mb-2.5">
-            <p className="text-sm font-semibold text-text-primary">{group.dateLabel}</p>
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-              group.daysRemaining <= 3 ? 'bg-red/10 text-red' : group.daysRemaining <= 14 ? 'bg-amber-bg text-amber' : 'bg-surface2 text-text-secondary'
-            }`}>
-              {group.daysRemaining}d until images purged
-            </span>
-          </div>
+    <div className="space-y-8">
+      {dateGroups.map(group => {
+        // Group folders by batchId preserving order of first appearance
+        const batchMap = new Map<string, TollFolderSummary[]>()
+        for (const f of group.folders) {
+          if (!batchMap.has(f.batchId)) batchMap.set(f.batchId, [])
+          batchMap.get(f.batchId)!.push(f)
+        }
+        const batchGroups = [...batchMap.entries()]
 
-          {group.batches.map(b => (
-            b.status === 'processing'
-              ? <ProcessingView key={b._id} batch={b} folders={[]} />
-              : b.status === 'failed'
-                ? <FailedView key={b._id} batch={b} onRetry={() => onOpen(b._id)} retrying={false} retryLabel="View batch" />
-                : null
-          ))}
+        return (
+          <div key={group.date}>
+            {/* Date header — solid 2px separator */}
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-sm font-semibold text-text-primary whitespace-nowrap">{group.dateLabel}</span>
+              <div className="flex-1 h-[2px] bg-border rounded-full" />
+              <span className={`text-xs px-2.5 py-1 rounded-full font-medium shrink-0 ${
+                group.daysRemaining <= 3 ? 'bg-red/10 text-red' : group.daysRemaining <= 14 ? 'bg-amber-bg text-amber' : 'bg-surface2 text-text-secondary'
+              }`}>{group.daysRemaining}d until images purged</span>
+            </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {group.folders.map(f => {
-              const cfg = matchTypeConfig[f.matchType ?? 'sorted']
-              return (
-                <button key={f._id} onClick={() => onOpen(f.batchId)}
-                  className="flex flex-col items-start gap-1 px-4 py-3 bg-surface border border-border rounded-xl hover:border-accent transition-colors text-left">
-                  {cfg.label && (
-                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>
-                  )}
-                  <span className="font-mono font-semibold text-text-primary">{f.plate || 'Unrecognized'}</span>
-                  <span className="text-xs text-text-secondary">
-                    {f.pageCount} page{f.pageCount !== 1 ? 's' : ''}{f.imagesDeleted ? ' · images removed (90+ days)' : ''}
-                  </span>
-                </button>
-              )
-            })}
+            {/* In-progress / failed batches for this date */}
+            {group.batches.map(b => (
+              b.status === 'processing'
+                ? <ProcessingView key={b._id} batch={b} folders={[]} />
+                : b.status === 'failed'
+                  ? <FailedView key={b._id} batch={b} onRetry={() => onOpen(b._id)} retrying={false} retryLabel="View batch" />
+                  : null
+            ))}
+
+            {/* Completed folders — one sub-group per batch with a dashed separator between */}
+            <div>
+              {batchGroups.map(([batchId, folders], idx) => {
+                const totalPages = folders.reduce((sum, f) => sum + f.pageCount, 0)
+                const plateCount = folders.filter(f => f.plate).length
+                return (
+                  <div key={batchId}>
+                    {/* Dashed separator between batches within the same date */}
+                    {idx > 0 && (
+                      <div className="flex items-center gap-3 my-5">
+                        <div className="flex-1 border-t border-dashed border-border" />
+                        <span className="text-[10px] text-text-muted shrink-0">
+                          {plateCount} plate{plateCount !== 1 ? 's' : ''} · {totalPages} page{totalPages !== 1 ? 's' : ''}
+                        </span>
+                        <div className="flex-1 border-t border-dashed border-border" />
+                      </div>
+                    )}
+                    {/* Batch label — only shown when a date has more than one batch */}
+                    {batchGroups.length > 1 && idx === 0 && (
+                      <p className="text-[10px] text-text-muted mb-2">
+                        {plateCount} plate{plateCount !== 1 ? 's' : ''} · {totalPages} page{totalPages !== 1 ? 's' : ''}
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-1">
+                      {folders.map(f => (
+                        <FolderCard
+                          key={f._id}
+                          folder={f}
+                          batchId={batchId}
+                          onSend={onSend}
+                          onToast={onToast}
+                          onRefresh={onRefresh}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
