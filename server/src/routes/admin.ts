@@ -434,4 +434,51 @@ router.get('/stats', async (_req, res) => {
   }
 })
 
+// GET /api/admin/explain-tollpage-index
+// One-off: confirms the { folderId, pageNumber } compound index is backing the sort.
+// Delete after confirming.
+router.get('/explain-tollpage-index', async (_req: Request, res: Response) => {
+  try {
+    const TollPage = (await import('../models/TollPage')).default
+
+    // Find the folder with the most pages so the explain is meaningful.
+    const [top] = await TollPage.aggregate([
+      { $group: { _id: '$folderId', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 1 },
+    ]).allowDiskUse(true)
+
+    if (!top) return res.json({ message: 'No TollPage documents found' })
+
+    const raw: any = await TollPage.find({ folderId: top._id })
+      .sort({ pageNumber: 1 })
+      .explain('executionStats')
+
+    const wp = raw.queryPlanner?.winningPlan ?? {}
+    const ixStage = wp.inputStage ?? wp  // IXSCAN may be direct or nested under FETCH
+    const es = raw.executionStats ?? {}
+    const exStages = es.executionStages ?? {}
+
+    res.json({
+      folderId: top._id,
+      pageCount: top.count,
+      winningPlan: {
+        topStage: wp.stage,
+        ixScanStage: ixStage.stage,
+        keyPattern: ixStage.keyPattern,
+      },
+      executionStats: {
+        nReturned: es.nReturned,
+        totalDocsExamined: es.totalDocsExamined,
+        topExecStage: exStages.stage,
+        // SORT stage appears here when there is no index covering the sort
+        hasBlockingSort: JSON.stringify(raw).includes('"SORT"'),
+      },
+      indexes: await TollPage.collection.indexes(),
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router
