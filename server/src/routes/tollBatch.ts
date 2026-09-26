@@ -159,7 +159,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     const folders = await TollFolder.find({ orgId, batchId })
     for (const folder of folders) {
       const legacyPages = folder.pages ?? []
-      const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).lean()
+      const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
       const allPages = [...legacyPages, ...newPages].sort((a, b) => a.pageNumber - b.pageNumber)
 
       const mergedBuffer = await mergeImagesToPdf(allPages.map(p => p.imageBase64))
@@ -449,7 +449,7 @@ router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Respon
     if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 90 days' })
 
     const legacyPages = folder.pages ?? []
-    const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).lean()
+    const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
     const pages = [...legacyPages, ...newPages]
       .sort((a, b) => a.pageNumber - b.pageNumber)
       .map(p => ({ pageNumber: p.pageNumber, imageBase64: p.imageBase64 }))
@@ -506,7 +506,7 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/reassign', async (req
       const f = await TollFolder.findById(folderId)
       if (!f) continue
       const legacyPgs = f.pages ?? []
-      const newPgs = await TollPage.find({ folderId: f._id }).sort({ pageNumber: 1 }).lean()
+      const newPgs = await TollPage.find({ folderId: f._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
       const totalCount = legacyPgs.length + newPgs.length
       if (totalCount === 0) {
         if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})

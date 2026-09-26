@@ -24,6 +24,10 @@ const TollPageSchema = new Schema<ITollPage>(
   { timestamps: { createdAt: true, updatedAt: false } }
 )
 
+// Covers every find({ folderId }) + sort({ pageNumber }) query — satisfies the sort
+// straight from the index, avoiding an in-memory sort at any page count.
+TollPageSchema.index({ orgId: 1, batchId: 1, folderId: 1, pageNumber: 1 })
+
 TollPageSchema.plugin(tenantScope)
 
 export default mongoose.model<ITollPage>('TollPage', TollPageSchema)
