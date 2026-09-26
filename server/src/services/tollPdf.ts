@@ -35,11 +35,11 @@ export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]>
   try {
     await writeFile(inputPath, pdfBuffer)
 
-    // 150 DPI matches this app's previous effective resolution (the old scale:2 setting)
-    // and is already above what Gemini's own vision tiling uses — higher just costs more
-    // memory and upload size for zero OCR benefit on a printed toll notice.
+    // 200 DPI: at 150 DPI a 10pt font renders at ~21px tall — borderline for OCR confidence
+    // on the dense "Licence plate number:" field in WestConnex/Linkt notices. 200 DPI
+    // puts the same text at ~28px, which is solidly in the reliable-OCR range for Gemini.
     try {
-      await execFileAsync('pdftoppm', ['-jpeg', '-jpegopt', 'quality=80', '-r', '150', inputPath, outPrefix])
+      await execFileAsync('pdftoppm', ['-jpeg', '-jpegopt', 'quality=85', '-r', '200', inputPath, outPrefix])
     } catch (err: any) {
       const detail = err.stderr?.toString().trim() || err.message
       throw new Error(`pdftoppm failed to rasterize this PDF: ${detail}`)

@@ -42,35 +42,42 @@ function matchTypeFor(plate: string | null, statusByPlate: Map<string, string>):
 }
 
 interface PlateReadResult {
-  plate: string | null
+  plates: string[]
 }
 
 /**
- * Reads the licence plate off one toll-notice page. Returns null (never a guess) when
- * Gemini is not confident — those pages route to the batch's "Unrecognized" folder for a
- * person to sort, rather than risk filing a toll under the wrong plate.
+ * Reads ALL licence plates off one toll-notice page. Australian toll notice PDFs
+ * (WestConnex, Linkt) commonly print two separate demands on a single page, each for
+ * a different vehicle. Returns an empty array (never a guess) when Gemini is not
+ * confident — those pages route to Unrecognized for manual review.
  */
-async function readPlateFromPage(imageBase64: string, mimeType: string, knownPlates: string[] = []): Promise<PlateReadResult> {
+async function readPlatesFromPage(imageBase64: string, mimeType: string, knownPlates: string[] = []): Promise<PlateReadResult> {
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
     const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
-    const prompt = `You are reading an Australian toll notice (e.g. WestConnex, Linkt). Find the vehicle
-number plate the toll was charged against — it is usually printed clearly near the top or
-in a "Registration" / "Plate" field.
+    const prompt = `You are reading a page from an Australian toll payment demand PDF (WestConnex, Linkt, Transport for NSW, etc.).
+Each page may contain one or two separate toll demand notices.
 
-Return ONLY a valid JSON object, no markdown, no explanation:
-{
-  "plate": "the plate in uppercase with no spaces, e.g. ABC123 — or null if you cannot read it with confidence"
-}
+For each toll demand visible on this page, find the vehicle licence plate. In Australian toll
+notices it is typically labelled one of:
+  • "Licence plate number: ABC123 (NSW)"
+  • "Registration: ABC123"
+  • Embedded in the body: "Your vehicle ABC123 was detected travelling on..."
 
-This business's actual registered plates are: ${knownPlates.length ? knownPlates.join(', ') : '(none on file)'}.
-If the plate you're reading closely matches one of these (allowing for a likely misread
-character, e.g. O/0, I/1, B/8, S/5), return that exact plate from the list.
+Collect EVERY distinct plate you can read from this page.
 
-Only return a plate you can actually read or confidently match to the list above. If the
-text is blurry, cut off, or you are not sure, return null for plate — do not guess.`
+Return ONLY a valid JSON object — no markdown, no explanation:
+{ "plates": ["ABC123", "XYZ456"] }
+
+If you cannot confidently read any plate, return: { "plates": [] }
+
+This business's registered plates: ${knownPlates.length ? knownPlates.join(', ') : '(none on file)'}.
+If a plate you read closely matches one of these (common misreads: O↔0, I↔1, B↔8, S↔5),
+use the exact string from this list instead.
+
+Only include plates you can actually read. Never guess or invent a plate.`
 
     const result = await generateWithRetry(model, [
       { inlineData: { data: imageBase64, mimeType } },
@@ -79,16 +86,18 @@ text is blurry, cut off, or you are not sure, return null for plate — do not g
 
     const clean = result.response.text().trim().replace(/```json|```/g, '').trim()
     const parsed = JSON.parse(clean)
-    const plate = typeof parsed.plate === 'string' ? parsed.plate.toUpperCase().replace(/\s+/g, '') : null
-    if (!plate || plate === 'NULL' || plate.length < 3 || plate.length > 10) return { plate: null }
-    return { plate }
+    const raw: unknown[] = Array.isArray(parsed.plates) ? parsed.plates : []
+    const plates = raw
+      .map((p: unknown) => (typeof p === 'string' ? p.toUpperCase().replace(/\s+/g, '') : ''))
+      .filter((p): p is string => p.length >= 3 && p.length <= 10 && p !== 'NULL')
+    return { plates }
   } catch (err: any) {
     console.error('TollBatch plate read error:', err.message)
     // Quota/rate errors mean "try again later" — re-throw so processBatch fails the batch
     // rather than silently routing this page to Unrecognized. isRetryableError is the same
     // predicate generateWithRetry uses, so the two layers can never disagree.
     if (isRetryableError(err)) throw err
-    return { plate: null }
+    return { plates: [] }
   }
 }
 
@@ -130,25 +139,31 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         break
       }
 
-      const { plate } = await readPlateFromPage(page.imageBase64, page.mimeType, knownPlates)
+      const { plates } = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
       Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
 
-      const step = plate
-        ? `Page ${page.pageNumber} of ${pages.length} — sorted to ${plate}`
+      // When a page has 2 toll notices for 2 different plates, the same image goes into
+      // both plates' folders. When no plates were read, route the page to Unrecognized.
+      const effectivePlates: (string | null)[] = plates.length > 0 ? plates : [null]
+
+      const step = plates.length > 0
+        ? `Page ${page.pageNumber} of ${pages.length} — sorted to ${plates.join(', ')}`
         : `Page ${page.pageNumber} of ${pages.length} — sent to Unrecognized`
 
       // One folder per plate per batch — never per plate alone, so a repeat plate next
       // week starts a fresh folder rather than appending to this one.
-      const folder = await TollFolder.findOneAndUpdate(
-        { orgId, batchId, plate: plate ?? null },
-        { $setOnInsert: { orgId, batchId, plate: plate ?? null } },
-        { upsert: true, new: true }
-      )
-      await TollPage.create({
-        orgId, batchId, folderId: folder._id,
-        pageNumber: page.pageNumber, imageBase64: page.imageBase64,
-      })
-      await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
+      for (const plate of effectivePlates) {
+        const folder = await TollFolder.findOneAndUpdate(
+          { orgId, batchId, plate: plate ?? null },
+          { $setOnInsert: { orgId, batchId, plate: plate ?? null } },
+          { upsert: true, new: true }
+        )
+        await TollPage.create({
+          orgId, batchId, folderId: folder._id,
+          pageNumber: page.pageNumber, imageBase64: page.imageBase64,
+        })
+        await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
+      }
 
       await TollBatch.findOneAndUpdate(
         { _id: batchId, orgId },
