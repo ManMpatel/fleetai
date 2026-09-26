@@ -5,7 +5,7 @@ import { tenantScope } from './plugins/tenantScope'
 // rasterize-then-read job across the whole upload; individual plates live on
 // TollFolder documents that reference this batch's _id.
 
-export type TollBatchStatus = 'processing' | 'done' | 'failed'
+export type TollBatchStatus = 'processing' | 'done' | 'failed' | 'cancelled'
 
 export interface ITollBatch extends Document {
   orgId: mongoose.Types.ObjectId
@@ -25,7 +25,7 @@ const TollBatchSchema = new Schema<ITollBatch>(
   {
     orgId:            { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
     originalFilename: { type: String, required: true },
-    status:           { type: String, enum: ['processing', 'done', 'failed'], default: 'processing', index: true },
+    status:           { type: String, enum: ['processing', 'done', 'failed', 'cancelled'], default: 'processing', index: true },
     totalPages:       { type: Number, required: true },
     processedPages:   { type: Number, default: 0 },
     currentStep:      { type: String },

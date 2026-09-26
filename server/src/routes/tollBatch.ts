@@ -110,8 +110,15 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     const existingFolders = await TollFolder.find({ orgId, batchId }).select('pages.pageNumber')
     const alreadyDone = new Set(existingFolders.flatMap(f => f.pages.map(p => p.pageNumber)))
 
+    let cancelled = false
     for (const page of pages) {
       if (alreadyDone.has(page.pageNumber)) continue
+
+      const current = await TollBatch.findOne({ _id: batchId, orgId }).select('status').lean()
+      if (current?.status === 'cancelled') {
+        cancelled = true
+        break
+      }
 
       const { plate } = await readPlateFromPage(page.imageBase64, page.mimeType, knownPlates)
       Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
@@ -150,10 +157,17 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
       await folder.save()
     }
 
-    await TollBatch.findOneAndUpdate(
-      { _id: batchId, orgId },
-      { $set: { status: 'done', currentStep: `Done — ${folders.length} folder${folders.length !== 1 ? 's' : ''}`, completedAt: new Date() } }
-    )
+    if (cancelled) {
+      await TollBatch.findOneAndUpdate(
+        { _id: batchId, orgId },
+        { $set: { currentStep: `Cancelled — ${folders.length} folder${folders.length !== 1 ? 's' : ''} sorted before stopping`, completedAt: new Date() } }
+      )
+    } else {
+      await TollBatch.findOneAndUpdate(
+        { _id: batchId, orgId },
+        { $set: { status: 'done', currentStep: `Done — ${folders.length} folder${folders.length !== 1 ? 's' : ''}`, completedAt: new Date() } }
+      )
+    }
   } catch (err: any) {
     console.error('TollBatch processing error:', err.message)
     await TollBatch.findOneAndUpdate(
@@ -184,6 +198,24 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     void processBatch(batch._id.toString(), req.orgId!.toString(), req.file.buffer)
 
     res.status(202).json({ batchId: batch._id })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// POST /api/toll-batch/:batchId/cancel — stop a batch that's still processing. Pages
+// already sorted before this point are kept (their folders still get merged normally);
+// this only stops the loop from reading further pages, so it doesn't burn Gemini calls
+// on a batch the owner no longer wants.
+router.post('/:batchId/cancel', async (req: Request, res: Response) => {
+  try {
+    const batch = await TollBatch.findOneAndUpdate(
+      { _id: req.params.batchId, orgId: req.orgId, status: 'processing' },
+      { $set: { status: 'cancelled', currentStep: 'Cancelling…' } },
+      { new: true }
+    )
+    if (!batch) return res.status(400).json({ error: 'This batch is not currently processing' })
+    res.json({ success: true })
   } catch (err: any) {
     res.status(400).json({ error: err.message })
   }

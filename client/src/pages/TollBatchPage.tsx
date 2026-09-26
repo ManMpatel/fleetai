@@ -8,7 +8,7 @@ import StatCard from '../components/StatCard'
 // server-side; this page polls every 30s while a batch is in progress, matching the same
 // self-terminating poll shape App.tsx uses for owner-approval.
 
-type BatchStatus = 'processing' | 'done' | 'failed'
+type BatchStatus = 'processing' | 'done' | 'failed' | 'cancelled'
 
 interface TollBatch {
   _id: string
@@ -119,7 +119,7 @@ export default function TollBatchPage() {
     const interval = setInterval(async () => {
       const status = await fetchBatchDetail(activeBatchId)
       if (cancelled) return
-      if (status === 'done' || status === 'failed') {
+      if (status === 'done' || status === 'failed' || status === 'cancelled') {
         clearInterval(interval)
         fetchBatchList()
       }
@@ -179,6 +179,17 @@ export default function TollBatchPage() {
     }
   }
 
+  async function cancelBatch(batchId: string) {
+    if (!confirm('Stop this batch? Pages already sorted so far will be kept.')) return
+    try {
+      await axios.post(`${API_BASE}/${batchId}/cancel`)
+      showToast('Batch cancelled')
+      fetchBatchDetail(batchId)
+    } catch (err: any) {
+      showToast(`✗ ${err.response?.data?.error || 'Could not cancel'}`)
+    }
+  }
+
   function handleSent(folderId: string, sentTo: string, sentAt: string) {
     setFolders(prev => prev.map(f => f._id === folderId ? { ...f, sentStatus: 'sent', sentTo, sentAt } : f))
     setSendTarget(null)
@@ -234,12 +245,17 @@ export default function TollBatchPage() {
                 onBack={backToList} onRetry={retryBatch} retrying={retrying}
               />
             ) : (
-              <ProcessingView batch={activeBatch} folders={folders} />
+              <ProcessingView batch={activeBatch} folders={folders} batchId={activeBatchId!} onCancel={cancelBatch} />
             )
           ) : activeBatch.status === 'failed' ? (
             <FailedView batch={activeBatch} onBack={backToList} onRetry={retryBatch} retrying={retrying} />
           ) : (
-            <FolderGrid folders={folders} batchId={activeBatchId} onSend={setSendTarget} onToast={showToast} onRefresh={() => fetchBatchDetail(activeBatchId)} />
+            <>
+              {activeBatch.status === 'cancelled' && (
+                <p className="text-xs text-text-secondary mb-4">Cancelled early — showing what was sorted before it stopped.</p>
+              )}
+              <FolderGrid folders={folders} batchId={activeBatchId} onSend={setSendTarget} onToast={showToast} onRefresh={() => fetchBatchDetail(activeBatchId)} />
+            </>
           )
         ) : (
           <DateGroupedBatchList dateGroups={dateGroups} loading={loadingBatches} onOpen={openBatch} />
@@ -318,7 +334,7 @@ function DateGroupedBatchList({ dateGroups, loading, onOpen }: { dateGroups: Tol
 // A 30s poll only gives us a new snapshot every 30 seconds, but a scan-sweep and shimmer
 // keep the screen visibly alive between snapshots — the sorting itself really is
 // continuous server-side, this just stops it from reading as frozen while we wait.
-function ProcessingView({ batch, folders }: { batch: TollBatch; folders: TollFolderSummary[] }) {
+function ProcessingView({ batch, folders, batchId, onCancel }: { batch: TollBatch; folders: TollFolderSummary[]; batchId?: string; onCancel?: (batchId: string) => void }) {
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(new Date(batch.createdAt).getTime())
   const prefersReducedMotion = useReducedMotion()
@@ -339,6 +355,11 @@ function ProcessingView({ batch, folders }: { batch: TollBatch; folders: TollFol
       <div className="text-center mb-8">
         <h2 className="text-base font-semibold text-text-primary mb-1">Sorting {batch.originalFilename}</h2>
         <p className="text-xs text-text-secondary font-mono">{mins}:{String(secs).padStart(2, '0')} elapsed</p>
+        {onCancel && batchId && (
+          <button onClick={() => onCancel(batchId)} className="mt-2 text-xs text-text-muted hover:text-red transition-colors underline-offset-2 hover:underline">
+            Cancel batch
+          </button>
+        )}
       </div>
 
       {/* Scan sweep + shimmer progress */}
