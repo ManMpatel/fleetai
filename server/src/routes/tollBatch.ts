@@ -9,7 +9,7 @@ import { rasterizePdf, mergeImagesToPdf } from '../services/tollPdf'
 import { sendTollEmail } from '../services/tollEmail'
 import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay, isRetryableError } from '../config/gemini'
 import TollPage from '../models/TollPage'
-import { saveMergedPdf, readMergedPdf, deleteMergedPdf } from '../services/tollStorage'
+import { saveMergedPdf, readMergedPdf, deleteMergedPdf, saveOriginalPdf, readOriginalPdf, deleteOriginalPdf } from '../services/tollStorage'
 
 // TollBatch — an owner scans ~200-300 printed toll notices into one PDF, uploads it
 // here, and the pages get sorted into one folder per number plate. Mounted behind
@@ -197,6 +197,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
 
+    const originalPdfFileId = await saveOriginalPdf(req.file.buffer, req.file.originalname)
     const batch = await TollBatch.create({
       orgId: req.orgId,
       originalFilename: req.file.originalname,
@@ -204,7 +205,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       totalPages: 0,
       processedPages: 0,
       currentStep: 'Starting…',
-      originalPdfBase64: req.file.buffer.toString('base64'),
+      originalPdfFileId,
       lastProgressAt: new Date(),
     })
 
@@ -241,10 +242,10 @@ router.post('/:batchId/cancel', async (req: Request, res: Response) => {
 // recorded so this never re-spends Gemini calls on finished work.
 router.post('/:batchId/retry', async (req: Request, res: Response) => {
   try {
-    const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId }).select('+originalPdfBase64')
+    const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId })
     if (!batch) return res.status(404).json({ error: 'Batch not found' })
     if (batch.status === 'done') return res.status(409).json({ error: 'This batch already finished' })
-    if (!batch.originalPdfBase64) {
+    if (!batch.originalPdfFileId) {
       return res.status(410).json({ error: 'The original scan was not kept — please re-upload it as a new batch' })
     }
 
@@ -253,7 +254,7 @@ router.post('/:batchId/retry', async (req: Request, res: Response) => {
       { $set: { status: 'processing', currentStep: 'Resuming…', lastProgressAt: new Date() }, $unset: { error: '' } }
     )
 
-    const pdfBuffer = Buffer.from(batch.originalPdfBase64, 'base64')
+    const pdfBuffer = await readOriginalPdf(batch.originalPdfFileId as any)
     void processBatch(batch._id.toString(), req.orgId!.toString(), pdfBuffer)
 
     res.status(202).json({ batchId: batch._id })

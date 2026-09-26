@@ -17,7 +17,7 @@ export interface ITollBatch extends Document {
   error?: string
   createdAt: Date
   completedAt?: Date
-  originalPdfBase64?: string
+  originalPdfFileId?: mongoose.Types.ObjectId
   lastProgressAt?: Date
 }
 
@@ -31,10 +31,10 @@ const TollBatchSchema = new Schema<ITollBatch>(
     currentStep:      { type: String },
     error:            { type: String },
     completedAt:      { type: Date },
-    // The raw uploaded PDF, kept so a failed/stuck batch can resume without asking the
-    // owner to find and re-upload the same scan. select:false — never pulled by an
-    // ordinary find(), only by /retry which asks for it explicitly.
-    originalPdfBase64: { type: String, select: false },
+    // GridFS file ID for the raw uploaded PDF — stored outside the document so a
+    // large scan can't push the TollBatch document past MongoDB's 16 MB limit.
+    // Used by /retry to resume without asking the owner to re-upload.
+    originalPdfFileId: { type: Schema.Types.ObjectId, default: null },
     // Touched on every page processed — tells "still working" apart from "the process
     // died and nobody's touched this row since."
     lastProgressAt:    { type: Date },

@@ -28,7 +28,7 @@ import TollPage from './models/TollPage'
 
 import { checkExpiringDates, checkPaymentStatus } from './services/rag'
 import { runMongoBackup } from './services/backup'
-import { deleteMergedPdf } from './services/tollStorage'
+import { deleteMergedPdf, deleteOriginalPdf } from './services/tollStorage'
 import { checkGmailForFines } from './services/gmail'
 import { requireAuth, requireAdmin } from './middleware/auth'
 import { describeLegacyConfig, legacyOrgEmail, legacyPayWay, legacyWhatsApp } from './config/legacyTenant'
@@ -240,9 +240,12 @@ mongoose
       try {
         const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
         const oldBatches = await TollBatch.find({ createdAt: { $lt: cutoff } })
-          .select('_id').setOptions({ allowCrossTenant: true })
+          .select('_id originalPdfFileId').setOptions({ allowCrossTenant: true })
         if (!oldBatches.length) return
         const batchIds = oldBatches.map(b => b._id)
+        for (const b of oldBatches) {
+          if (b.originalPdfFileId) await deleteOriginalPdf(b.originalPdfFileId as any).catch(() => {})
+        }
         const folders = await TollFolder.find({ batchId: { $in: batchIds } })
           .select('_id mergedPdfFileId').setOptions({ allowCrossTenant: true })
         for (const folder of folders) {
