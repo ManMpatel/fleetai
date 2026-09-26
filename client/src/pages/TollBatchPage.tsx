@@ -69,6 +69,7 @@ export default function TollBatchPage() {
   const [activeBatch, setActiveBatch] = useState<TollBatch | null>(null)
   const [folders, setFolders] = useState<TollFolderSummary[]>([])
   const [uploading, setUploading] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const [toast, setToast] = useState('')
   const [sendTarget, setSendTarget] = useState<TollFolderSummary | null>(null)
   const [batchStale, setBatchStale] = useState(false)
@@ -239,6 +240,29 @@ export default function TollBatchPage() {
             <StatCard label="Unrecognized" value={tollStats.unrecognized} color="amber" icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>} />
           </div>
         )}
+        {!activeBatchId && (
+          <div className="relative mb-5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search by date (e.g. Sep, Mon) or plate…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-9 py-2.5 bg-surface border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-colors"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
         {activeBatchId && activeBatch ? (
           activeBatch.status === 'processing' ? (
             batchStale ? (
@@ -263,7 +287,13 @@ export default function TollBatchPage() {
           )
         ) : (
           <DateGroupedBatchList
-            dateGroups={dateGroups}
+            dateGroups={searchQuery.trim()
+              ? dateGroups.filter(g => {
+                  const q = searchQuery.toLowerCase().trim()
+                  return g.dateLabel.toLowerCase().includes(q) ||
+                    g.folders.some(f => f.plate?.toLowerCase().includes(q))
+                })
+              : dateGroups}
             loading={loadingBatches}
             onOpen={openBatch}
             onSend={setSendTarget}

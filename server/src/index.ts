@@ -235,10 +235,10 @@ mongoose
     })
 
     // Hard-delete TollBatch documents (and all associated TollFolder, TollPage records,
-    // plus GridFS merged PDFs) older than 90 days — daily at 3:30am.
+    // plus GridFS merged PDFs) older than 45 days — daily at 3:30am.
     cron.schedule('30 3 * * *', async () => {
       try {
-        const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        const cutoff = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
         const oldBatches = await TollBatch.find({ createdAt: { $lt: cutoff } })
           .select('_id originalPdfFileId').setOptions({ allowCrossTenant: true })
         if (!oldBatches.length) return
@@ -255,7 +255,7 @@ mongoose
         await TollPage.deleteMany({ folderId: { $in: folderIds } }).setOptions({ allowCrossTenant: true })
         await TollFolder.deleteMany({ batchId: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
         await TollBatch.deleteMany({ _id: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
-        console.log(`🗑️ TollBatch purge — hard-deleted ${oldBatches.length} batch(es) and all associated data older than 90 days`)
+        console.log(`🗑️ TollBatch purge — hard-deleted ${oldBatches.length} batch(es) and all associated data older than 45 days`)
       } catch (err) { console.error('TollBatch purge error:', err) }
     })
 

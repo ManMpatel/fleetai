@@ -361,7 +361,7 @@ router.get('/', async (req: Request, res: Response) => {
         const [y, m, d] = dateKey.split('-').map(Number)
         const dateObj = new Date(Date.UTC(y, m - 1, d))
         const dateLabel = `${d} ${MON_NAMES[m - 1]} ${y}, ${DAY_NAMES[dateObj.getUTCDay()]}`
-        const daysRemaining = Math.max(0, 90 - Math.floor((now - dateObj.getTime()) / 86400000))
+        const daysRemaining = Math.max(0, 45 - Math.floor((now - dateObj.getTime()) / 86400000))
         return { date: dateKey, dateLabel, daysRemaining, batches: group.batches, folders: group.folders }
       })
 
@@ -459,7 +459,7 @@ router.get('/:batchId/folders/:folderId/download', async (req: Request, res: Res
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
-    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 90 days' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
     if (!folder.mergedPdfFileId && !folder.mergedPdfBase64) return res.status(409).json({ error: 'This folder is still processing' })
 
     const label = folder.plate || 'Unrecognized'
@@ -480,7 +480,7 @@ router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Respon
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
-    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 90 days' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
 
     const legacyPages = folder.pages ?? []
     const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
@@ -568,7 +568,7 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
-    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 90 days' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
     if (!folder.mergedPdfFileId && !folder.mergedPdfBase64) return res.status(409).json({ error: 'This folder is still processing' })
 
     const { renterId, email } = req.body as { renterId?: string; email?: string }
