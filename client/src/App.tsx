@@ -137,6 +137,25 @@ function RejectedPage({ onLogout }: { onLogout: () => void }) {
   )
 }
 
+function ServerErrorPage({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Sans, sans-serif' }}>
+      <div style={{ textAlign: 'center', maxWidth: 440, padding: '0 24px' }}>
+        <div style={{ width: 64, height: 64, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#ef4444" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+        </div>
+        <h2 style={{ fontSize: 22, fontWeight: 600, color: '#f9fafb', marginBottom: 10 }}>Server Unavailable</h2>
+        <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7, marginBottom: 32 }}>
+          FleetAI is temporarily unreachable — the server may be restarting. Please wait a moment and try again.
+        </p>
+        <button onClick={onRetry} style={{ padding: '10px 28px', background: '#1e40af', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 500 }}>
+          Try again
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Splash({ text }: { text: string }) {
   return (
     <div style={{ minHeight: '100vh', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -202,7 +221,8 @@ function SuperAdminLanding() {
 
 export default function App() {
   const { isLoading, isAuthenticated, user, logout, getAccessTokenSilently } = useAuth0()
-  const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected'>('checking')
+  const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected' | 'error'>('checking')
+  const [retryCount, setRetryCount] = useState(0)
   const [interceptorReady, setInterceptorReady] = useState(false)
   const setSession = useStore(s => s.setSession)
   const isSuperAdmin = useStore(s => !!s.session?.isSuperAdmin)
@@ -252,8 +272,13 @@ export default function App() {
         setOwnerStatus(data.status)
         setSession({ email: data.email ?? null, isSuperAdmin: !!data.isSuperAdmin, org: data.org ?? null })
         return data.status
-      } catch {
-        if (!cancelled) setOwnerStatus('pending')
+      } catch (err: any) {
+        if (!cancelled) {
+          // No HTTP response = server is down (rebuild, network outage). Show a retry
+          // screen instead of "Approval Pending" which implies the account is waiting
+          // for a human to click approve — that's a totally different situation.
+          setOwnerStatus(err?.response ? 'pending' : 'error')
+        }
       }
     }
 
@@ -265,7 +290,7 @@ export default function App() {
     }, 30000)
 
     return () => { cancelled = true; clearInterval(interval) }
-  }, [isAuthenticated, interceptorReady, user?.email, setSession])
+  }, [isAuthenticated, interceptorReady, user?.email, setSession, retryCount])
 
   if (isPublicPath) {
     return (
@@ -282,6 +307,7 @@ export default function App() {
   if (isLoading) return <Splash text="Loading..." />
   if (!isAuthenticated) return <LoginPage />
   if (ownerStatus === 'checking') return <Splash text="Checking access..." />
+  if (ownerStatus === 'error') return <ServerErrorPage onRetry={() => { setOwnerStatus('checking'); setRetryCount(c => c + 1) }} />
   if (ownerStatus === 'pending' && !isSuperAdmin) return <PendingPage email={user?.email || ''} onLogout={handleLogout} />
   if (ownerStatus === 'rejected' && !isSuperAdmin) return <RejectedPage onLogout={handleLogout} />
 
