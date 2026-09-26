@@ -144,7 +144,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         orgId, batchId, folderId: folder._id,
         pageNumber: page.pageNumber, imageBase64: page.imageBase64,
       })
-      await TollFolder.updateOne({ _id: folder._id }, { $inc: { pageCount: 1 } })
+      await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
 
       await TollBatch.findOneAndUpdate(
         { _id: batchId, orgId },
