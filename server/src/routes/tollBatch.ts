@@ -88,7 +88,12 @@ Only include plates you can actually read. Never guess or invent a plate.`
     const parsed = JSON.parse(clean)
     const raw: unknown[] = Array.isArray(parsed.plates) ? parsed.plates : []
     const plates = raw
-      .map((p: unknown) => (typeof p === 'string' ? p.toUpperCase().replace(/\s+/g, '') : ''))
+      .map((p: unknown) => {
+        if (typeof p !== 'string') return ''
+        return p.toUpperCase()
+          .replace(/\s+/g, '')          // remove all whitespace
+          .replace(/\([A-Z]{2,3}\).*$/, '') // strip state suffix: "(NSW)", "(VIC)", etc.
+      })
       .filter((p): p is string => p.length >= 3 && p.length <= 10 && p !== 'NULL')
     return { plates }
   } catch (err: any) {
@@ -139,8 +144,17 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         break
       }
 
-      const { plates } = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
+      let { plates } = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
       Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+
+      // Retry once on empty — handles transient low-confidence responses and cases where
+      // Gemini included the state suffix ("EZL98K(NSW)" → 11 chars, filtered) on first pass.
+      if (plates.length === 0) {
+        await geminiPacingDelay()
+        const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
+        Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+        plates = retry.plates
+      }
 
       // When a page has 2 toll notices for 2 different plates, the same image goes into
       // both plates' folders. When no plates were read, route the page to Unrecognized.
