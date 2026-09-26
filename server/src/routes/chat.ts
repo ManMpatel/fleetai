@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { buildFleetContext } from '../services/rag'
 import { trackGeminiCall } from '../models/Organization'
+import { GEMINI_MODEL } from '../config/gemini'
 
 const router = Router()
 
@@ -44,7 +45,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: GEMINI_MODEL,
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens: 1024,

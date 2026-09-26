@@ -7,15 +7,16 @@ import Renter from '../models/Renter'
 import Organization from '../models/Organization'
 import { rasterizePdf, mergeImagesToPdf } from '../services/tollPdf'
 import { sendTollEmail } from '../services/tollEmail'
+import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay } from '../config/gemini'
 
 // TollBatch — an owner scans ~200-300 printed toll notices into one PDF, uploads it
 // here, and the pages get sorted into one folder per number plate. Mounted behind
 // requireAuth + requireTenant.
 //
 // Processing runs as a background job (fired from the POST handler, not awaited) because
-// a 300-page batch takes ~20 minutes at Gemini's free-tier pace (4.1s between calls).
-// The frontend polls GET /:batchId every 30s for progress, matching the pattern already
-// used for owner-approval and tablet polling elsewhere in this app.
+// a large batch can take several minutes. The frontend polls GET /:batchId every 30s for
+// progress, matching the pattern already used for owner-approval and tablet polling
+// elsewhere in this app.
 const router = Router()
 
 const upload = multer({
@@ -26,8 +27,6 @@ const upload = multer({
     cb(new Error('Only PDF files are accepted'))
   },
 })
-
-const GEMINI_DELAY_MS = 4100 // free-tier cap is 15 req/min — same pacing as read-rego-bulk
 
 type MatchType = 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized'
 
@@ -53,7 +52,7 @@ async function readPlateFromPage(imageBase64: string, mimeType: string, knownPla
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
     const prompt = `You are reading an Australian toll notice (e.g. WestConnex, Linkt). Find the vehicle
 number plate the toll was charged against — it is usually printed clearly near the top or
@@ -71,7 +70,7 @@ character, e.g. O/0, I/1, B/8, S/5), return that exact plate from the list.
 Only return a plate you can actually read or confidently match to the list above. If the
 text is blurry, cut off, or you are not sure, return null for plate — do not guess.`
 
-    const result = await model.generateContent([
+    const result = await generateWithRetry(model, [
       { inlineData: { data: imageBase64, mimeType } },
       prompt,
     ])
@@ -137,8 +136,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         { $inc: { processedPages: 1 }, $set: { currentStep: step, lastProgressAt: new Date() } }
       )
 
-      // Gemini free-tier pacing — same 4.1s delay as the existing read-rego-bulk endpoint.
-      await new Promise(r => setTimeout(r, GEMINI_DELAY_MS))
+      await geminiPacingDelay()
     }
 
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Merging folders into PDFs' } })
@@ -182,7 +180,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     })
 
     // Fire and forget — the client polls GET /:batchId for progress instead of holding
-    // this request open for up to ~20 minutes.
+    // this request open for the duration of the batch.
     void processBatch(batch._id.toString(), req.orgId!.toString(), req.file.buffer)
 
     res.status(202).json({ batchId: batch._id })

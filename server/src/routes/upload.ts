@@ -7,6 +7,7 @@ import Fine from '../models/Fine'
 import Vehicle from '../models/Vehicle'
 import Notification from '../models/Notification'
 import Organization from '../models/Organization'
+import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay } from '../config/gemini'
 
 // Mounted behind requireAuth + requireTenant. These endpoints were previously open:
 // anyone could create fine records, and the Gemini extraction routes were billable
@@ -112,7 +113,7 @@ router.post('/read-licence', async (req: Request, res: Response) => {
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
     const prompt = `You are reading an Australian driver's licence. Extract the following fields and return ONLY a valid JSON object with no extra text or markdown:
 {
@@ -149,7 +150,7 @@ router.post('/read-rego-bulk', async (req: Request, res: Response) => {
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
     const prompt = `You are reading a vehicle registration document from an image or PDF.
 
@@ -179,7 +180,7 @@ Rules:
     const results = []
     for (const file of files) {
       try {
-        const result = await model.generateContent([
+        const result = await generateWithRetry(model, [
           { inlineData: { data: file.base64, mimeType: file.mimeType || 'image/jpeg' } },
           prompt,
         ])
@@ -190,7 +191,7 @@ Rules:
         console.error('Gemini rego error:', err.message)
         results.push({ filename: file.name, status: 'error', data: null })
       }
-      await new Promise(r => setTimeout(r, 4100))
+      await geminiPacingDelay()
     }
 
     res.json({ results })
@@ -213,7 +214,7 @@ router.post('/read-rego', async (req: Request, res: Response) => {
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
     const prompt = `You are reading an Australian vehicle registration document or certificate. This may be a photo of a physical paper taken with a phone — it may be slightly blurry or at an angle. Do your best to extract what you can.
 
