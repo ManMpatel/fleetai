@@ -272,14 +272,18 @@ export default function App() {
         setOwnerStatus(data.status)
         setSession({ email: data.email ?? null, isSuperAdmin: !!data.isSuperAdmin, org: data.org ?? null })
         return data.status
-      } catch {
+      } catch (err: any) {
         if (!cancelled) {
-          // Any exception (network failure, nginx 502 during rebuild, auth error) means we
-          // could not determine the account's real status. Show "Server Unavailable" so the
-          // user retries rather than thinking they need admin approval.
-          // "Approval Pending" only ever comes from an explicit { status:'pending' } in the
-          // try block above — never from the exception path.
-          setOwnerStatus('error')
+          if (err?.response?.status === 401) {
+            // Token is invalid or the Auth0 session expired — silent refresh failed.
+            // Log out so the user lands on the login page and can re-authenticate.
+            logout({ logoutParams: { returnTo: window.location.origin } })
+          } else {
+            // Network failure, nginx 502 during a Docker rebuild, or any other server error.
+            // "Approval Pending" only ever comes from an explicit { status:'pending' } in the
+            // try block above — never from here.
+            setOwnerStatus('error')
+          }
         }
       }
     }
