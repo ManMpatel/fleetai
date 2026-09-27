@@ -15,6 +15,121 @@ function Toast({ message, type }: { message: string; type: 'success' | 'warning'
   )
 }
 
+const EMPTY_MANUAL = {
+  name: '', phone: '', email: '', dateOfBirth: '', licenceNumber: '',
+  address: '', vehicleType: '' as '' | 'scooter' | 'car' | 'e-bike',
+  emergencyContactName: '', emergencyContactPhone: '',
+}
+
+function ManualAddModal({ onClose, onSaved }: { onClose: () => void; onSaved: (renter: any) => void }) {
+  const [form, setForm] = useState(EMPTY_MANUAL)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  function set(field: keyof typeof EMPTY_MANUAL, value: string) {
+    setForm(f => ({ ...f, [field]: value }))
+    setError('')
+  }
+
+  async function handleSubmit() {
+    setSaving(true)
+    setError('')
+    try {
+      const body: Record<string, string> = {}
+      for (const [k, v] of Object.entries(form)) {
+        if (v.trim()) body[k] = v.trim()
+      }
+      const { data } = await axios.post('/api/renters', { ...body, status: 'not_setup' })
+      onSaved(data)
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        setError('That phone number is already registered.')
+      } else {
+        setError(err?.response?.data?.error || 'Failed to save renter.')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls = 'w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent placeholder-text-muted'
+  const labelCls = 'block text-xs font-medium text-text-secondary mb-1'
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="font-bold text-text-primary">Add Renter Manually</h2>
+            <p className="text-xs text-text-muted mt-0.5">All fields are optional — fill in what you have</p>
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary p-1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Full Name</label>
+              <input className={inputCls} placeholder="e.g. John Smith" value={form.name} onChange={e => set('name', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Phone</label>
+              <input className={inputCls} type="tel" placeholder="04XX XXX XXX" value={form.phone} onChange={e => set('phone', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Email</label>
+              <input className={inputCls} type="email" placeholder="email@example.com" value={form.email} onChange={e => set('email', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Date of Birth</label>
+              <input className={inputCls} type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Licence Number</label>
+              <input className={inputCls} placeholder="e.g. 12345678" value={form.licenceNumber} onChange={e => set('licenceNumber', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Vehicle Type</label>
+              <select className={inputCls} value={form.vehicleType} onChange={e => set('vehicleType', e.target.value)}>
+                <option value="">— Select —</option>
+                <option value="scooter">Scooter</option>
+                <option value="car">Car</option>
+                <option value="e-bike">E-Bike</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Address</label>
+            <input className={inputCls} placeholder="e.g. 12 Smith St, Sydney NSW 2000" value={form.address} onChange={e => set('address', e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Emergency Contact Name</label>
+              <input className={inputCls} placeholder="e.g. Jane Smith" value={form.emergencyContactName} onChange={e => set('emergencyContactName', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Emergency Contact Phone</label>
+              <input className={inputCls} type="tel" placeholder="04XX XXX XXX" value={form.emergencyContactPhone} onChange={e => set('emergencyContactPhone', e.target.value)} />
+            </div>
+          </div>
+          {error && <p className="text-red text-xs bg-red-bg border border-red/20 rounded-lg px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-6 py-4 border-t border-border flex gap-3 shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-text-secondary border border-border rounded-lg hover:bg-surface2">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} className="flex-1 bg-accent text-white text-sm font-medium py-2 rounded-lg hover:bg-accent/90 disabled:opacity-50">
+            {saving ? 'Saving...' : 'Add Renter'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const statusColors = {
   active: 'bg-green-bg text-green', paused: 'bg-amber-bg text-amber',
   cancelled: 'bg-red-bg text-red', not_setup: 'bg-surface2 text-text-muted',
@@ -30,6 +145,7 @@ export default function RentersPage() {
   const [sendingLink, setSendingLink] = useState(false)
   const [newPhone, setNewPhone] = useState('')
   const [showNewRenter, setShowNewRenter] = useState(false)
+  const [showManualAdd, setShowManualAdd] = useState(false)
   const [showPending, setShowPending] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null)
   const [pendingModal, setPendingModal] = useState<Renter | null>(null)
@@ -82,6 +198,19 @@ export default function RentersPage() {
           <img src={lightbox} className="max-w-full max-h-full rounded-xl object-contain" onClick={e => e.stopPropagation()} />
           <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl">✕</button>
         </div>
+      )}
+
+      {showManualAdd && (
+        <ManualAddModal
+          onClose={() => setShowManualAdd(false)}
+          onSaved={renter => {
+            fetchRenters()
+            setSelected(renter)
+            setShowManualAdd(false)
+            setShowNewRenter(false)
+            setToast({ message: `✅ ${renter.name || 'Renter'} added`, type: 'success' })
+          }}
+        />
       )}
 
       {pendingModal && (
@@ -154,16 +283,33 @@ export default function RentersPage() {
           </div>
 
           {showNewRenter && (
-            <div className="bg-accent-bg border border-accent/20 rounded-xl p-3">
-              <p className="text-xs text-text-muted mb-2">Send onboarding link</p>
-              <input type="tel" placeholder="04XX XXX XXX" value={newPhone} onChange={e => setNewPhone(e.target.value)}
-                className="w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent mb-2" />
-              <div className="flex gap-2">
-                <button onClick={handleSendLink} disabled={sendingLink || !newPhone.trim()} className="flex-1 bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">
+            <div className="bg-accent-bg border border-accent/20 rounded-xl p-3 space-y-3">
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-2">Send onboarding link</p>
+                <input type="tel" placeholder="04XX XXX XXX" value={newPhone} onChange={e => setNewPhone(e.target.value)}
+                  className="w-full bg-surface border border-border text-text-primary text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent mb-2" />
+                <button onClick={handleSendLink} disabled={sendingLink || !newPhone.trim()} className="w-full bg-accent text-white text-xs font-medium py-2 rounded-lg disabled:opacity-50">
                   {sendingLink ? 'Sending...' : '💬 Send via WhatsApp'}
                 </button>
-                <button onClick={() => setShowNewRenter(false)} className="px-3 py-2 text-xs text-text-secondary border border-border rounded-lg">Cancel</button>
               </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-[10px] text-text-muted">or</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <div>
+                <button
+                  onClick={() => { setShowManualAdd(true); setShowNewRenter(false) }}
+                  className="w-full flex items-center justify-center gap-2 border border-border text-text-primary text-xs font-medium py-2 rounded-lg hover:bg-surface2 transition-colors"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+                    <line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" />
+                  </svg>
+                  Add manually
+                </button>
+              </div>
+              <button onClick={() => setShowNewRenter(false)} className="w-full text-xs text-text-muted text-center hover:text-text-secondary">Cancel</button>
             </div>
           )}
 
