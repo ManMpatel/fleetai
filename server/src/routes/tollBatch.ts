@@ -41,6 +41,21 @@ function matchTypeFor(plate: string | null, statusByPlate: Map<string, string>):
   return 'unregistered'
 }
 
+/** Merges a folder's pages on-demand and caches the result in GridFS. */
+async function getMergedPdfBuffer(folder: any): Promise<Buffer> {
+  if (folder.mergedPdfFileId) return readMergedPdf(folder.mergedPdfFileId)
+  if (folder.mergedPdfBase64) return Buffer.from(folder.mergedPdfBase64, 'base64')
+  const legacyPages = folder.pages ?? []
+  const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
+  const allPages = [...legacyPages, ...newPages].sort((a: any, b: any) => a.pageNumber - b.pageNumber)
+  if (allPages.length === 0) throw new Error('No pages found for this folder')
+  const buf = await mergeImagesToPdf(allPages.map((p: any) => p.imageBase64))
+  if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId).catch(() => {})
+  const mergedPdfFileId = await saveMergedPdf(buf, `${folder._id}.pdf`)
+  await TollFolder.updateOne({ _id: folder._id }, { $set: { merged: true, mergedPdfFileId } })
+  return buf
+}
+
 interface PlateReadResult {
   plates: string[]
 }
@@ -215,18 +230,29 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
       )
     }
 
-    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Merging folders into PDFs' } })
+    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Merging folders into PDFs', lastProgressAt: new Date() } })
+
+    // Merging all images into one PDF per folder is memory-intensive. Folders with many
+    // pages (e.g. a large Unrecognized folder) can exhaust RAM on the VPS and block for
+    // many minutes. Folders above this limit are skipped here and merged on-demand when
+    // the user first clicks Download or Send — still cached in GridFS after that.
+    const MERGE_UPFRONT_LIMIT = 20
 
     const folders = await TollFolder.find({ orgId, batchId })
     for (const folder of folders) {
       const legacyPages = folder.pages ?? []
+      const estimatedTotal = legacyPages.length + (folder.pageCount ?? 0)
+      if (estimatedTotal > MERGE_UPFRONT_LIMIT) continue  // merge on-demand at download time
+
       const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
       const allPages = [...legacyPages, ...newPages].sort((a, b) => a.pageNumber - b.pageNumber)
+      if (allPages.length === 0) continue
 
       const mergedBuffer = await mergeImagesToPdf(allPages.map(p => p.imageBase64))
       if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId as any).catch(() => {})
       const mergedPdfFileId = await saveMergedPdf(mergedBuffer, `${folder._id}.pdf`)
       await TollFolder.updateOne({ _id: folder._id }, { $set: { merged: true, mergedPdfFileId } })
+      await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { lastProgressAt: new Date() } })
     }
 
     if (cancelled) {
@@ -360,7 +386,7 @@ router.get('/', async (req: Request, res: Response) => {
         matchType: mt,
         pageCount: (f.pages?.length ?? 0) + (f.pageCount ?? 0),
         sentStatus: f.sentStatus,
-        hasMergedPdf: Boolean(f.mergedPdfFileId || f.merged),
+        hasMergedPdf: Boolean(f.mergedPdfFileId || f.merged || (f.pages?.length ?? 0) + (f.pageCount ?? 0) > 0),
         imagesDeleted: f.imagesDeleted ?? false,
       })
     }
@@ -438,7 +464,7 @@ router.get('/:batchId', async (req: Request, res: Response) => {
         plate: f.plate,
         matchType: matchTypeFor(f.plate, statusByPlate),
         pageCount: (f.pages?.length ?? 0) + (f.pageCount ?? 0),
-        hasMergedPdf: Boolean(f.mergedPdfFileId || f.merged),
+        hasMergedPdf: Boolean(f.mergedPdfFileId || f.merged || (f.pages?.length ?? 0) + (f.pageCount ?? 0) > 0),
         sentStatus: f.sentStatus,
         sentTo: f.sentTo,
         sentAt: f.sentAt,
@@ -488,12 +514,9 @@ router.get('/:batchId/folders/:folderId/download', async (req: Request, res: Res
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
     if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
-    if (!folder.mergedPdfFileId && !folder.mergedPdfBase64) return res.status(409).json({ error: 'This folder is still processing' })
 
     const label = folder.plate || 'Unrecognized'
-    const pdfBuffer = folder.mergedPdfFileId
-      ? await readMergedPdf(folder.mergedPdfFileId as any)
-      : Buffer.from(folder.mergedPdfBase64!, 'base64')
+    const pdfBuffer = await getMergedPdfBuffer(folder)
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="${label}.pdf"`)
     res.send(pdfBuffer)
@@ -597,8 +620,6 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
     if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
-    if (!folder.mergedPdfFileId && !folder.mergedPdfBase64) return res.status(409).json({ error: 'This folder is still processing' })
-
     const { renterId, email } = req.body as { renterId?: string; email?: string }
 
     let toAddress: string | null = null
@@ -623,9 +644,7 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
     const org = req.org!
 
     const label = folder.plate || 'Unrecognized'
-    const pdfBuffer = folder.mergedPdfFileId
-      ? await readMergedPdf(folder.mergedPdfFileId as any)
-      : Buffer.from(folder.mergedPdfBase64!, 'base64')
+    const pdfBuffer = await getMergedPdfBuffer(folder)
 
     // sendTollEmail throws with the real failure reason (bad address, SMTP auth
     // rejected, not connected) — that reaches the owner as-is, never a false "sent".
