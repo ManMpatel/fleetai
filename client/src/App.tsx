@@ -272,12 +272,14 @@ export default function App() {
         setOwnerStatus(data.status)
         setSession({ email: data.email ?? null, isSuperAdmin: !!data.isSuperAdmin, org: data.org ?? null })
         return data.status
-      } catch (err: any) {
+      } catch {
         if (!cancelled) {
-          // No HTTP response = server is down (rebuild, network outage). Show a retry
-          // screen instead of "Approval Pending" which implies the account is waiting
-          // for a human to click approve — that's a totally different situation.
-          setOwnerStatus(err?.response ? 'pending' : 'error')
+          // Any exception (network failure, nginx 502 during rebuild, auth error) means we
+          // could not determine the account's real status. Show "Server Unavailable" so the
+          // user retries rather than thinking they need admin approval.
+          // "Approval Pending" only ever comes from an explicit { status:'pending' } in the
+          // try block above — never from the exception path.
+          setOwnerStatus('error')
         }
       }
     }
