@@ -38,7 +38,7 @@ const BANK_FIELDS = ['bsbNumber', 'accountNumber', 'accountHolderName'] as const
 // Fields an onboarding renter may submit. orgId/status are deliberately absent — the
 // tenant is derived from the share link server-side, never from the request body.
 const ONBOARD_FIELDS = [
-  'name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'passportNumber',
+  'name', 'phone', 'email', 'dateOfBirth', 'licenceNumber', 'licenceExpiry', 'passportNumber',
   'vehicleType', 'address', 'bankName', 'accountHolderName', 'bsbNumber', 'accountNumber',
   'emergencyContactName', 'emergencyContactPhone', 'licencePhotoUrl', 'selfieUrl',
   'licencePhotoBase64', 'selfieBase64', 'passportPhotoBase64', 'signatureBase64',

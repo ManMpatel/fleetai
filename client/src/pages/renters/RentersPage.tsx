@@ -16,7 +16,7 @@ function Toast({ message, type }: { message: string; type: 'success' | 'warning'
 }
 
 const EMPTY_MANUAL = {
-  name: '', phone: '', email: '', dateOfBirth: '', licenceNumber: '',
+  name: '', phone: '', email: '', dateOfBirth: '', licenceNumber: '', licenceExpiry: '',
   address: '', vehicleType: '' as '' | 'scooter' | 'car' | 'e-bike',
   emergencyContactName: '', emergencyContactPhone: '',
 }
@@ -39,7 +39,7 @@ function ManualAddModal({ onClose, onSaved }: { onClose: () => void; onSaved: (r
       for (const [k, v] of Object.entries(form)) {
         if (v.trim()) body[k] = v.trim()
       }
-      const { data } = await axios.post('/api/renters', { ...body, status: 'not_setup' })
+      const { data } = await axios.post('/api/renters', { ...body, status: 'active' })
       onSaved(data)
     } catch (err: any) {
       if (err?.response?.status === 409) {
@@ -91,6 +91,10 @@ function ManualAddModal({ onClose, onSaved }: { onClose: () => void; onSaved: (r
             <div>
               <label className={labelCls}>Licence Number</label>
               <input className={inputCls} placeholder="e.g. 12345678" value={form.licenceNumber} onChange={e => set('licenceNumber', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Licence Expiry</label>
+              <input className={inputCls} type="date" value={form.licenceExpiry} onChange={e => set('licenceExpiry', e.target.value)} />
             </div>
             <div>
               <label className={labelCls}>Vehicle Type</label>

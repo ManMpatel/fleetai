@@ -7,6 +7,7 @@ export interface IRenter extends Document {
   email: string
   dateOfBirth?: string
   licenceNumber: string
+  licenceExpiry?: string
   licenceNumberHash?: string
   passportNumberHash?: string
   licencePhotoUrl?: string
@@ -101,6 +102,7 @@ const RenterSchema = new Schema<IRenter>(
     email:           { type: String },
     dateOfBirth:     { type: String },
     licenceNumber:      { type: String },
+    licenceExpiry:      { type: String },
     licenceNumberHash:  { type: String },
     passportNumber:     { type: String },
     passportNumberHash: { type: String },
