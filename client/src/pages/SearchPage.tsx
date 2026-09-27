@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import axios from 'axios'
+import { useSearchHistory } from '../hooks/useSearchHistory'
 
 interface RenterSummary {
   _id: string; name: string; phone: string; email?: string; status?: string
@@ -14,14 +15,18 @@ export default function SearchPage() {
   const [result, setResult] = useState<any>(null)
   const [searched, setSearched] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { history, push, remove, clear } = useSearchHistory('history-search')
 
-  async function handleSearch(e?: React.FormEvent) {
+  async function handleSearch(e?: React.FormEvent, override?: string) {
     e?.preventDefault()
-    if (!query.trim()) return
+    const term = (override ?? query).trim()
+    if (!term) return
+    if (override) setQuery(override)
     setLoading(true)
     setSearched(true)
+    push(term)
     try {
-      const { data } = await axios.get(`/api/search?q=${encodeURIComponent(query.trim())}`)
+      const { data } = await axios.get(`/api/search?q=${encodeURIComponent(term)}`)
       setResult(data)
     } catch {
       setResult(null)
@@ -69,6 +74,25 @@ export default function SearchPage() {
             {loading ? 'Searching...' : 'Search'}
           </button>
         </form>
+
+        {history.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-text-muted">Recent searches</span>
+              <button onClick={clear} className="text-xs text-text-muted hover:text-red transition-colors">Clear all</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {history.map(term => (
+                <div key={term} className="flex items-center gap-1 bg-surface border border-border rounded-lg pl-3 pr-1.5 py-1">
+                  <button onClick={() => handleSearch(undefined, term)} className="text-xs font-mono text-text-primary hover:text-accent transition-colors">{term}</button>
+                  <button onClick={() => remove(term)} className="text-text-muted hover:text-red transition-colors ml-1">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* No results */}
         {searched && !loading && result && result.type === 'plate' && !result.vehicle && (

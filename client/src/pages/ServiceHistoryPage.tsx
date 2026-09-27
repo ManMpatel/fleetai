@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import axios from 'axios'
 import { useAuth0 } from '@auth0/auth0-react'
+import { useSearchHistory } from '../hooks/useSearchHistory'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 function fmt(d: string) {
@@ -31,15 +32,19 @@ export default function ServiceHistoryPage() {
   const [records, setRecords] = useState<ServiceRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const { history, push, remove, clear } = useSearchHistory('service-history-search')
 
-  async function handleSearch(e?: React.FormEvent) {
+  async function handleSearch(e?: React.FormEvent, override?: string) {
     e?.preventDefault()
-    if (!query.trim()) return
+    const term = (override ?? query).trim().toUpperCase()
+    if (!term) return
+    if (override) setQuery(override.toUpperCase())
     setLoading(true)
     setSearched(true)
+    push(term)
     try {
       const { data } = await axios.get(`/api/service-records`, {
-        params: { plate: query.trim().toUpperCase() }
+        params: { plate: term }
       })
       setRecords(data || [])
     } catch {
@@ -72,6 +77,25 @@ export default function ServiceHistoryPage() {
             {loading ? 'Searching...' : 'Search'}
           </button>
         </form>
+
+        {history.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-text-muted">Recent searches</span>
+              <button onClick={clear} className="text-xs text-text-muted hover:text-red transition-colors">Clear all</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {history.map(term => (
+                <div key={term} className="flex items-center gap-1 bg-surface border border-border rounded-lg pl-3 pr-1.5 py-1">
+                  <button onClick={() => handleSearch(undefined, term)} className="text-xs font-mono text-text-primary hover:text-accent transition-colors">{term}</button>
+                  <button onClick={() => remove(term)} className="text-text-muted hover:text-red transition-colors ml-1">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {searched && !loading && records.length === 0 && (
           <div className="bg-surface border border-border rounded-xl p-8 text-center">
