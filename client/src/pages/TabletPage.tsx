@@ -23,7 +23,7 @@ interface ServiceRecord {
   _id: string
   plate: string
   serviceType: string
-  description: string
+  description?: string
   cost?: number
   employeeName: string
   customerName?: string
@@ -31,10 +31,19 @@ interface ServiceRecord {
   notes?: string
   vehicleCategory?: string
   vehicleType?: string
+  kilometres?: string
   date: string
   status: 'pending' | 'done'
   completedAt?: string
+  items?: Array<{ name: string; price?: number }>
 }
+
+interface SvcItem { id: string; name: string; price: string; checked: boolean; isFixed: boolean }
+const FIXED_SVC: SvcItem[] = [
+  { id: 'svc', name: 'SERVICE', price: '', checked: true, isFixed: true },
+  { id: 'air', name: 'AIR FILTER', price: '', checked: true, isFixed: true },
+  { id: 'oil', name: 'OIL FILTER', price: '', checked: true, isFixed: true },
+]
 
 const SERVICE_TYPES = [
   { value: 'oil_change', label: 'Oil Change' },
@@ -88,9 +97,9 @@ export default function TabletPage() {
 
   const [serviceForm, setServiceForm] = useState({
     vehicleCategory: 'rental', vehicleType: 'scooter', plate: '',
-    customerName: '', customerPhone: '', serviceType: 'general',
-    description: '', kilometres: '',
+    customerName: '', customerPhone: '', kilometres: '', notes: '',
   })
+  const [serviceItems, setServiceItems] = useState<SvcItem[]>(() => FIXED_SVC.map(i => ({ ...i })))
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -184,7 +193,8 @@ export default function TabletPage() {
   function goHome() {
     setScreen('home'); setPin(''); setPinError(''); setEmployee(null)
     setSelfieBlob(null); setSelfiePreview(''); setSuccessMsg(''); setSubmitAttempted(false)
-    setServiceForm({ vehicleCategory: 'rental', vehicleType: 'scooter', plate: '', customerName: '', customerPhone: '', serviceType: 'general', description: '', kilometres: '' })
+    setServiceForm({ vehicleCategory: 'rental', vehicleType: 'scooter', plate: '', customerName: '', customerPhone: '', kilometres: '', notes: '' })
+    setServiceItems(FIXED_SVC.map(i => ({ ...i })))
     if (countdownRef.current) clearTimeout(countdownRef.current)
   }
   function showSuccess(msg: string, record?: ServiceRecord) {
@@ -236,16 +246,30 @@ export default function TabletPage() {
   async function submitService() {
     setSubmitAttempted(true)
     if (!employee || !linked) return
-    if (!serviceForm.plate || !serviceForm.description) return
+    if (!serviceForm.plate || !serviceForm.customerName || !serviceForm.customerPhone) return
     if (plateError) return
     setSubmitting(true)
     try {
-      const { data } = await tabletApi.post('/api/tablet/log-service', { pin, ...serviceForm })
+      const itemsToSubmit = serviceItems
+        .filter(item => item.isFixed ? item.checked : item.name.trim())
+        .map(item => ({ name: item.name.trim(), price: parseFloat(item.price) || undefined }))
+      const total = itemsToSubmit.reduce((s, i) => s + (i.price || 0), 0)
+      const { data } = await tabletApi.post('/api/tablet/log-service', {
+        pin, ...serviceForm,
+        items: itemsToSubmit,
+        cost: total > 0 ? total : undefined,
+        serviceType: 'general',
+        description: '',
+      })
       showSuccess(`Service logged by ${employee.name}.`, data)
       fetchRecords()
     } catch { setPinError('Failed to save. Please try again.') }
     finally { setSubmitting(false) }
   }
+
+  const serviceTotal = serviceItems
+    .filter(item => item.isFixed ? item.checked : item.name.trim())
+    .reduce((sum, item) => sum + (parseFloat(item.price) || 0), 0)
 
   async function markDone(record: ServiceRecord) {
     try {
@@ -258,7 +282,12 @@ export default function TabletPage() {
     if (!editingRecord || !linked) return
     setSavingEdit(true)
     try {
-      const { data } = await tabletApi.patch(`/api/tablet/service-records/${editingRecord._id}`, { ...editForm })
+      const updates: any = { ...editForm }
+      if (updates.items?.length > 0) {
+        const total = updates.items.reduce((s: number, i: any) => s + (i.price || 0), 0)
+        updates.cost = total > 0 ? total : undefined
+      }
+      const { data } = await tabletApi.patch(`/api/tablet/service-records/${editingRecord._id}`, updates)
       setAllRecords(prev => prev.map(r => r._id === editingRecord._id ? data : r))
       setEditingRecord(null)
     } catch { alert('Failed to save') }
@@ -269,7 +298,12 @@ export default function TabletPage() {
     if (!editingRecord || !linked) return
     setSavingEdit(true)
     try {
-      const { data } = await tabletApi.patch(`/api/tablet/service-records/${editingRecord._id}`, { ...editForm, status: 'done' })
+      const updates: any = { ...editForm, status: 'done' }
+      if (updates.items?.length > 0) {
+        const total = updates.items.reduce((s: number, i: any) => s + (i.price || 0), 0)
+        updates.cost = total > 0 ? total : undefined
+      }
+      const { data } = await tabletApi.patch(`/api/tablet/service-records/${editingRecord._id}`, updates)
       setAllRecords(prev => prev.map(r => r._id === editingRecord._id ? data : r))
       setEditingRecord(null)
     } catch { alert('Failed to mark as done') }
@@ -479,7 +513,8 @@ export default function TabletPage() {
                 <h2 className="text-xl font-bold mb-1">Log Service</h2>
                 <p className={`${T.muted} text-sm mb-6`}>Logged by <span className={T.subtext}>{employee?.name}</span></p>
                 {pinError && <p className="text-red-400 text-sm mb-4">{pinError}</p>}
-                <div className="space-y-3">
+                <div className="space-y-4">
+                  {/* Vehicle info */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className={`block text-xs ${T.muted} mb-1.5`}>Vehicle Category</label>
@@ -499,24 +534,97 @@ export default function TabletPage() {
                       </select>
                     </div>
                   </div>
+
+                  {/* Mandatory fields */}
                   <TField label="Plate Number *" value={serviceForm.plate} T={T}
                     onChange={v => { setServiceForm(f => ({ ...f, plate: v.toUpperCase() })); setPlateError('') }}
                     onBlur={() => validatePlate(serviceForm.plate)}
                     placeholder="e.g. ABC123" error={submitAttempted && !serviceForm.plate} />
-                  {plateError && <p className="text-red-400 text-xs -mt-2">{plateError}</p>}
+                  {plateError && <p className="text-red-400 text-xs -mt-3">{plateError}</p>}
                   <div className="grid grid-cols-2 gap-3">
-                    <TField label="Customer Name" value={serviceForm.customerName} T={T} onChange={v => setServiceForm(f => ({ ...f, customerName: v }))} />
-                    <TField label="Customer Phone" value={serviceForm.customerPhone} T={T} type="tel" onChange={v => setServiceForm(f => ({ ...f, customerPhone: v }))} />
+                    <TField label="Customer Name *" value={serviceForm.customerName} T={T}
+                      onChange={v => setServiceForm(f => ({ ...f, customerName: v }))}
+                      error={submitAttempted && !serviceForm.customerName} />
+                    <TField label="Customer Phone *" value={serviceForm.customerPhone} T={T} type="tel"
+                      onChange={v => setServiceForm(f => ({ ...f, customerPhone: v }))}
+                      error={submitAttempted && !serviceForm.customerPhone} />
                   </div>
-                  
+
+                  {/* Service items */}
+                  <div className={`rounded-xl border ${T.border} overflow-hidden`}>
+                    <div className={`px-4 py-2 border-b ${T.border} flex items-center justify-between`}
+                      style={{ background: dark ? 'rgba(255,255,255,0.04)' : '#f9fafb' }}>
+                      <span className={`text-xs font-semibold uppercase tracking-wide ${T.muted}`}>Services</span>
+                      <span className={`text-xs ${T.muted}`}>Price (optional)</span>
+                    </div>
+                    {serviceItems.map((item, i) => (
+                      <div key={item.id} className={`flex items-center gap-3 px-4 py-3 border-b last:border-0 ${T.border}`}>
+                        {item.isFixed ? (
+                          <button type="button"
+                            onClick={() => setServiceItems(prev => prev.map((x, j) => j === i ? { ...x, checked: !x.checked } : x))}
+                            className={`w-6 h-6 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all
+                              ${item.checked ? 'bg-indigo-500 border-indigo-500' : (dark ? 'border-white/20' : 'border-gray-300')}`}>
+                            {item.checked && (
+                              <svg viewBox="0 0 12 12" fill="none" className="w-3.5 h-3.5">
+                                <polyline points="2 6 5 9 10 3" stroke="white" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                          </button>
+                        ) : (
+                          <button type="button"
+                            onClick={() => setServiceItems(prev => prev.filter((_, j) => j !== i))}
+                            className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-colors
+                              ${dark ? 'bg-white/10 text-white/40 hover:bg-red-500/30 hover:text-red-400' : 'bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-500'}`}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-3 h-3">
+                              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                          </button>
+                        )}
+                        {item.isFixed ? (
+                          <span className={`flex-1 text-sm font-medium transition-opacity ${item.checked ? T.text : T.muted}`}>{item.name}</span>
+                        ) : (
+                          <input type="text" value={item.name}
+                            onChange={e => setServiceItems(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                            placeholder="Item name"
+                            className={`flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 ${T.input}`} />
+                        )}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <span className={`text-sm ${T.muted}`}>$</span>
+                          <input type="number" min="0" step="0.01"
+                            value={item.price}
+                            onChange={e => setServiceItems(prev => prev.map((x, j) => j === i ? { ...x, price: e.target.value } : x))}
+                            placeholder="0"
+                            className={`w-20 border rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:border-indigo-500 ${T.input}`} />
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button"
+                      onClick={() => setServiceItems(prev => [...prev, { id: `c_${Date.now()}`, name: '', price: '', checked: false, isFixed: false }])}
+                      className={`w-full px-4 py-2.5 text-left text-xs font-medium transition-colors
+                        ${dark ? 'text-indigo-400 hover:text-indigo-300 hover:bg-white/5' : 'text-indigo-600 hover:text-indigo-700 hover:bg-gray-50'}`}>
+                      + Add item
+                    </button>
+                  </div>
+
+                  {/* Notes */}
                   <div>
-                    <label className={`block text-xs ${T.muted} mb-1.5`}>Description *</label>
-                    <textarea value={serviceForm.description} onChange={e => setServiceForm(f => ({ ...f, description: e.target.value }))}
-                      placeholder="What was done?" rows={3}
-                      className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none resize-none focus:border-indigo-500 ${T.input} ${submitAttempted && !serviceForm.description ? 'border-red-500' : ''}`} />
-                    {submitAttempted && !serviceForm.description && <p className="text-red-400 text-xs mt-1">Required</p>}
+                    <label className={`block text-xs ${T.muted} mb-1.5`}>Notes</label>
+                    <textarea value={serviceForm.notes} onChange={e => setServiceForm(f => ({ ...f, notes: e.target.value }))}
+                      placeholder="Any additional notes..." rows={2}
+                      className={`w-full border rounded-xl px-3 py-3 text-sm focus:outline-none resize-none focus:border-indigo-500 ${T.input}`} />
                   </div>
-                  <TField label="Kilometres (km)" value={serviceForm.kilometres} T={T} type="number" onChange={v => setServiceForm(f => ({ ...f, kilometres: v }))} placeholder="0" />
+
+                  <TField label="Kilometres" value={serviceForm.kilometres} T={T} type="number"
+                    onChange={v => setServiceForm(f => ({ ...f, kilometres: v }))} placeholder="e.g. 12500" />
+
+                  {/* Total */}
+                  {serviceTotal > 0 && (
+                    <div className={`flex items-center justify-between px-4 py-3 rounded-xl
+                      ${dark ? 'bg-indigo-900/30 border border-indigo-500/30' : 'bg-indigo-50 border border-indigo-200'}`}>
+                      <span className={`text-sm font-semibold ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>Total</span>
+                      <span className={`text-lg font-bold ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>${serviceTotal.toFixed(2)}</span>
+                    </div>
+                  )}
                 </div>
                 <button onClick={submitService} disabled={submitting}
                   className="w-full mt-6 py-4 bg-indigo-500 text-white rounded-2xl font-semibold text-lg disabled:opacity-30 hover:bg-indigo-600 active:scale-95 transition-all">
@@ -585,7 +693,11 @@ export default function TabletPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`font-mono text-xs px-1.5 py-0.5 rounded ${T.card}`}>{r.plate}</span>
-                            <span className="text-sm font-medium">{SERVICE_TYPES.find(s => s.value === r.serviceType)?.label || r.serviceType}</span>
+                            <span className="text-sm font-medium">
+                              {r.items && r.items.length > 0
+                                ? r.items.slice(0, 2).map(i => i.name).join(', ') + (r.items.length > 2 ? ` +${r.items.length - 2}` : '')
+                                : SERVICE_TYPES.find(s => s.value === r.serviceType)?.label || r.serviceType}
+                            </span>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
                               {r.status}
                             </span>
@@ -602,14 +714,32 @@ export default function TabletPage() {
                       </div>
 
                       {expandedRecord === r._id && (
-                        <div className={`mt-3 pt-3 border-t ${T.border} space-y-1.5`}>
-                          {r.description && (
+                        <div className={`mt-3 pt-3 border-t ${T.border} space-y-2`}>
+                          {r.items && r.items.length > 0 ? (
+                            <div>
+                              <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide mb-1.5`}>Services</p>
+                              <div className="space-y-1">
+                                {r.items.map((item, idx) => (
+                                  <div key={idx} className="flex items-center justify-between text-sm">
+                                    <span>{item.name}</span>
+                                    {item.price != null ? <span className="text-indigo-400">${item.price.toFixed(2)}</span> : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : r.description ? (
                             <div>
                               <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide`}>Description</p>
                               <p className="text-sm mt-0.5">{r.description}</p>
                             </div>
+                          ) : null}
+                          {r.notes && (
+                            <div>
+                              <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide`}>Notes</p>
+                              <p className="text-sm mt-0.5">{r.notes}</p>
+                            </div>
                           )}
-                          <div className="grid grid-cols-2 gap-3 mt-2">
+                          <div className="grid grid-cols-2 gap-3">
                             {r.customerName && (
                               <div>
                                 <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide`}>Customer</p>
@@ -617,10 +747,10 @@ export default function TabletPage() {
                                 {r.customerPhone && <p className={`text-xs ${T.muted}`}>{r.customerPhone}</p>}
                               </div>
                             )}
-                            {(r as any).kilometres && (
+                            {r.kilometres && (
                               <div>
                                 <p className={`text-xs font-medium ${T.muted} uppercase tracking-wide`}>Kilometres</p>
-                                <p className="text-sm mt-0.5">{(r as any).kilometres} km</p>
+                                <p className="text-sm mt-0.5">{r.kilometres} km</p>
                               </div>
                             )}
                           </div>
@@ -653,27 +783,65 @@ export default function TabletPage() {
                     <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Pending</span>
                   </div>
                   <div className="px-5 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
-                    <div>
-                      <label className={`block text-xs ${T.muted} mb-1`}>Service Type</label>
-                      <select value={editForm.serviceType || ''} onChange={e => setEditForm(f => ({ ...f, serviceType: e.target.value as any }))}
-                        className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.select}`}>
-                        {SERVICE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={`block text-xs ${T.muted} mb-1`}>Description</label>
-                      <textarea value={editForm.description || ''} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                        rows={2} className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none resize-none ${T.input}`} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    {editForm.items && editForm.items.length > 0 ? (
                       <div>
-                        <label className={`block text-xs ${T.muted} mb-1`}>Cost ($)</label>
-                        <input type="number" value={editForm.cost || ''} onChange={e => setEditForm(f => ({ ...f, cost: parseFloat(e.target.value) || undefined }))}
-                          className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.input}`} />
+                        <label className={`block text-xs ${T.muted} mb-2`}>Service Items</label>
+                        <div className="space-y-2">
+                          {editForm.items.map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <span className="flex-1 text-sm">{item.name}</span>
+                              <div className="flex items-center gap-1">
+                                <span className={`text-sm ${T.muted}`}>$</span>
+                                <input type="number" min="0" step="0.01"
+                                  value={item.price ?? ''}
+                                  onChange={e => {
+                                    const next = [...(editForm.items || [])]
+                                    next[idx] = { ...next[idx], price: parseFloat(e.target.value) || undefined }
+                                    setEditForm(f => ({ ...f, items: next }))
+                                  }}
+                                  placeholder="0"
+                                  className={`w-20 border rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:border-indigo-500 ${T.input}`} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className={`flex items-center justify-between mt-3 pt-2 border-t ${T.border}`}>
+                          <span className={`text-xs ${T.muted}`}>Total</span>
+                          <span className="text-sm font-semibold text-indigo-400">
+                            ${(editForm.items.reduce((s, i) => s + (i.price || 0), 0)).toFixed(2)}
+                          </span>
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className={`block text-xs ${T.muted} mb-1`}>Service Type</label>
+                          <select value={editForm.serviceType || ''} onChange={e => setEditForm(f => ({ ...f, serviceType: e.target.value as any }))}
+                            className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.select}`}>
+                            {SERVICE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className={`block text-xs ${T.muted} mb-1`}>Description</label>
+                          <textarea value={editForm.description || ''} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                            rows={2} className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none resize-none ${T.input}`} />
+                        </div>
+                        <div>
+                          <label className={`block text-xs ${T.muted} mb-1`}>Cost ($)</label>
+                          <input type="number" value={editForm.cost || ''} onChange={e => setEditForm(f => ({ ...f, cost: parseFloat(e.target.value) || undefined }))}
+                            className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.input}`} />
+                        </div>
+                      </>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className={`block text-xs ${T.muted} mb-1`}>Customer Name</label>
                         <input value={editForm.customerName || ''} onChange={e => setEditForm(f => ({ ...f, customerName: e.target.value }))}
+                          className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.input}`} />
+                      </div>
+                      <div>
+                        <label className={`block text-xs ${T.muted} mb-1`}>Customer Phone</label>
+                        <input value={editForm.customerPhone || ''} onChange={e => setEditForm(f => ({ ...f, customerPhone: e.target.value }))}
                           className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${T.input}`} />
                       </div>
                     </div>

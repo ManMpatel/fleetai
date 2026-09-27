@@ -25,9 +25,12 @@ interface ServiceRecord {
   serviceType: string
   description?: string
   cost?: number
+  notes?: string
   date: string
   status?: 'pending' | 'done'
   completedAt?: string
+  kilometres?: string
+  items?: Array<{ name: string; price?: number }>
 }
 
 function fmt(d: string) {
@@ -59,6 +62,9 @@ export default function StaffPage() {
   const [saving, setSaving]       = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 const [refreshing, setRefreshing] = useState(false)
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null)
+  const [editServiceForm, setEditServiceForm] = useState<Partial<ServiceRecord>>({})
+  const [savingServiceEdit, setSavingServiceEdit] = useState(false)
 
   async function fetchAll(showSpinner = false) {
     if (showSpinner) setRefreshing(true)
@@ -120,6 +126,25 @@ const [refreshing, setRefreshing] = useState(false)
       setFormError(err.response?.data?.error || 'Failed to save')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function saveServiceRecord() {
+    if (!editingServiceId) return
+    setSavingServiceEdit(true)
+    try {
+      const updates: any = { ...editServiceForm }
+      if (updates.items?.length > 0) {
+        const total = updates.items.reduce((s: number, i: any) => s + (i.price || 0), 0)
+        updates.cost = total > 0 ? total : undefined
+      }
+      const { data } = await axios.put(`/api/service-records/${editingServiceId}`, updates)
+      setServiceRecords(prev => prev.map(r => r._id === editingServiceId ? data : r))
+      setEditingServiceId(null)
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to save')
+    } finally {
+      setSavingServiceEdit(false)
     }
   }
 
@@ -329,7 +354,7 @@ const [refreshing, setRefreshing] = useState(false)
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border">
-                        {['Employee', 'Plate', 'Service', 'Customer', 'Cost', 'Date'].map(h => (
+                        {['Employee', 'Plate', 'Service', 'Customer', 'Total', 'Date', ''].map(h => (
                           <th key={h} className="px-5 py-3 text-left text-xs text-text-muted font-medium">{h}</th>
                         ))}
                       </tr>
@@ -349,8 +374,20 @@ const [refreshing, setRefreshing] = useState(false)
                             <span className="font-mono text-xs bg-surface2 border border-border px-2 py-0.5 rounded text-text-primary">{r.plate || '—'}</span>
                           </td>
                           <td className="px-5 py-3">
-                            <p className="text-text-primary capitalize">{r.serviceType}</p>
-                            {r.description && <p className="text-xs text-text-muted truncate max-w-[180px]">{r.description}</p>}
+                            {r.items && r.items.length > 0 ? (
+                              <div>
+                                {r.items.slice(0, 2).map((item, i) => (
+                                  <p key={i} className="text-text-primary text-sm">{item.name}</p>
+                                ))}
+                                {r.items.length > 2 && <p className="text-xs text-text-muted">+{r.items.length - 2} more</p>}
+                              </div>
+                            ) : (
+                              <div>
+                                <p className="text-text-primary capitalize">{r.serviceType}</p>
+                                {r.description && <p className="text-xs text-text-muted truncate max-w-[180px]">{r.description}</p>}
+                              </div>
+                            )}
+                            {r.notes && <p className="text-xs text-text-muted truncate max-w-[180px] mt-0.5">{r.notes}</p>}
                           </td>
                           <td className="px-5 py-3">
                             <p className="text-text-primary">{r.customerName || '—'}</p>
@@ -360,6 +397,14 @@ const [refreshing, setRefreshing] = useState(false)
                             {r.cost != null ? `$${r.cost.toFixed(2)}` : '—'}
                           </td>
                           <td className="px-5 py-3 text-text-muted">{fmtDate(r.date)}</td>
+                          <td className="px-5 py-3">
+                            <button
+                              onClick={() => { setEditingServiceId(r._id); setEditServiceForm({ ...r }) }}
+                              className="px-3 py-1.5 text-xs border border-border rounded-lg text-text-secondary hover:border-accent hover:text-accent transition-colors"
+                            >
+                              Edit
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -421,6 +466,126 @@ const [refreshing, setRefreshing] = useState(false)
                 className="flex-1 px-4 py-2.5 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-50"
               >
                 {saving ? 'Saving...' : editingId ? 'Save changes' : 'Add employee'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service record edit modal */}
+      {editingServiceId && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingServiceId(null)}>
+          <div className="bg-surface border border-border rounded-2xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-border">
+              <h3 className="text-base font-semibold text-text-primary">Edit Service Record</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                {editServiceForm.plate} · {editServiceForm.customerName || '—'} · {editServiceForm.date ? fmtDate(editServiceForm.date) : ''}
+              </p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {/* Items (new records) */}
+              {editServiceForm.items && editServiceForm.items.length > 0 ? (
+                <div>
+                  <label className="block text-xs text-text-muted mb-2">Service Items</label>
+                  <div className="space-y-2">
+                    {editServiceForm.items.map((item, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="flex-1 text-sm text-text-primary">{item.name}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-text-muted text-sm">$</span>
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={item.price ?? ''}
+                            onChange={e => {
+                              const next = [...(editServiceForm.items || [])]
+                              next[i] = { ...next[i], price: parseFloat(e.target.value) || undefined }
+                              setEditServiceForm(f => ({ ...f, items: next }))
+                            }}
+                            placeholder="0"
+                            className="w-24 px-2 py-1.5 bg-surface2 border border-border rounded-lg text-sm text-right text-text-primary focus:outline-none focus:border-accent"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                    <span className="text-xs text-text-muted">Total</span>
+                    <span className="text-sm font-semibold text-accent">
+                      ${(editServiceForm.items.reduce((s, i) => s + (i.price || 0), 0)).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                /* Legacy: just show a cost field */
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">Cost ($)</label>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={editServiceForm.cost ?? ''}
+                    onChange={e => setEditServiceForm(f => ({ ...f, cost: parseFloat(e.target.value) || undefined }))}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+              )}
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">Notes</label>
+                <input
+                  value={editServiceForm.notes ?? ''}
+                  onChange={e => setEditServiceForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="Any additional notes..."
+                  className="w-full px-3 py-2.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
+                />
+              </div>
+
+              {/* Customer */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">Customer Name</label>
+                  <input
+                    value={editServiceForm.customerName ?? ''}
+                    onChange={e => setEditServiceForm(f => ({ ...f, customerName: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">Customer Phone</label>
+                  <input
+                    value={editServiceForm.customerPhone ?? ''}
+                    onChange={e => setEditServiceForm(f => ({ ...f, customerPhone: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">Status</label>
+                <select
+                  value={editServiceForm.status ?? 'pending'}
+                  onChange={e => setEditServiceForm(f => ({ ...f, status: e.target.value as 'pending' | 'done' }))}
+                  className="w-full px-3 py-2.5 bg-surface2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
+                >
+                  <option value="pending">Pending</option>
+                  <option value="done">Done</option>
+                </select>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-border flex gap-3">
+              <button
+                onClick={() => setEditingServiceId(null)}
+                className="flex-1 px-4 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:bg-surface2 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveServiceRecord}
+                disabled={savingServiceEdit}
+                className="flex-1 px-4 py-2.5 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-50"
+              >
+                {savingServiceEdit ? 'Saving...' : 'Save changes'}
               </button>
             </div>
           </div>

@@ -84,13 +84,21 @@ router.post('/log-service', async (req: Request, res: Response) => {
   try {
     const {
       pin, plate, vehicleCategory, vehicleType,
-      customerName, customerPhone, serviceType, description, cost, notes,
+      customerName, customerPhone, serviceType, description,
+      cost, notes, items, kilometres,
     } = req.body
 
     if (!pin) return res.status(400).json({ error: 'PIN required' })
 
     const employee = await Employee.findOne({ pinHash: hash(pin), orgId: req.orgId })
     if (!employee) return res.status(401).json({ error: 'Invalid PIN' })
+
+    // Compute total from items when cost is not explicitly provided
+    let finalCost: number | undefined = cost != null ? Number(cost) : undefined
+    if (finalCost == null && Array.isArray(items) && items.length > 0) {
+      const sum = items.reduce((s: number, item: any) => s + (Number(item.price) || 0), 0)
+      finalCost = sum > 0 ? sum : undefined
+    }
 
     const record = new ServiceRecord({
       orgId: req.orgId,
@@ -100,10 +108,12 @@ router.post('/log-service', async (req: Request, res: Response) => {
       employeeName: employee.name,
       customerName,
       customerPhone,
-      serviceType,
-      description,
-      cost: cost ? Number(cost) : undefined,
+      serviceType: serviceType || 'general',
+      description: description ?? '',
+      cost: finalCost,
       notes,
+      items: Array.isArray(items) ? items : [],
+      kilometres,
       date: new Date(),
     })
     await record.save()
