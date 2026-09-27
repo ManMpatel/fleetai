@@ -346,6 +346,29 @@ router.post('/:batchId/retry', async (req: Request, res: Response) => {
   }
 })
 
+// DELETE /api/toll-batch/:batchId — hard-delete a batch and all its associated data.
+// Allowed for any terminal status (done, failed, cancelled) — not for still-processing batches.
+router.delete('/:batchId', async (req: Request, res: Response) => {
+  try {
+    const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId })
+    if (!batch) return res.status(404).json({ error: 'Batch not found' })
+    if (batch.status === 'processing') return res.status(409).json({ error: 'Cancel the batch before deleting it' })
+
+    if (batch.originalPdfFileId) await deleteOriginalPdf(batch.originalPdfFileId as any).catch(() => {})
+    const folders = await TollFolder.find({ batchId: batch._id }).select('_id mergedPdfFileId')
+    for (const f of folders) {
+      if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
+    }
+    const folderIds = folders.map(f => f._id)
+    await TollPage.deleteMany({ folderId: { $in: folderIds } })
+    await TollFolder.deleteMany({ batchId: batch._id })
+    await TollBatch.deleteOne({ _id: batch._id })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/toll-batch — list batches, newest first, with lifetime stats and date-grouped folders
 router.get('/', async (req: Request, res: Response) => {
   try {

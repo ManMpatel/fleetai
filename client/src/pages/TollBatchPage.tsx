@@ -185,9 +185,22 @@ export default function TollBatchPage() {
     try {
       await axios.post(`${API_BASE}/${batchId}/cancel`)
       showToast('Batch cancelled')
-      fetchBatchDetail(batchId)
+      fetchBatchList()
+      if (activeBatchId === batchId) fetchBatchDetail(batchId)
     } catch (err: any) {
       showToast(`✗ ${err.response?.data?.error || 'Could not cancel'}`)
+    }
+  }
+
+  async function deleteBatch(batchId: string) {
+    if (!confirm('Permanently delete this batch and all its sorted PDFs? This cannot be undone.')) return
+    try {
+      await axios.delete(`${API_BASE}/${batchId}`)
+      showToast('Batch deleted')
+      if (activeBatchId === batchId) { setActiveBatchId(null); setActiveBatch(null); setFolders([]) }
+      fetchBatchList()
+    } catch (err: any) {
+      showToast(`✗ ${err.response?.data?.error || 'Could not delete'}`)
     }
   }
 
@@ -283,6 +296,11 @@ export default function TollBatchPage() {
                 <p className="text-xs text-text-secondary mb-4">Cancelled early — showing what was sorted before it stopped.</p>
               )}
               <FolderGrid folders={folders} batchId={activeBatchId} onSend={setSendTarget} onToast={showToast} onRefresh={() => fetchBatchDetail(activeBatchId)} />
+              <div className="mt-8 flex justify-end">
+                <button onClick={() => deleteBatch(activeBatchId!)} className="px-4 py-2 text-xs font-medium border border-red/30 text-red rounded-lg hover:bg-red/10 transition-colors">
+                  Delete this batch
+                </button>
+              </div>
             </>
           )
         ) : (
@@ -299,6 +317,8 @@ export default function TollBatchPage() {
             onSend={setSendTarget}
             onToast={showToast}
             onRefresh={fetchBatchList}
+            onCancel={cancelBatch}
+            onDelete={deleteBatch}
           />
         )}
       </div>
@@ -317,13 +337,15 @@ export default function TollBatchPage() {
 }
 
 // ── Past batches — date-grouped view ───────────────────────
-function DateGroupedBatchList({ dateGroups, loading, onOpen, onSend, onToast, onRefresh }: {
+function DateGroupedBatchList({ dateGroups, loading, onOpen, onSend, onToast, onRefresh, onCancel, onDelete }: {
   dateGroups: TollDateGroup[]
   loading: boolean
   onOpen: (id: string) => void
   onSend: (folder: TollFolderSummary) => void
   onToast: (msg: string) => void
   onRefresh: () => void
+  onCancel: (batchId: string) => void
+  onDelete: (batchId: string) => void
 }) {
   if (loading) return <p className="text-text-muted text-sm text-center py-12">Loading...</p>
   if (dateGroups.length === 0) {
@@ -359,9 +381,9 @@ function DateGroupedBatchList({ dateGroups, loading, onOpen, onSend, onToast, on
             {/* In-progress / failed batches for this date */}
             {group.batches.map(b => (
               b.status === 'processing'
-                ? <ProcessingView key={b._id} batch={b} folders={[]} />
+                ? <ProcessingView key={b._id} batch={b} folders={[]} batchId={b._id} onCancel={onCancel} />
                 : b.status === 'failed'
-                  ? <FailedView key={b._id} batch={b} onRetry={() => onOpen(b._id)} retrying={false} retryLabel="View batch" />
+                  ? <FailedView key={b._id} batch={b} onRetry={() => onOpen(b._id)} retrying={false} retryLabel="View batch" onCancel={() => onCancel(b._id)} />
                   : null
             ))}
 
@@ -400,6 +422,11 @@ function DateGroupedBatchList({ dateGroups, loading, onOpen, onSend, onToast, on
                         />
                       ))}
                     </div>
+                    <div className="flex justify-end mt-2 mb-1">
+                      <button onClick={() => onDelete(batchId)} className="text-[11px] text-text-muted hover:text-red transition-colors">
+                        Delete batch
+                      </button>
+                    </div>
                   </div>
                 )
               })}
@@ -437,7 +464,7 @@ function ProcessingView({ batch, folders, batchId, onCancel }: { batch: TollBatc
         <h2 className="text-base font-semibold text-text-primary mb-1">Sorting {batch.originalFilename}</h2>
         <p className="text-xs text-text-secondary font-mono">{mins}:{String(secs).padStart(2, '0')} elapsed</p>
         {onCancel && batchId && (
-          <button onClick={() => onCancel(batchId)} className="mt-2 text-xs text-text-muted hover:text-red transition-colors underline-offset-2 hover:underline">
+          <button onClick={() => onCancel(batchId)} className="mt-3 px-4 py-1.5 text-xs font-medium border border-red/30 text-red rounded-lg hover:bg-red/10 transition-colors">
             Cancel batch
           </button>
         )}
