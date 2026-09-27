@@ -367,10 +367,15 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     // Date-grouped view — one entry per upload day (Sydney local date), newest first.
-    // Stolen/sold folders surface first within each group for quick action, then alphabetical.
+    // Within each date: newest batch on top. Within each batch: stolen/sold first, then alphabetical.
     const PRIORITY: Record<MatchType, number> = { stolen: 0, sold: 1, unrecognized: 2, unregistered: 3, sorted: 4 }
     const DAY_NAMES  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     const MON_NAMES  = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+    // Lookup: batchId → upload timestamp, used to sort batches newest-first within a date.
+    const batchTimeMap = new Map<string, number>(
+      batches.map(b => [b._id.toString(), new Date(b.createdAt as any).getTime()])
+    )
 
     type DateGroup = { batches: typeof batches; folders: any[] }
     const groupMap = new Map<string, DateGroup>()
@@ -394,13 +399,18 @@ router.get('/', async (req: Request, res: Response) => {
     // Include processing/failed batches so the date row shows their status inline.
     for (const b of batches) {
       if (b.status === 'done') continue
-      const dateKey = new Date(b.createdAt).toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
+      const dateKey = new Date(b.createdAt as any).toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
       if (!groupMap.has(dateKey)) groupMap.set(dateKey, { batches: [], folders: [] })
       groupMap.get(dateKey)!.batches.push(b)
     }
 
     for (const group of groupMap.values()) {
       group.folders.sort((a: any, b: any) => {
+        // Primary: newest batch first within the same day
+        const tA = batchTimeMap.get(a.batchId?.toString()) ?? 0
+        const tB = batchTimeMap.get(b.batchId?.toString()) ?? 0
+        if (tA !== tB) return tB - tA
+        // Secondary: stolen/sold surface first within each batch, then alphabetical
         const pa = PRIORITY[a.matchType as MatchType] ?? 4
         const pb = PRIORITY[b.matchType as MatchType] ?? 4
         if (pa !== pb) return pa - pb
