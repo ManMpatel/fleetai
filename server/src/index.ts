@@ -20,6 +20,7 @@ import invoiceRoutes from './routes/invoices'
 import tabletRoutes from './routes/tablet'
 import settingsRoutes from './routes/settings'
 import tollBatchRoutes from './routes/tollBatch'
+import emailRoutes from './routes/email'
 import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
 import TollBatch from './models/TollBatch'
@@ -143,6 +144,7 @@ app.use('/api/employees', requireAuth, requireTenant, employeeRoutes)
 app.use('/api/upload', requireAuth, requireTenant, uploadRoutes)
 app.use('/api/invoices', requireAuth, requireTenant, invoiceRoutes)
 app.use('/api/toll-batch', requireAuth, requireTenant, tollBatchRoutes)
+app.use('/api/email', requireAuth, requireTenant, emailRoutes)
 
 // Renters router carves out its own public onboarding endpoint before applying auth.
 app.post('/api/renters/public/onboard', onboardPerCallerLimiter, onboardPerTenantLimiter)

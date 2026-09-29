@@ -32,6 +32,7 @@ export interface IntegrationStatus {
   gmail: Flags
   sms: Flags
   tollEmail: Flags
+  resendEmail: Flags
 }
 
 function flags(stored: boolean, env: boolean, enabled: boolean): Flags {
@@ -53,5 +54,10 @@ export function integrationStatus(org: IOrganization): IntegrationStatus {
     // No legacy env fallback — this credential didn't exist before TollBatch, so unlike
     // the others above there's no founding-operator case where it's usable but unstored.
     tollEmail: flags(!!org.tollEmail?.appPasswordEnc, false, !!org.tollEmail?.enabled),
+    resendEmail: flags(
+      !!(org.resendEmail?.apiKeyEnc || process.env.RESEND_API_KEY),
+      !org.resendEmail?.apiKeyEnc && !!process.env.RESEND_API_KEY,
+      !!org.resendEmail?.enabled || (!org.resendEmail?.apiKeyEnc && !!process.env.RESEND_API_KEY),
+    ),
   }
 }

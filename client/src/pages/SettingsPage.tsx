@@ -14,6 +14,7 @@ interface Settings {
   whatsapp: { configured: boolean; phoneId: string | null; enabled: boolean }
   gmail: { configured: boolean; address: string | null; enabled: boolean }
   tollEmail: { configured: boolean; address: string | null; smtpHost: string | null; smtpPort: number | null; enabled: boolean }
+  resendEmail: { configured: boolean; fromEnv: boolean; enabled: boolean; provider: 'fleetai' | 'custom'; fromName: string | null; fromEmail: string | null }
   tabletLinked: boolean
 }
 
@@ -57,6 +58,10 @@ export default function SettingsPage() {
   const [tollEmailPassword, setTollEmailPassword] = useState('')
   const [tollEmailHost, setTollEmailHost] = useState('')
   const [tollEmailPort, setTollEmailPort] = useState('')
+  const [resendProvider, setResendProvider] = useState<'fleetai' | 'custom'>('fleetai')
+  const [resendApiKey, setResendApiKey] = useState('')
+  const [resendFromEmail, setResendFromEmail] = useState('')
+  const [resendFromName, setResendFromName] = useState('')
 
   useEffect(() => {
     axios.get<Settings>('/api/settings', { headers: { 'Cache-Control': 'no-cache' } })
@@ -75,6 +80,7 @@ export default function SettingsPage() {
           whatsapp: data.whatsapp || { configured: false, phoneId: null, enabled: false },
           gmail: data.gmail || { configured: false, address: null, enabled: false },
           tollEmail: data.tollEmail || { configured: false, address: null, smtpHost: null, smtpPort: null, enabled: false },
+          resendEmail: data.resendEmail || { configured: false, fromEnv: false, enabled: false, provider: 'fleetai', fromName: null, fromEmail: null },
           tabletLinked: !!data.tabletLinked,
         }
         applySettings(normalized)
@@ -87,6 +93,9 @@ export default function SettingsPage() {
         setTollEmailAddress(normalized.tollEmail.address || '')
         setTollEmailHost(normalized.tollEmail.smtpHost || '')
         setTollEmailPort(normalized.tollEmail.smtpPort ? String(normalized.tollEmail.smtpPort) : '')
+        setResendProvider(normalized.resendEmail.provider || 'fleetai')
+        setResendFromName(normalized.resendEmail.fromName || '')
+        setResendFromEmail(normalized.resendEmail.fromEmail || '')
       })
       .catch(() => setMessage({ kind: 'err', text: 'Could not load settings' }))
       .finally(() => setLoading(false))
@@ -359,6 +368,78 @@ export default function SettingsPage() {
           {settings.tollEmail.enabled && (
             <button className={btnGhost} disabled={saving === 'tollEmail'}
                     onClick={() => save('tollEmail', '/api/settings/toll-email', { enabled: false })}>
+              Disable
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Resend email ── */}
+      <div className={card}>
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="text-sm font-semibold text-text-primary">Resend email</h2>
+          <Status ok={settings.resendEmail.configured && settings.resendEmail.enabled} okText="Active" offText="Not active" />
+          {settings.resendEmail.fromEnv && <span className="text-xs text-text-secondary">(platform key)</span>}
+        </div>
+        <p className="text-xs text-text-secondary mb-4">
+          Sends service records and toll PDFs via{' '}
+          <span className="text-text-primary">Resend</span>.
+          Choose FleetAI domain (emails come from <span className="text-text-primary">noreply@fleetai.co.in</span>) or
+          connect your own Resend account for a custom sender address.
+        </p>
+
+        <div className="mb-4">
+          <label className={label}>Provider</label>
+          <div className="flex gap-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="resendProvider" value="fleetai" checked={resendProvider === 'fleetai'}
+                onChange={() => setResendProvider('fleetai')} className="accent-accent" />
+              <span className="text-sm text-text-primary">FleetAI domain</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="resendProvider" value="custom" checked={resendProvider === 'custom'}
+                onChange={() => setResendProvider('custom')} className="accent-accent" />
+              <span className="text-sm text-text-primary">My own Resend account</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className={label}>Display name <span className="text-text-secondary">(appears as sender name)</span></label>
+            <input className={input} value={resendFromName} onChange={e => setResendFromName(e.target.value)}
+              placeholder={settings.displayName || 'Your Business Name'} />
+          </div>
+          {resendProvider === 'custom' && (
+            <>
+              <div>
+                <label className={label}>From email address <span className="text-text-secondary">(must be verified in Resend)</span></label>
+                <input className={input} value={resendFromEmail} onChange={e => setResendFromEmail(e.target.value)}
+                  placeholder="noreply@yourdomain.com" />
+              </div>
+              <div>
+                <label className={label}>Resend API key {settings.resendEmail.configured && <span className="text-text-secondary">(leave blank to keep)</span>}</label>
+                <input className={input} type="password" value={resendApiKey} onChange={e => setResendApiKey(e.target.value)}
+                  placeholder="re_••••••••" />
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <button className={btn} disabled={saving === 'resendEmail'}
+            onClick={() => save('resendEmail', '/api/settings/resend-email', {
+              provider: resendProvider,
+              fromName: resendFromName || undefined,
+              fromEmail: resendProvider === 'custom' ? (resendFromEmail || undefined) : undefined,
+              apiKey: resendProvider === 'custom' && resendApiKey ? resendApiKey : undefined,
+              enabled: true,
+            }, () => setResendApiKey(''))}>
+            {saving === 'resendEmail' ? 'Saving...' : 'Save & enable'}
+          </button>
+          {settings.resendEmail.enabled && (
+            <button className={btnGhost} disabled={saving === 'resendEmail'}
+              onClick={() => save('resendEmail', '/api/settings/resend-email', { enabled: false })}>
               Disable
             </button>
           )}

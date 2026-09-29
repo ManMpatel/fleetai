@@ -50,6 +50,14 @@ function publicSettings(org: any) {
       smtpPort: org.tollEmail?.smtpPort || null,
       enabled: status.tollEmail.enabled,
     },
+    resendEmail: {
+      configured: status.resendEmail.configured,
+      fromEnv: status.resendEmail.fromEnv,
+      enabled: status.resendEmail.enabled,
+      provider: org.resendEmail?.provider || 'fleetai',
+      fromName: org.resendEmail?.fromName || null,
+      fromEmail: org.resendEmail?.fromEmail || null,
+    },
     tabletLinked: !!org.tabletTokenHash,
   }
 }
@@ -146,6 +154,24 @@ router.put('/toll-email', async (req: Request, res: Response) => {
     if (smtpHost !== undefined) updates['tollEmail.smtpHost'] = smtpHost
     if (smtpPort !== undefined) updates['tollEmail.smtpPort'] = smtpPort
     if (enabled !== undefined) updates['tollEmail.enabled'] = !!enabled
+
+    const org = await Organization.findByIdAndUpdate(req.orgId, { $set: updates }, { new: true })
+    res.json(publicSettings(org))
+  } catch (err: any) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// PUT /api/settings/resend-email — configure Resend transactional email
+router.put('/resend-email', async (req: Request, res: Response) => {
+  try {
+    const { provider, apiKey, fromEmail, fromName, enabled } = req.body
+    const updates: Record<string, unknown> = {}
+    if (provider !== undefined) updates['resendEmail.provider'] = provider
+    if (apiKey) updates['resendEmail.apiKeyEnc'] = encrypt(apiKey)
+    if (fromEmail !== undefined) updates['resendEmail.fromEmail'] = fromEmail
+    if (fromName !== undefined) updates['resendEmail.fromName'] = fromName
+    if (enabled !== undefined) updates['resendEmail.enabled'] = !!enabled
 
     const org = await Organization.findByIdAndUpdate(req.orgId, { $set: updates }, { new: true })
     res.json(publicSettings(org))

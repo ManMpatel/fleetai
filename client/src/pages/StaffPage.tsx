@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { SkeletonBar, SkeletonListRow } from '../components/Skeleton'
+import SendEmailModal from '../components/SendEmailModal'
 
 interface Employee {
   _id: string
@@ -65,6 +66,7 @@ const [refreshing, setRefreshing] = useState(false)
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null)
   const [editServiceForm, setEditServiceForm] = useState<Partial<ServiceRecord>>({})
   const [savingServiceEdit, setSavingServiceEdit] = useState(false)
+  const [emailRecord, setEmailRecord] = useState<ServiceRecord | null>(null)
 
   async function fetchAll(showSpinner = false) {
     if (showSpinner) setRefreshing(true)
@@ -398,12 +400,24 @@ const [refreshing, setRefreshing] = useState(false)
                           </td>
                           <td className="px-5 py-3 text-text-muted">{fmtDate(r.date)}</td>
                           <td className="px-5 py-3">
-                            <button
-                              onClick={() => { setEditingServiceId(r._id); setEditServiceForm({ ...r }) }}
-                              className="px-3 py-1.5 text-xs border border-border rounded-lg text-text-secondary hover:border-accent hover:text-accent transition-colors"
-                            >
-                              Edit
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => { setEditingServiceId(r._id); setEditServiceForm({ ...r }) }}
+                                className="px-3 py-1.5 text-xs border border-border rounded-lg text-text-secondary hover:border-accent hover:text-accent transition-colors"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => setEmailRecord(r)}
+                                title="Send via email"
+                                className="p-1.5 border border-border rounded-lg text-text-secondary hover:border-accent hover:text-accent transition-colors"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
+                                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                  <polyline points="22,6 12,13 2,6"/>
+                                </svg>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -591,6 +605,16 @@ const [refreshing, setRefreshing] = useState(false)
           </div>
         </div>
       )}
+
+      <SendEmailModal
+        isOpen={!!emailRecord}
+        onClose={() => setEmailRecord(null)}
+        subject={emailRecord ? `Service Record — ${emailRecord.plate}` : ''}
+        message={emailRecord ? `Hi ${emailRecord.customerName || 'there'},\n\nPlease find your service record details below.` : ''}
+        attachmentType="service-record"
+        attachmentId={emailRecord?._id ?? ''}
+        attachmentLabel={emailRecord ? `${emailRecord.plate} service record` : ''}
+      />
     </div>
     </div>
 )

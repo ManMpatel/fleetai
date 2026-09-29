@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import axios from 'axios'
 import { AnimatePresence, motion } from 'framer-motion'
 import StatCard from '../components/StatCard'
+import SendEmailModal from '../components/SendEmailModal'
 
 // TollBatch — scan a week's printed toll notices into one PDF, upload it here, and the
 // pages get sorted into one folder per number plate. Processing runs as a background job
@@ -643,6 +644,7 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   const sent = folder.sentStatus === 'sent'
   const cfg = matchTypeConfig[folder.matchType ?? 'sorted']
   const [reviewing, setReviewing] = useState(false)
+  const [emailing, setEmailing] = useState(false)
 
   // Prefetched on hover rather than on mount — dragstart can't itself be async (browsers
   // only accept setData() synchronously within the drag gesture, so fetching the PDF ON
@@ -770,6 +772,16 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
           </button>
         )}
         {folder.plate && (
+          <button onClick={() => setEmailing(true)} disabled={!folder.hasMergedPdf}
+            title="Send via Resend email"
+            className="px-2.5 py-1.5 bg-surface2 border border-border text-text-secondary rounded-lg text-xs hover:border-accent disabled:opacity-50 transition-colors shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+          </button>
+        )}
+        {folder.plate && (
           <button onClick={() => onSend(folder)} disabled={!folder.hasMergedPdf}
             className="flex-1 px-2.5 py-1.5 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
             {sent ? 'Resend' : 'Send'}
@@ -786,6 +798,19 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
         onToast={onToast}
       />
     )}
+    <SendEmailModal
+      isOpen={emailing}
+      onClose={() => setEmailing(false)}
+      subject={`Toll Notice — ${folder.plate}`}
+      message="Please find your toll notice attached."
+      attachmentType="toll-folder"
+      attachmentId={folder._id}
+      attachmentLabel={`${folder.plate}.pdf`}
+      onSuccess={(sentTo) => {
+        onToast(`✓ Sent to ${sentTo}`)
+        onRefresh()
+      }}
+    />
     </>
   )
 }

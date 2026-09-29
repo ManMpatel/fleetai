@@ -61,6 +61,16 @@ export interface IOrganization extends Document {
     enabled?: boolean
   }
 
+  // ── Resend email integration (per-tenant API key for transactional emails) ──
+  resendEmail?: {
+    provider?: 'fleetai' | 'custom'
+    apiKeyEnc?: string
+    fromEmail?: string
+    fromName?: string
+    recentRecipients?: string[]
+    enabled?: boolean
+  }
+
   // ── Workshop tablet device token (hash only — raw token shown once) ──
   tabletTokenHash?: string
 
@@ -120,6 +130,15 @@ const organizationSchema = new Schema<IOrganization>({
     smtpHost:       { type: String },
     smtpPort:       { type: Number },
     enabled:        { type: Boolean, default: false },
+  },
+
+  resendEmail: {
+    provider:         { type: String, enum: ['fleetai', 'custom'], default: 'fleetai' },
+    apiKeyEnc:        { type: String },
+    fromEmail:        { type: String },
+    fromName:         { type: String },
+    recentRecipients: [{ type: String }],
+    enabled:          { type: Boolean, default: false },
   },
 
   tabletTokenHash: { type: String, index: true, sparse: true },
