@@ -172,13 +172,19 @@ Only include plates you can actually read. Never guess or invent a plate.`
  * document itself so polling clients see a real failure reason instead of hanging forever.
  */
 async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): Promise<void> {
+  console.log('[processBatch] START batchId:', batchId, 'bufferSize:', pdfBuffer.length)
   try {
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Reading scanned pages' } })
 
     // Extract text layer first — fast even for very large PDFs, no rasterization.
     // Plates found here skip Gemini vision entirely, saving time and API cost.
+    console.log('[processBatch] Extracting text layer…')
     const pageTexts = await extractPageTexts(pdfBuffer).catch(() => new Map<number, string>())
+    console.log('[processBatch] Text layer done, pages with text:', pageTexts.size)
+
+    console.log('[processBatch] Getting page count…')
     const totalPages = await getPdfPageCount(pdfBuffer)
+    console.log('[processBatch] Total pages:', totalPages)
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { totalPages } })
 
     // Every plate this business has ever had on file (active, sold or stolen) — passed to
@@ -195,13 +201,16 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
       ...existingFolders.flatMap(f => f.pages.map(p => p.pageNumber)),
       ...existingPageDocs.map(p => p.pageNumber),
     ])
+    console.log('[processBatch] Already done pages:', alreadyDone.size)
 
     // Write PDF to a temp file once, then rasterize in batches of PAGE_BATCH pages.
     // A 400-page PDF at 200 DPI generates ~150 MB of JPEG data — enough to OOM a VPS
     // if loaded as one array. This keeps peak image memory to ~9 MB per batch.
+    console.log('[processBatch] Writing PDF to temp file…')
     const tmpDir = await mkdtemp(join(tmpdir(), 'tollbatch-pdf-'))
     const tmpPdfPath = join(tmpDir, 'input.pdf')
     await writeFile(tmpPdfPath, pdfBuffer)
+    console.log('[processBatch] Temp file written to', tmpPdfPath)
 
     let cancelled = false
     try {
@@ -216,7 +225,9 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         const current = await TollBatch.findOne({ _id: batchId, orgId }).select('status').lean()
         if (current?.status === 'cancelled') { cancelled = true; break }
 
+        console.log(`[processBatch] Rasterizing pages ${batchFirst}-${batchLast}…`)
         const batchPages = await rasterizePdfBatch(tmpPdfPath, batchFirst, batchLast)
+        console.log(`[processBatch] Rasterized ${batchPages.length} pages`)
 
         for (const page of batchPages) {
           if (alreadyDone.has(page.pageNumber)) continue
@@ -311,7 +322,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
       )
     }
   } catch (err: any) {
-    console.error('TollBatch processing error:', err.message)
+    console.error('[processBatch] FAILED batchId:', batchId, '— error:', err.message, err.stack)
     await TollBatch.findOneAndUpdate(
       { _id: batchId, orgId },
       { $set: { status: 'failed', error: err.message || 'Processing failed' } }
@@ -321,10 +332,14 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
 
 // POST /api/toll-batch — upload a scanned PDF and start processing in the background
 router.post('/', upload.single('file'), async (req: Request, res: Response) => {
+  console.log('[TollBatch] POST / received — file:', req.file?.originalname, 'size:', req.file?.size ?? 'NO FILE')
   try {
     if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
 
+    console.log('[TollBatch] Saving original PDF to GridFS…')
     const originalPdfFileId = await saveOriginalPdf(req.file.buffer, req.file.originalname)
+    console.log('[TollBatch] GridFS save OK, fileId:', originalPdfFileId)
+
     const batch = await TollBatch.create({
       orgId: req.orgId,
       originalFilename: req.file.originalname,
@@ -335,13 +350,16 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       originalPdfFileId,
       lastProgressAt: new Date(),
     })
+    console.log('[TollBatch] Batch created, id:', batch._id, '— firing background job')
 
     // Fire and forget — the client polls GET /:batchId for progress instead of holding
     // this request open for the duration of the batch.
     void processBatch(batch._id.toString(), req.orgId!.toString(), req.file.buffer)
 
     res.status(202).json({ batchId: batch._id })
+    console.log('[TollBatch] 202 sent to client')
   } catch (err: any) {
+    console.error('[TollBatch] Upload handler error:', err.message, err.stack)
     res.status(400).json({ error: err.message })
   }
 })
