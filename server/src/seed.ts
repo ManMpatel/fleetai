@@ -5,6 +5,10 @@ import Renter from './models/Renter'
 import Fine from './models/Fine'
 import Notification from './models/Notification'
 import Organization from './models/Organization'
+import Employee from './models/Employee'
+import ClockRecord from './models/ClockRecord'
+import ServiceRecord from './models/ServiceRecord'
+import { hash } from './services/encryption'
 
 dotenv.config()
 
@@ -43,6 +47,9 @@ async function seed() {
     Renter.deleteMany({ orgId }),
     Fine.deleteMany({ orgId }),
     Notification.deleteMany({ orgId }),
+    Employee.deleteMany({ orgId }),
+    ClockRecord.deleteMany({ orgId }),
+    ServiceRecord.deleteMany({ orgId }),
   ])
   console.log('🗑️  Cleared existing data')
 
@@ -539,6 +546,141 @@ async function seed() {
   ]
   await Notification.insertMany(notificationSeed.map(n => ({ ...n, orgId })))
   console.log(`Created ${notificationSeed.length} notifications`)
+
+  // ── Employees (workshop tablet) ──────────────────────────
+  const employeeSeed = [
+    { name: 'Marco Rossi',  pin: '1234' },
+    { name: 'Anh Tran',     pin: '5678' },
+    { name: 'Bella Santos', pin: '9012' },
+  ]
+  const employees = await Employee.insertMany(
+    employeeSeed.map(e => ({ orgId, name: e.name, pinHash: hash(e.pin) }))
+  )
+  console.log(`🔧 Created ${employees.length} employees`)
+
+  // ── Clock Records (last 7 days) ───────────────────────────
+  const clockEntries: any[] = []
+  for (let day = 6; day >= 0; day--) {
+    for (const emp of employees) {
+      const baseDate = new Date()
+      baseDate.setDate(baseDate.getDate() - day)
+      const inH  = 7 + Math.floor(Math.random() * 2)
+      const outH = inH + 8 + Math.floor(Math.random() * 2)
+
+      const clockIn  = new Date(baseDate); clockIn.setHours(inH,  Math.floor(Math.random() * 30), 0, 0)
+      const clockOut = new Date(baseDate); clockOut.setHours(outH, Math.floor(Math.random() * 30), 0, 0)
+
+      clockEntries.push({ orgId, employeeId: emp._id, employeeName: emp.name, type: 'in',  time: clockIn  })
+      // Today: one employee is still on shift (no clock-out yet)
+      if (!(day === 0 && emp.name === 'Anh Tran')) {
+        clockEntries.push({ orgId, employeeId: emp._id, employeeName: emp.name, type: 'out', time: clockOut })
+      }
+    }
+  }
+  await ClockRecord.insertMany(clockEntries)
+  console.log(`⏰ Created ${clockEntries.length} clock records`)
+
+  // ── Service Records ───────────────────────────────────────
+  const serviceSeed: any[] = [
+    {
+      plate: 'EN23AB', customerName: 'Liam Chen', customerPhone: '0412345678',
+      vehicleType: 'scooter', vehicleCategory: 'rental', employeeName: 'Marco Rossi',
+      items: [{ name: 'SERVICE', price: 80 }, { name: 'AIR FILTER', price: 25 }, { name: 'OIL FILTER', price: 20 }],
+      cost: 125, kilometres: '8420', status: 'done',
+      date: daysFromNow(-2), completedAt: daysFromNow(-2),
+    },
+    {
+      plate: 'FP24CD', customerName: 'Priya Sharma', customerPhone: '0423456789',
+      vehicleType: 'scooter', vehicleCategory: 'rental', employeeName: 'Anh Tran',
+      items: [{ name: 'SERVICE', price: 80 }, { name: 'BRAKE PADS', price: 65 }],
+      cost: 145, kilometres: '12300', status: 'done',
+      date: daysFromNow(-5), completedAt: daysFromNow(-5),
+    },
+    {
+      plate: 'BCJ22AA', customerName: 'Tom O\'Brien', customerPhone: '0478901234',
+      vehicleType: 'car', vehicleCategory: 'rental', employeeName: 'Marco Rossi',
+      items: [
+        { name: 'SERVICE', price: 120 }, { name: 'AIR FILTER', price: 40 },
+        { name: 'OIL FILTER', price: 30 }, { name: 'WIPER BLADES', price: 35 },
+      ],
+      cost: 225, kilometres: '34210', status: 'done',
+      date: daysFromNow(-7), completedAt: daysFromNow(-7),
+    },
+    {
+      plate: 'JL27IJ', customerName: '', customerPhone: '',
+      vehicleType: 'scooter', vehicleCategory: 'rental', employeeName: 'Bella Santos',
+      items: [
+        { name: 'SERVICE', price: 80 }, { name: 'AIR FILTER', price: 25 },
+        { name: 'OIL FILTER', price: 20 }, { name: 'TYRE FRONT', price: 90 }, { name: 'TYRE REAR', price: 90 },
+      ],
+      cost: 305, notes: 'Both tyres worn below safe limit. Engine sounds rough — investigate further.',
+      kilometres: '18750', status: 'pending', date: daysFromNow(-1),
+    },
+    {
+      plate: 'GT25EF', customerName: '', customerPhone: '',
+      vehicleType: 'scooter', vehicleCategory: 'rental', employeeName: 'Anh Tran',
+      items: [{ name: 'SERVICE', price: 80 }, { name: 'OIL FILTER', price: 20 }],
+      cost: 100, kilometres: '9840', status: 'done',
+      date: daysFromNow(-10), completedAt: daysFromNow(-10),
+    },
+    {
+      plate: 'DCK23BB', customerName: '', customerPhone: '',
+      vehicleType: 'car', vehicleCategory: 'rental', employeeName: 'Marco Rossi',
+      items: [{ name: 'SERVICE', price: 120 }, { name: 'AIR FILTER', price: 40 }],
+      cost: 160, notes: 'Next service due at 40,000 km.',
+      kilometres: '38900', status: 'done',
+      date: daysFromNow(-15), completedAt: daysFromNow(-15),
+    },
+    {
+      plate: 'LN29MN', customerName: 'Sofia Nguyen', customerPhone: '0445678901',
+      vehicleType: 'scooter', vehicleCategory: 'rental', employeeName: 'Bella Santos',
+      items: [
+        { name: 'SERVICE', price: 80 }, { name: 'AIR FILTER', price: 25 },
+        { name: 'OIL FILTER', price: 20 }, { name: 'CHAIN LUBE', price: 15 },
+      ],
+      cost: 140, kilometres: '11230', status: 'done',
+      date: daysFromNow(-20), completedAt: daysFromNow(-20),
+    },
+    {
+      plate: 'KM28KL', customerName: '', customerPhone: '',
+      vehicleType: 'scooter', vehicleCategory: 'rental', employeeName: 'Anh Tran',
+      items: [{ name: 'SERVICE', price: 80 }, { name: 'AIR FILTER', price: 25 }, { name: 'OIL FILTER', price: 20 }],
+      cost: 125, kilometres: '5100', status: 'done',
+      date: daysFromNow(-3), completedAt: daysFromNow(-3),
+    },
+    {
+      plate: 'EFL24CC', customerName: '', customerPhone: '',
+      vehicleType: 'car', vehicleCategory: 'rental', employeeName: 'Marco Rossi',
+      items: [
+        { name: 'SERVICE', price: 120 }, { name: 'OIL FILTER', price: 30 }, { name: 'SPARK PLUGS', price: 80 },
+      ],
+      cost: 230, kilometres: '29450', status: 'pending', date: new Date(),
+    },
+    {
+      plate: 'NQ31QR', customerName: 'Marcus Webb', customerPhone: '0456789012',
+      vehicleType: 'scooter', vehicleCategory: 'rental', employeeName: 'Bella Santos',
+      items: [{ name: 'SERVICE', price: 80 }],
+      cost: 80, kilometres: '7630', status: 'pending', date: new Date(),
+    },
+  ]
+  await ServiceRecord.insertMany(
+    serviceSeed.map(s => ({ ...s, orgId, description: '', serviceType: 'general' }))
+  )
+  console.log(`🔩 Created ${serviceSeed.length} service records`)
+
+  // ── Summary ───────────────────────────────────────────────
+  console.log('\n' + '═'.repeat(58))
+  console.log('🎉  Demo account seeded!')
+  console.log('═'.repeat(58))
+  console.log(`\n  Login email  →  demo@fleetai.co.in`)
+  console.log(`  (set the password in Auth0 when creating the account)\n`)
+  console.log(`  Tablet PINs (open /tablet on the workshop device):`)
+  for (const e of employeeSeed) {
+    console.log(`    ${e.name.padEnd(16)} PIN: ${e.pin}`)
+  }
+  console.log('\n  ⚠️  Create an Auth0 account with email demo@fleetai.co.in')
+  console.log('     The org is already approved — first login will link it.')
+  console.log('═'.repeat(58) + '\n')
 
   console.log('\n✅ Seed complete! Run the server and open the app to see your fleet.')
   await mongoose.disconnect()
