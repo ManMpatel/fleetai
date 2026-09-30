@@ -30,7 +30,8 @@
     "nodemailer": "^6.9.9",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
-    "pdf-to-img": "^7.0.0"
+    "pdf-to-img": "^7.0.0",
+    "resend": "^6.30.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
