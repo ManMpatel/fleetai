@@ -59,6 +59,66 @@ export interface RasterizedPage {
   mimeType: 'image/jpeg'
 }
 
+/** Returns the total page count without rasterizing — cheap even for large PDFs. */
+export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
+  const doc = await PDFDocument.load(pdfBuffer, { updateMetadata: false })
+  return doc.getPageCount()
+}
+
+/**
+ * Rasterizes a range of pages from a PDF already written to disk.
+ * Callers write the PDF once, call this in a loop with different ranges, and let each
+ * batch's images be GC'd before the next call — peak memory stays bounded to one batch.
+ */
+export async function rasterizePdfBatch(inputPath: string, firstPage: number, lastPage: number): Promise<RasterizedPage[]> {
+  const workDir = await mkdtemp(join(tmpdir(), 'tollbatch-'))
+  const outPrefix = join(workDir, 'page')
+  try {
+    try {
+      await execFileAsync('pdftoppm', [
+        '-jpeg', '-jpegopt', 'quality=85', '-r', '200',
+        '-f', String(firstPage), '-l', String(lastPage),
+        inputPath, outPrefix,
+      ])
+    } catch (err: any) {
+      const detail = err.stderr?.toString().trim() || err.message
+      throw new Error(`pdftoppm failed on pages ${firstPage}-${lastPage}: ${detail}`)
+    }
+
+    const files = (await readdir(workDir))
+      .filter(f => f.startsWith('page') && f.endsWith('.jpg'))
+      .sort()
+
+    const pages: RasterizedPage[] = []
+    for (let i = 0; i < files.length; i++) {
+      const imageBuffer = await readFile(join(workDir, files[i]))
+      pages.push({ pageNumber: firstPage + i, imageBase64: imageBuffer.toString('base64'), mimeType: 'image/jpeg' })
+    }
+    return pages
+  } finally {
+    await rm(workDir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Copies specific pages (1-indexed) from a PDF buffer into a new PDF.
+ * Used at download time as a memory-efficient alternative to merging hundreds of
+ * rasterized JPEG images — the extracted PDF is smaller and preserves original quality.
+ */
+export async function extractPagesFromPdf(pdfBuffer: Buffer, pageNumbers: number[]): Promise<Buffer> {
+  const srcDoc = await PDFDocument.load(pdfBuffer, { updateMetadata: false })
+  const outDoc = await PDFDocument.create()
+  const totalPages = srcDoc.getPageCount()
+  const indices = pageNumbers
+    .map(p => p - 1)
+    .filter(i => i >= 0 && i < totalPages)
+    .sort((a, b) => a - b)
+  if (indices.length === 0) throw new Error('No valid pages to extract from PDF')
+  const copied = await outDoc.copyPages(srcDoc, indices)
+  copied.forEach(page => outDoc.addPage(page))
+  return Buffer.from(await outDoc.save())
+}
+
 /** Rasterizes every page of a scanned PDF into a JPEG, 1-indexed to match how pages are numbered on screen. */
 export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]> {
   const workDir = await mkdtemp(join(tmpdir(), 'tollbatch-'))

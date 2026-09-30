@@ -5,7 +5,10 @@ import TollFolder from '../models/TollFolder'
 import Vehicle from '../models/Vehicle'
 import Renter from '../models/Renter'
 import Organization from '../models/Organization'
-import { rasterizePdf, mergeImagesToPdf, extractPageTexts } from '../services/tollPdf'
+import { rasterizePdfBatch, getPdfPageCount, mergeImagesToPdf, extractPageTexts, extractPagesFromPdf } from '../services/tollPdf'
+import { writeFile, mkdtemp, rm } from 'fs/promises'
+import { join } from 'path'
+import { tmpdir } from 'os'
 import { sendTollEmail } from '../services/tollEmail'
 import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay, isRetryableError } from '../config/gemini'
 import TollPage from '../models/TollPage'
@@ -41,18 +44,41 @@ function matchTypeFor(plate: string | null, statusByPlate: Map<string, string>):
   return 'unregistered'
 }
 
-/** Merges a folder's pages on-demand and caches the result in GridFS. */
+/** Returns the merged PDF for a folder, computing and caching it in GridFS on first call. */
 async function getMergedPdfBuffer(folder: any): Promise<Buffer> {
   if (folder.mergedPdfFileId) return readMergedPdf(folder.mergedPdfFileId)
   if (folder.mergedPdfBase64) return Buffer.from(folder.mergedPdfBase64, 'base64')
+
+  // Preferred path: extract the relevant pages from the original uploaded PDF.
+  // This is far more memory-efficient than loading hundreds of rasterized JPEG images
+  // from MongoDB — the original PDF is one 35 MB read vs. potentially 150 MB of images.
+  const batch = await TollBatch.findOne({ _id: folder.batchId, orgId: folder.orgId }).select('originalPdfFileId').lean()
+  if (batch?.originalPdfFileId) {
+    const legacyNums = (folder.pages ?? []).map((p: any) => p.pageNumber as number)
+    const newNums = await TollPage.find({ folderId: folder._id, orgId: folder.orgId })
+      .select('pageNumber').sort({ pageNumber: 1 }).lean()
+      .then(docs => docs.map(d => d.pageNumber))
+    const pageNums = [...new Set([...legacyNums, ...newNums])].sort((a, b) => a - b)
+    if (pageNums.length > 0) {
+      const origBuf = await readOriginalPdf(batch.originalPdfFileId)
+      const buf = await extractPagesFromPdf(origBuf, pageNums)
+      const mergedPdfFileId = await saveMergedPdf(buf, `${folder._id}.pdf`)
+      await TollFolder.updateOne({ _id: folder._id, orgId: folder.orgId }, { $set: { merged: true, mergedPdfFileId } })
+      return buf
+    }
+  }
+
+  // Fallback for legacy batches that predate originalPdfFileId storage: re-merge the
+  // rasterized JPEG images from MongoDB. Works fine for small folders; may be slow or
+  // memory-intensive for very large ones if the original PDF was never saved.
   const legacyPages = folder.pages ?? []
-  const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
+  const newPages = await TollPage.find({ folderId: folder._id, orgId: folder.orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
   const allPages = [...legacyPages, ...newPages].sort((a: any, b: any) => a.pageNumber - b.pageNumber)
   if (allPages.length === 0) throw new Error('No pages found for this folder')
   const buf = await mergeImagesToPdf(allPages.map((p: any) => p.imageBase64))
   if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId).catch(() => {})
   const mergedPdfFileId = await saveMergedPdf(buf, `${folder._id}.pdf`)
-  await TollFolder.updateOne({ _id: folder._id }, { $set: { merged: true, mergedPdfFileId } })
+  await TollFolder.updateOne({ _id: folder._id, orgId: folder.orgId }, { $set: { merged: true, mergedPdfFileId } })
   return buf
 }
 
@@ -149,18 +175,16 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
   try {
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Reading scanned pages' } })
 
-    const pages = await rasterizePdf(pdfBuffer)
-    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { totalPages: pages.length } })
+    // Extract text layer first — fast even for very large PDFs, no rasterization.
+    // Plates found here skip Gemini vision entirely, saving time and API cost.
+    const pageTexts = await extractPageTexts(pdfBuffer).catch(() => new Map<number, string>())
+    const totalPages = await getPdfPageCount(pdfBuffer)
+    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { totalPages } })
 
     // Every plate this business has ever had on file (active, sold or stolen) — passed to
     // Gemini so it matches against known plates instead of reading each one blind.
     const fleetVehicles = await Vehicle.find({ orgId }).select('plate')
     const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
-
-    // Extract the text layer from the PDF once — instant and 100% accurate for digital
-    // PDFs (WestConnex, Linkt notices are computer-generated). Returns an empty map for
-    // scanned PDFs, which then fall through to Gemini vision as before.
-    const pageTexts = await extractPageTexts(pdfBuffer).catch(() => new Map<number, string>())
 
     // Resume support: pages already recorded from an earlier attempt at this batch are
     // skipped — this is what makes Retry pick up where it left off instead of re-running
@@ -172,62 +196,82 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
       ...existingPageDocs.map(p => p.pageNumber),
     ])
 
+    // Write PDF to a temp file once, then rasterize in batches of PAGE_BATCH pages.
+    // A 400-page PDF at 200 DPI generates ~150 MB of JPEG data — enough to OOM a VPS
+    // if loaded as one array. This keeps peak image memory to ~9 MB per batch.
+    const tmpDir = await mkdtemp(join(tmpdir(), 'tollbatch-pdf-'))
+    const tmpPdfPath = join(tmpDir, 'input.pdf')
+    await writeFile(tmpPdfPath, pdfBuffer)
+
     let cancelled = false
-    for (const page of pages) {
-      if (alreadyDone.has(page.pageNumber)) continue
+    try {
+      const PAGE_BATCH = 30
+      for (let batchFirst = 1; batchFirst <= totalPages; batchFirst += PAGE_BATCH) {
+        const batchLast = Math.min(batchFirst + PAGE_BATCH - 1, totalPages)
 
-      const current = await TollBatch.findOne({ _id: batchId, orgId }).select('status').lean()
-      if (current?.status === 'cancelled') {
-        cancelled = true
-        break
-      }
+        // Skip entire batch if all its pages were already processed in a prior run.
+        const batchNums = Array.from({ length: batchLast - batchFirst + 1 }, (_, i) => batchFirst + i)
+        if (batchNums.every(n => alreadyDone.has(n))) continue
 
-      // Primary: text extraction — exact and instant for digital PDFs, no Gemini cost.
-      // Fallback: Gemini vision for scanned/image-only pages where text layer is absent.
-      let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
+        const current = await TollBatch.findOne({ _id: batchId, orgId }).select('status').lean()
+        if (current?.status === 'cancelled') { cancelled = true; break }
 
-      if (plates.length === 0) {
-        // No text layer on this page — use Gemini vision with retry on empty result.
-        plates = (await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)).plates
-        Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+        const batchPages = await rasterizePdfBatch(tmpPdfPath, batchFirst, batchLast)
 
-        if (plates.length === 0) {
-          await geminiPacingDelay()
-          const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
-          Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
-          plates = retry.plates
+        for (const page of batchPages) {
+          if (alreadyDone.has(page.pageNumber)) continue
+
+          // Primary: text extraction — exact and instant for digital PDFs, no Gemini cost.
+          // Fallback: Gemini vision for scanned/image-only pages where text layer is absent.
+          let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
+
+          if (plates.length === 0) {
+            // No text layer on this page — use Gemini vision with retry on empty result.
+            plates = (await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)).plates
+            Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+
+            if (plates.length === 0) {
+              await geminiPacingDelay()
+              const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
+              Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+              plates = retry.plates
+            }
+            // Pace before the next Gemini call (skipped entirely for text-extracted pages).
+            await geminiPacingDelay()
+          }
+
+          // When a page has 2 toll notices for 2 different plates, the same image goes into
+          // both plates' folders. When no plates were read, route the page to Unrecognized.
+          const effectivePlates: (string | null)[] = plates.length > 0 ? plates : [null]
+
+          const step = plates.length > 0
+            ? `Page ${page.pageNumber} of ${totalPages} — sorted to ${plates.join(', ')}`
+            : `Page ${page.pageNumber} of ${totalPages} — sent to Unrecognized`
+
+          // One folder per plate per batch — never per plate alone, so a repeat plate next
+          // week starts a fresh folder rather than appending to this one.
+          for (const plate of effectivePlates) {
+            const folder = await TollFolder.findOneAndUpdate(
+              { orgId, batchId, plate: plate ?? null },
+              { $setOnInsert: { orgId, batchId, plate: plate ?? null } },
+              { upsert: true, new: true }
+            )
+            await TollPage.create({
+              orgId, batchId, folderId: folder._id,
+              pageNumber: page.pageNumber, imageBase64: page.imageBase64,
+            })
+            await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
+          }
+
+          await TollBatch.findOneAndUpdate(
+            { _id: batchId, orgId },
+            { $inc: { processedPages: 1 }, $set: { currentStep: step, lastProgressAt: new Date() } }
+          )
         }
-        // Pace before the next Gemini call (skipped entirely for text-extracted pages).
-        await geminiPacingDelay()
+        // batchPages goes out of scope — GC can reclaim the ~9 MB before the next batch.
       }
-
-      // When a page has 2 toll notices for 2 different plates, the same image goes into
-      // both plates' folders. When no plates were read, route the page to Unrecognized.
-      const effectivePlates: (string | null)[] = plates.length > 0 ? plates : [null]
-
-      const step = plates.length > 0
-        ? `Page ${page.pageNumber} of ${pages.length} — sorted to ${plates.join(', ')}`
-        : `Page ${page.pageNumber} of ${pages.length} — sent to Unrecognized`
-
-      // One folder per plate per batch — never per plate alone, so a repeat plate next
-      // week starts a fresh folder rather than appending to this one.
-      for (const plate of effectivePlates) {
-        const folder = await TollFolder.findOneAndUpdate(
-          { orgId, batchId, plate: plate ?? null },
-          { $setOnInsert: { orgId, batchId, plate: plate ?? null } },
-          { upsert: true, new: true }
-        )
-        await TollPage.create({
-          orgId, batchId, folderId: folder._id,
-          pageNumber: page.pageNumber, imageBase64: page.imageBase64,
-        })
-        await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
-      }
-
-      await TollBatch.findOneAndUpdate(
-        { _id: batchId, orgId },
-        { $inc: { processedPages: 1 }, $set: { currentStep: step, lastProgressAt: new Date() } }
-      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }
 
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Merging folders into PDFs', lastProgressAt: new Date() } })
@@ -244,14 +288,14 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
       const estimatedTotal = legacyPages.length + (folder.pageCount ?? 0)
       if (estimatedTotal > MERGE_UPFRONT_LIMIT) continue  // merge on-demand at download time
 
-      const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
+      const newPages = await TollPage.find({ folderId: folder._id, orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
       const allPages = [...legacyPages, ...newPages].sort((a, b) => a.pageNumber - b.pageNumber)
       if (allPages.length === 0) continue
 
       const mergedBuffer = await mergeImagesToPdf(allPages.map(p => p.imageBase64))
       if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId as any).catch(() => {})
       const mergedPdfFileId = await saveMergedPdf(mergedBuffer, `${folder._id}.pdf`)
-      await TollFolder.updateOne({ _id: folder._id }, { $set: { merged: true, mergedPdfFileId } })
+      await TollFolder.updateOne({ _id: folder._id, orgId }, { $set: { merged: true, mergedPdfFileId } })
       await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { lastProgressAt: new Date() } })
     }
 
