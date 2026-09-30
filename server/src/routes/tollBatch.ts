@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import multer from 'multer'
 import TollBatch from '../models/TollBatch'
 import TollFolder from '../models/TollFolder'
@@ -339,8 +339,20 @@ router.use((req, _res, next) => {
   next()
 })
 
+// Wraps multer so any parse/size/filter error is logged and returns JSON (not a silent 500).
+function handleUpload(req: Request, res: Response, next: NextFunction) {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('[TollBatch] Multer error:', err.message, (err as any).code ?? '')
+      return res.status(400).json({ error: `Upload error: ${err.message}` })
+    }
+    console.log('[TollBatch] Multer OK — file:', req.file?.originalname, 'size:', req.file?.size ?? 'NO FILE')
+    next()
+  })
+}
+
 // POST /api/toll-batch — upload a scanned PDF and start processing in the background
-router.post('/', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/', handleUpload, async (req: Request, res: Response) => {
   console.log('[TollBatch] POST / received — file:', req.file?.originalname, 'size:', req.file?.size ?? 'NO FILE')
   try {
     if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
