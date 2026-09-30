@@ -330,6 +330,15 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
   }
 }
 
+// Raw middleware fires BEFORE multer — if this prints, Express is receiving the request.
+// If this never appears in logs, the request is dropped at Traefik before reaching the backend.
+router.use((req, _res, next) => {
+  if (req.method === 'POST' && (req.path === '/' || req.path === '')) {
+    console.log('[TollBatch] RAW POST received — content-length:', req.headers['content-length'], 'content-type:', req.headers['content-type']?.slice(0, 60))
+  }
+  next()
+})
+
 // POST /api/toll-batch — upload a scanned PDF and start processing in the background
 router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   console.log('[TollBatch] POST / received — file:', req.file?.originalname, 'size:', req.file?.size ?? 'NO FILE')
