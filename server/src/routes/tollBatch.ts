@@ -330,11 +330,14 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
   }
 }
 
-// Raw middleware fires BEFORE multer — if this prints, Express is receiving the request.
-// If this never appears in logs, the request is dropped at Traefik before reaching the backend.
+// Raw middleware fires BEFORE multer — logs request stream lifecycle to pinpoint where things drop.
 router.use((req, _res, next) => {
   if (req.method === 'POST' && (req.path === '/' || req.path === '')) {
-    console.log('[TollBatch] RAW POST received — content-length:', req.headers['content-length'], 'content-type:', req.headers['content-type']?.slice(0, 60))
+    const cl = req.headers['content-length']
+    console.log('[TollBatch] RAW POST — content-length:', cl, 'content-type:', req.headers['content-type']?.slice(0, 60))
+    req.on('end', () => console.log('[TollBatch] req stream END — body fully received, cl:', cl))
+    req.on('close', () => console.log('[TollBatch] req stream CLOSE — connection dropped, destroyed:', req.destroyed))
+    req.on('error', (err: any) => console.error('[TollBatch] req stream ERROR:', err.message))
   }
   next()
 })
