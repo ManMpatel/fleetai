@@ -232,52 +232,75 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
         for (const page of batchPages) {
           if (alreadyDone.has(page.pageNumber)) continue
 
-          // Primary: text extraction — exact and instant for digital PDFs, no Gemini cost.
-          // Fallback: Gemini vision for scanned/image-only pages where text layer is absent.
-          let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
-
-          if (plates.length === 0) {
-            // No text layer on this page — use Gemini vision with retry on empty result.
-            plates = (await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)).plates
-            Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+          console.log(`[processBatch] Page ${page.pageNumber}/${totalPages} — processing`)
+          try {
+            // Primary: text extraction — exact and instant for digital PDFs, no Gemini cost.
+            // Fallback: Gemini vision for scanned/image-only pages where text layer is absent.
+            let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
 
             if (plates.length === 0) {
-              await geminiPacingDelay()
-              const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
+              // No text layer — use Gemini vision with one retry on empty result.
+              plates = (await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)).plates
               Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
-              plates = retry.plates
+
+              if (plates.length === 0) {
+                await geminiPacingDelay()
+                const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
+                Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+                plates = retry.plates
+              }
+              // Pace before the next Gemini call (skipped entirely for text-extracted pages).
+              await geminiPacingDelay()
             }
-            // Pace before the next Gemini call (skipped entirely for text-extracted pages).
-            await geminiPacingDelay()
-          }
 
-          // When a page has 2 toll notices for 2 different plates, the same image goes into
-          // both plates' folders. When no plates were read, route the page to Unrecognized.
-          const effectivePlates: (string | null)[] = plates.length > 0 ? plates : [null]
+            // When a page has 2 toll notices for 2 different plates, the same image goes into
+            // both plates' folders. When no plates were read, route the page to Unrecognized.
+            const effectivePlates: (string | null)[] = plates.length > 0 ? plates : [null]
+            const step = plates.length > 0
+              ? `Page ${page.pageNumber} of ${totalPages} — sorted to ${plates.join(', ')}`
+              : `Page ${page.pageNumber} of ${totalPages} — sent to Unrecognized`
 
-          const step = plates.length > 0
-            ? `Page ${page.pageNumber} of ${totalPages} — sorted to ${plates.join(', ')}`
-            : `Page ${page.pageNumber} of ${totalPages} — sent to Unrecognized`
+            console.log(`[processBatch] Page ${page.pageNumber}/${totalPages} → ${plates.join(', ') || 'Unrecognized'}`)
 
-          // One folder per plate per batch — never per plate alone, so a repeat plate next
-          // week starts a fresh folder rather than appending to this one.
-          for (const plate of effectivePlates) {
-            const folder = await TollFolder.findOneAndUpdate(
-              { orgId, batchId, plate: plate ?? null },
-              { $setOnInsert: { orgId, batchId, plate: plate ?? null } },
-              { upsert: true, new: true }
+            // One folder per plate per batch — never per plate alone, so a repeat plate next
+            // week starts a fresh folder rather than appending to this one.
+            for (const plate of effectivePlates) {
+              const folder = await TollFolder.findOneAndUpdate(
+                { orgId, batchId, plate: plate ?? null },
+                { $setOnInsert: { orgId, batchId, plate: plate ?? null } },
+                { upsert: true, new: true }
+              )
+              await TollPage.create({
+                orgId, batchId, folderId: folder._id,
+                pageNumber: page.pageNumber, imageBase64: page.imageBase64,
+              })
+              await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
+            }
+
+            await TollBatch.findOneAndUpdate(
+              { _id: batchId, orgId },
+              { $inc: { processedPages: 1 }, $set: { currentStep: step, lastProgressAt: new Date() } }
             )
-            await TollPage.create({
-              orgId, batchId, folderId: folder._id,
-              pageNumber: page.pageNumber, imageBase64: page.imageBase64,
-            })
-            await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
+          } catch (pageErr: any) {
+            // A single page failing (Gemini timeout, bad image, DB blip) must not stop the
+            // whole batch. Route it to Unrecognized so the owner can review it manually.
+            console.error(`[processBatch] Page ${page.pageNumber}/${totalPages} FAILED — ${pageErr.message} — routing to Unrecognized`)
+            try {
+              const unrecFolder = await TollFolder.findOneAndUpdate(
+                { orgId, batchId, plate: null },
+                { $setOnInsert: { orgId, batchId, plate: null } },
+                { upsert: true, new: true }
+              )
+              await TollPage.create({ orgId, batchId, folderId: unrecFolder._id, pageNumber: page.pageNumber, imageBase64: page.imageBase64 })
+              await TollFolder.updateOne({ _id: unrecFolder._id, orgId }, { $inc: { pageCount: 1 } })
+            } catch (saveErr: any) {
+              console.error(`[processBatch] Page ${page.pageNumber}/${totalPages} — fallback save also failed: ${saveErr.message}`)
+            }
+            await TollBatch.findOneAndUpdate(
+              { _id: batchId, orgId },
+              { $inc: { processedPages: 1 }, $set: { currentStep: `Page ${page.pageNumber} of ${totalPages} — error, sent to Unrecognized`, lastProgressAt: new Date() } }
+            ).catch(() => {})
           }
-
-          await TollBatch.findOneAndUpdate(
-            { _id: batchId, orgId },
-            { $inc: { processedPages: 1 }, $set: { currentStep: step, lastProgressAt: new Date() } }
-          )
         }
         // batchPages goes out of scope — GC can reclaim the ~9 MB before the next batch.
       }
@@ -329,18 +352,6 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     )
   }
 }
-
-// Raw middleware fires BEFORE multer — logs request stream lifecycle to pinpoint where things drop.
-router.use((req, _res, next) => {
-  if (req.method === 'POST' && (req.path === '/' || req.path === '')) {
-    const cl = req.headers['content-length']
-    console.log('[TollBatch] RAW POST — content-length:', cl, 'content-type:', req.headers['content-type']?.slice(0, 60))
-    req.on('end', () => console.log('[TollBatch] req stream END — body fully received, cl:', cl))
-    req.on('close', () => console.log('[TollBatch] req stream CLOSE — connection dropped, destroyed:', req.destroyed))
-    req.on('error', (err: any) => console.error('[TollBatch] req stream ERROR:', err.message))
-  }
-  next()
-})
 
 // Wraps multer so any parse/size/filter error is logged and returns JSON (not a silent 500).
 function handleUpload(req: Request, res: Response, next: NextFunction) {
@@ -653,7 +664,7 @@ router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Respon
     if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
 
     const legacyPages = folder.pages ?? []
-    const newPages = await TollPage.find({ folderId: folder._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
+    const newPages = await TollPage.find({ folderId: folder._id, orgId: req.orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
     const pages = [...legacyPages, ...newPages]
       .sort((a, b) => a.pageNumber - b.pageNumber)
       .map(p => ({ pageNumber: p.pageNumber, imageBase64: p.imageBase64 }))
@@ -680,13 +691,13 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/reassign', async (req
     if (sourceFolder.plate === cleanPlate) return res.status(400).json({ error: 'Already in that folder' })
 
     // Look for the page in TollPage first, then fall back to legacy embedded pages.
-    const pageDoc = await TollPage.findOne({ folderId: sourceFolder._id, pageNumber })
+    const pageDoc = await TollPage.findOne({ folderId: sourceFolder._id, pageNumber, orgId: req.orgId })
     let pageImageBase64: string
 
     if (pageDoc) {
       pageImageBase64 = pageDoc.imageBase64
       await TollPage.deleteOne({ _id: pageDoc._id })
-      await TollFolder.updateOne({ _id: sourceFolder._id }, { $inc: { pageCount: -1 } })
+      await TollFolder.updateOne({ _id: sourceFolder._id, orgId: req.orgId }, { $inc: { pageCount: -1 } })
     } else {
       const legacyPage = sourceFolder.pages.find(p => p.pageNumber === pageNumber)
       if (!legacyPage) return res.status(404).json({ error: 'Page not found in this folder' })
@@ -704,13 +715,13 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/reassign', async (req
       orgId: req.orgId, batchId: req.params.batchId, folderId: destFolder._id,
       pageNumber, imageBase64: pageImageBase64,
     })
-    await TollFolder.updateOne({ _id: destFolder._id }, { $inc: { pageCount: 1 } })
+    await TollFolder.updateOne({ _id: destFolder._id, orgId: req.orgId }, { $inc: { pageCount: 1 } })
 
     for (const folderId of [sourceFolder._id, destFolder._id]) {
-      const f = await TollFolder.findById(folderId)
+      const f = await TollFolder.findOne({ _id: folderId, orgId: req.orgId })
       if (!f) continue
       const legacyPgs = f.pages ?? []
-      const newPgs = await TollPage.find({ folderId: f._id }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
+      const newPgs = await TollPage.find({ folderId: f._id, orgId: req.orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
       const totalCount = legacyPgs.length + newPgs.length
       if (totalCount === 0) {
         if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
@@ -791,7 +802,7 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/rescan', async (req: 
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
 
-    const pageDoc = await TollPage.findOne({ folderId: folder._id, pageNumber })
+    const pageDoc = await TollPage.findOne({ folderId: folder._id, pageNumber, orgId: req.orgId })
     const imageBase64 = pageDoc?.imageBase64 ?? folder.pages?.find(p => p.pageNumber === pageNumber)?.imageBase64
     if (!imageBase64) return res.status(404).json({ error: 'Page not found' })
 
