@@ -145,6 +145,7 @@ export default function TollBatchPage() {
       form.append('file', file)
       const { data } = await axios.post<{ batchId: string }>(API_BASE, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0, // no timeout — large PDFs can take >20s to upload
       })
       showToast('✓ Upload started — sorting in progress')
       setActiveBatchId(data.batchId)
