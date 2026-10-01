@@ -728,6 +728,14 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/reassign', async (req
         await TollFolder.deleteOne({ _id: f._id })
         continue
       }
+      // Large folders: skip eager re-merge here — getMergedPdfBuffer uses extractPagesFromPdf
+      // from the original scan PDF (fast, one small read) when the user next downloads/sends.
+      // Merging 20+ JPEG images in-request can exceed 20s for a large plate folder.
+      if (totalCount > 20) {
+        if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
+        await TollFolder.updateOne({ _id: f._id }, { $set: { merged: false, mergedPdfFileId: null } })
+        continue
+      }
       const allPgs = [...legacyPgs, ...newPgs].sort((a, b) => a.pageNumber - b.pageNumber)
       const mergedBuffer = await mergeImagesToPdf(allPgs.map(p => p.imageBase64))
       if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})

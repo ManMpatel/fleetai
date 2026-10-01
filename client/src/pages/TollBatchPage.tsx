@@ -937,7 +937,7 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
     if (!plate) return
     setSavingPage(pageNumber)
     try {
-      await axios.post(`${API_BASE}/${batchId}/folders/${folder._id}/pages/${pageNumber}/reassign`, { plate })
+      await axios.post(`${API_BASE}/${batchId}/folders/${folder._id}/pages/${pageNumber}/reassign`, { plate }, { timeout: 0 })
       onToast(`✓ Page moved to ${plate.toUpperCase()}`)
       setPages(prev => prev.filter(p => p.pageNumber !== pageNumber))
       onResolved()
