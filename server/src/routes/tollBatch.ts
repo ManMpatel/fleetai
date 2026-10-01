@@ -793,6 +793,142 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
   }
 })
 
+/**
+ * Background job: re-runs Gemini on every page still in the Unrecognized folder and
+ * moves identified pages to their plate folders. Leaves genuinely unreadable pages
+ * in Unrecognized for manual review. Progress is written to batch.rescan so the
+ * frontend can poll it without changing the batch's main status field.
+ */
+async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<void> {
+  try {
+    const unrecFolder = await TollFolder.findOne({ orgId, batchId, plate: null })
+    if (!unrecFolder) {
+      await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, {
+        $set: { 'rescan.status': 'done', 'rescan.completedAt': new Date() },
+      })
+      return
+    }
+
+    // Invalidate merged PDF upfront — pages are about to move out, so the existing
+    // merged file is immediately stale. Download/Send regenerates on-demand.
+    if (unrecFolder.mergedPdfFileId) {
+      await deleteMergedPdf(unrecFolder.mergedPdfFileId as any).catch(() => {})
+      await TollFolder.updateOne({ _id: unrecFolder._id, orgId }, { $set: { mergedPdfFileId: null, merged: false } })
+    }
+
+    const fleetVehicles = await Vehicle.find({ orgId }).select('plate')
+    const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
+
+    // Try to extract a text layer from the original PDF — zero cost for scanned PDFs
+    // (returns empty map), but avoids Gemini calls for any digital pages in the batch.
+    let pageTexts = new Map<number, string>()
+    const batchDoc = await TollBatch.findOne({ _id: batchId, orgId }).select('originalPdfFileId').lean()
+    if (batchDoc?.originalPdfFileId) {
+      try {
+        const origBuf = await readOriginalPdf(batchDoc.originalPdfFileId as any)
+        pageTexts = await extractPageTexts(origBuf).catch(() => new Map<number, string>())
+      } catch { /* no original stored — vision only */ }
+    }
+
+    const pages = await TollPage.find({ folderId: unrecFolder._id, orgId }).sort({ pageNumber: 1 }).lean()
+    const invalidatedFolders = new Set<string>()
+    let processed = 0
+    let moved = 0
+
+    for (const page of pages) {
+      try {
+        let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
+
+        if (plates.length === 0) {
+          plates = (await readPlatesFromPage(page.imageBase64, 'image/jpeg', knownPlates)).plates
+          Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+
+          if (plates.length === 0) {
+            await geminiPacingDelay()
+            const retry = await readPlatesFromPage(page.imageBase64, 'image/jpeg', knownPlates)
+            Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+            plates = retry.plates
+          }
+          await geminiPacingDelay()
+        }
+
+        if (plates.length > 0) {
+          // Remove from Unrecognized
+          await TollPage.deleteOne({ _id: page._id })
+          await TollFolder.updateOne({ _id: unrecFolder._id, orgId }, { $inc: { pageCount: -1 } })
+
+          for (const plate of plates) {
+            const destFolder = await TollFolder.findOneAndUpdate(
+              { orgId, batchId, plate },
+              { $setOnInsert: { orgId, batchId, plate } },
+              { upsert: true, new: true }
+            )
+            await TollPage.create({ orgId, batchId, folderId: destFolder._id, pageNumber: page.pageNumber, imageBase64: page.imageBase64 })
+            await TollFolder.updateOne({ _id: destFolder._id, orgId }, { $inc: { pageCount: 1 } })
+
+            // Invalidate destination's merged PDF once per folder touched this run.
+            if (!invalidatedFolders.has(destFolder._id.toString()) && destFolder.mergedPdfFileId) {
+              await deleteMergedPdf(destFolder.mergedPdfFileId as any).catch(() => {})
+              await TollFolder.updateOne({ _id: destFolder._id, orgId }, { $set: { mergedPdfFileId: null, merged: false } })
+              invalidatedFolders.add(destFolder._id.toString())
+            }
+          }
+          moved++
+        }
+      } catch (pageErr: any) {
+        console.error(`[rescanUnrecognized] Page ${page.pageNumber} failed: ${pageErr.message}`)
+      }
+
+      processed++
+      await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, {
+        $set: { 'rescan.processed': processed, 'rescan.moved': moved },
+      })
+    }
+
+    // Delete the Unrecognized folder if all pages were identified.
+    const remaining = await TollPage.countDocuments({ folderId: unrecFolder._id, orgId })
+    const legacyRemaining = (unrecFolder.pages ?? []).length
+    if (remaining === 0 && legacyRemaining === 0) {
+      await TollFolder.deleteOne({ _id: unrecFolder._id })
+    }
+
+    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, {
+      $set: { 'rescan.status': 'done', 'rescan.completedAt': new Date() },
+    })
+    console.log(`[rescanUnrecognized] Done — ${moved}/${processed} pages identified`)
+  } catch (err: any) {
+    console.error('[rescanUnrecognized] FAILED:', err.message)
+    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, {
+      $set: { 'rescan.status': 'failed' },
+    }).catch(() => {})
+  }
+}
+
+// POST /api/toll-batch/:batchId/rescan-unrecognized — re-run Gemini on every page
+// currently in the Unrecognized folder and auto-move identified pages to their plate
+// folders. Only available on completed batches; runs as a background job.
+router.post('/:batchId/rescan-unrecognized', async (req: Request, res: Response) => {
+  try {
+    const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId })
+    if (!batch) return res.status(404).json({ error: 'Batch not found' })
+    if (batch.status !== 'done') return res.status(409).json({ error: 'Batch is not yet complete' })
+    if ((batch as any).rescan?.status === 'running') return res.status(409).json({ error: 'A rescan is already running' })
+
+    const unrecFolder = await TollFolder.findOne({ orgId: req.orgId, batchId: batch._id, plate: null })
+    const total = (unrecFolder?.pages?.length ?? 0) + (unrecFolder?.pageCount ?? 0)
+    if (!unrecFolder || total === 0) return res.status(404).json({ error: 'No unrecognized pages to rescan' })
+
+    await TollBatch.findOneAndUpdate({ _id: batch._id, orgId: req.orgId }, {
+      $set: { rescan: { status: 'running', total, processed: 0, moved: 0, startedAt: new Date() } },
+    })
+
+    void rescanUnrecognizedJob(batch._id.toString(), req.orgId!.toString())
+    res.status(202).json({ total })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/toll-batch/:batchId/folders/:folderId/pages/:pageNumber/rescan
 // Re-runs Gemini on an existing stored page image — used by the Review modal's
 // "Auto-detect" button to fix unrecognized pages without manual typing.

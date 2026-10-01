@@ -21,6 +21,14 @@ interface TollBatch {
   error?: string
   createdAt: string
   completedAt?: string
+  rescan?: {
+    status: 'running' | 'done' | 'failed'
+    total: number
+    processed: number
+    moved: number
+    startedAt: string
+    completedAt?: string
+  }
 }
 
 interface TollFolderSummary {
@@ -75,6 +83,7 @@ export default function TollBatchPage() {
   const [sendTarget, setSendTarget] = useState<TollFolderSummary | null>(null)
   const [batchStale, setBatchStale] = useState(false)
   const [retrying, setRetrying] = useState(false)
+  const [rescanPolling, setRescanPolling] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function showToast(msg: string) {
@@ -97,16 +106,15 @@ export default function TollBatchPage() {
 
   useEffect(() => { fetchBatchList() }, [fetchBatchList])
 
-  // Self-terminating 30s poll while a batch is active — same shape as App.tsx's
-  // owner-approval poll: fetch once immediately, then every 30s until a terminal status,
-  // clearing the interval from inside itself rather than leaving it running forever.
-  const fetchBatchDetail = useCallback(async (batchId: string): Promise<BatchStatus | undefined> => {
+  // Self-terminating poll while a batch is active — fetch once immediately, then every
+  // 5s until a terminal status. Returns the full batch so callers can inspect rescan state.
+  const fetchBatchDetail = useCallback(async (batchId: string): Promise<TollBatch | undefined> => {
     try {
       const { data } = await axios.get<{ batch: TollBatch; folders: TollFolderSummary[]; stale: boolean }>(`${API_BASE}/${batchId}`)
       setActiveBatch(data.batch)
       setFolders(data.folders)
       setBatchStale(data.stale)
-      return data.batch.status
+      return data.batch
     } catch {
       showToast('✗ Lost connection to this batch')
       return undefined
@@ -119,8 +127,9 @@ export default function TollBatchPage() {
 
     fetchBatchDetail(activeBatchId)
     const interval = setInterval(async () => {
-      const status = await fetchBatchDetail(activeBatchId)
+      const batch = await fetchBatchDetail(activeBatchId)
       if (cancelled) return
+      const status = batch?.status
       if (status === 'done' || status === 'failed' || status === 'cancelled') {
         clearInterval(interval)
         fetchBatchList()
@@ -128,6 +137,41 @@ export default function TollBatchPage() {
     }, 5000)
 
     return () => { cancelled = true; clearInterval(interval) }
+  }, [activeBatchId, fetchBatchDetail, fetchBatchList])
+
+  // Poll every 3s while a rescan is running — stops once rescan.status leaves 'running'.
+  useEffect(() => {
+    if (!rescanPolling || !activeBatchId) return
+    let cancelled = false
+    const interval = setInterval(async () => {
+      const batch = await fetchBatchDetail(activeBatchId)
+      if (cancelled) return
+      const rs = batch?.rescan?.status
+      if (rs && rs !== 'running') {
+        clearInterval(interval)
+        setRescanPolling(false)
+        if (rs === 'done') {
+          const moved = batch?.rescan?.moved ?? 0
+          showToast(`✓ Rescan complete — ${moved} page${moved !== 1 ? 's' : ''} identified`)
+          fetchBatchList()
+        } else {
+          showToast('✗ Rescan failed — check server logs')
+        }
+      }
+    }, 3000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [rescanPolling, activeBatchId, fetchBatchDetail, fetchBatchList]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refresh immediately when the user switches back to this tab — prevents the "looks
+  // stuck" experience caused by browsers throttling setInterval in background tabs.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.hidden) return
+      if (activeBatchId) fetchBatchDetail(activeBatchId)
+      else fetchBatchList()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [activeBatchId, fetchBatchDetail, fetchBatchList])
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -165,6 +209,17 @@ export default function TollBatchPage() {
     setActiveBatch(null)
     setFolders([])
     fetchBatchList()
+  }
+
+  async function handleRescan() {
+    if (!activeBatchId) return
+    try {
+      await axios.post(`${API_BASE}/${activeBatchId}/rescan-unrecognized`)
+      showToast('✓ Re-scanning unrecognized pages…')
+      setRescanPolling(true)
+    } catch (err: any) {
+      showToast(`✗ ${err.response?.data?.error || 'Could not start rescan'}`)
+    }
   }
 
   async function retryBatch() {
@@ -297,7 +352,7 @@ export default function TollBatchPage() {
               {activeBatch.status === 'cancelled' && (
                 <p className="text-xs text-text-secondary mb-4">Cancelled early — showing what was sorted before it stopped.</p>
               )}
-              <FolderGrid folders={folders} batchId={activeBatchId} onSend={setSendTarget} onToast={showToast} onRefresh={() => fetchBatchDetail(activeBatchId)} />
+              <FolderGrid folders={folders} batchId={activeBatchId} batch={activeBatch} onSend={setSendTarget} onToast={showToast} onRefresh={() => fetchBatchDetail(activeBatchId)} onRescan={handleRescan} />
               <div className="mt-8 flex justify-end">
                 <button onClick={() => deleteBatch(activeBatchId!)} className="px-4 py-2 text-xs font-medium border border-red/30 text-red rounded-lg hover:bg-red/10 transition-colors">
                   Delete this batch
@@ -604,12 +659,14 @@ function FailedView({ batch, onBack, onRetry, retrying, onCancel, retryLabel = '
 }
 
 // ── Completed batch — folder grid ───────────────────────────
-function FolderGrid({ folders, batchId, onSend, onToast, onRefresh }: {
+function FolderGrid({ folders, batchId, batch, onSend, onToast, onRefresh, onRescan }: {
   folders: TollFolderSummary[]
   batchId: string
+  batch: TollBatch | null
   onSend: (folder: TollFolderSummary) => void
   onToast: (msg: string) => void
   onRefresh: () => void
+  onRescan: () => void
 }) {
   if (folders.length === 0) {
     return <div className="text-center py-20 text-text-muted text-sm">No pages were found in this batch.</div>
@@ -617,13 +674,31 @@ function FolderGrid({ folders, batchId, onSend, onToast, onRefresh }: {
 
   const known = folders.filter(f => f.plate)
   const unrecognized = folders.find(f => !f.plate)
+  const rescan = batch?.rescan
 
   return (
     <div>
-      <p className="text-xs text-text-secondary mb-4">
-        <span className="font-medium text-text-primary">{known.length}</span> plate{known.length !== 1 ? 's' : ''} sorted
-        {unrecognized && <> · <span className="font-medium text-text-primary">{unrecognized.pageCount}</span> page{unrecognized.pageCount !== 1 ? 's' : ''} unrecognized</>}
-      </p>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-text-secondary">
+          <span className="font-medium text-text-primary">{known.length}</span> plate{known.length !== 1 ? 's' : ''} sorted
+          {unrecognized && <> · <span className="font-medium text-text-primary">{unrecognized.pageCount}</span> page{unrecognized.pageCount !== 1 ? 's' : ''} unrecognized</>}
+        </p>
+        {unrecognized && (
+          rescan?.status === 'running' ? (
+            <p className="text-xs text-text-secondary">
+              Re-scanning… {rescan.processed}/{rescan.total} pages
+              {rescan.moved > 0 && <> · <span className="text-green">{rescan.moved} identified</span></>}
+            </p>
+          ) : (
+            <button
+              onClick={onRescan}
+              className="px-3 py-1.5 bg-amber-bg border border-amber/30 text-amber rounded-lg text-xs font-medium hover:border-amber transition-colors"
+            >
+              Re-scan Unrecognized
+            </button>
+          )
+        )}
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
         {[...known, ...(unrecognized ? [unrecognized] : [])].map(f => (
           <FolderCard key={f._id} folder={f} batchId={batchId} onSend={onSend} onToast={onToast} onRefresh={onRefresh} />

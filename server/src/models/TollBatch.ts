@@ -7,6 +7,15 @@ import { tenantScope } from './plugins/tenantScope'
 
 export type TollBatchStatus = 'processing' | 'done' | 'failed' | 'cancelled'
 
+export interface IRescan {
+  status: 'running' | 'done' | 'failed'
+  total: number
+  processed: number
+  moved: number
+  startedAt: Date
+  completedAt?: Date
+}
+
 export interface ITollBatch extends Document {
   orgId: mongoose.Types.ObjectId
   originalFilename: string
@@ -20,6 +29,7 @@ export interface ITollBatch extends Document {
   originalPdfFileId?: mongoose.Types.ObjectId
   originalPdfBase64?: string
   lastProgressAt?: Date
+  rescan?: IRescan
 }
 
 const TollBatchSchema = new Schema<ITollBatch>(
@@ -43,6 +53,14 @@ const TollBatchSchema = new Schema<ITollBatch>(
     // Touched on every page processed — tells "still working" apart from "the process
     // died and nobody's touched this row since."
     lastProgressAt:    { type: Date },
+    rescan: {
+      status:      { type: String, enum: ['running', 'done', 'failed'] },
+      total:       { type: Number },
+      processed:   { type: Number },
+      moved:       { type: Number },
+      startedAt:   { type: Date },
+      completedAt: { type: Date },
+    },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 )
