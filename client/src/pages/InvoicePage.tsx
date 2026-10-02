@@ -16,6 +16,7 @@ interface Template {
   bankName: string
   bsb: string
   account: string
+  color: string
   usageCount: number
 }
 
@@ -56,6 +57,17 @@ function Field({ label, value, onChange, placeholder }: { label: string; value: 
 
 function fmtDate(s: string) {
   return new Date(s).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+// Converts a #rrggbb hex string into pdf-lib's rgb() — used to pipe the template's
+// brand color into the PDF instead of the hardcoded orange default.
+function hexToRgb(hex: string) {
+  const h = (hex || '#d45419').replace('#', '')
+  return rgb(
+    parseInt(h.slice(0, 2), 16) / 255,
+    parseInt(h.slice(2, 4), 16) / 255,
+    parseInt(h.slice(4, 6), 16) / 255,
+  )
 }
 
 // ── Compress logo before storing ───────────────────────────────
@@ -99,7 +111,7 @@ async function buildInvoicePDF(tmpl: Template, params: {
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
 
-  const ORANGE = rgb(0.831, 0.329, 0.102)
+  const ORANGE = hexToRgb(tmpl.color || '#d45419')
   const BLACK  = rgb(0.173, 0.173, 0.173)
   const GRAY   = rgb(0.533, 0.533, 0.533)
   const WHITE  = rgb(1, 1, 1)
@@ -120,7 +132,7 @@ async function buildInvoicePDF(tmpl: Template, params: {
   const ROW_H = Math.floor((H - HDR_H - BILL_H - DATE_H - THDR_H - TOT_H - BANK_H - FOOT_H) / N_ROWS)
 
   const DIV_X = W / 2 + 20
-  const COL_W = W / 3
+
 
   // Y boundaries (from bottom)
   const hdr_bot  = H - HDR_H
@@ -269,9 +281,15 @@ async function buildInvoicePDF(tmpl: Template, params: {
 }
 
 // ── Default template form state ────────────────────────────────
+const PRESET_COLORS = [
+  '#d45419', '#2563eb', '#16a34a', '#dc2626', '#7c3aed',
+  '#0891b2', '#d97706', '#be185d', '#0f766e', '#374151',
+]
+
 const emptyTmplForm = () => ({
   logoBase64: '', businessName: '', address: '', phone: '',
   email: '', abn: '', bankName: '', bsb: '', account: '',
+  color: '#d45419',
 })
 
 // ── Page ───────────────────────────────────────────────────────
@@ -544,7 +562,10 @@ export default function InvoicePage() {
                       : <span className="text-xl">🏢</span>}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-text-primary truncate">{t.businessName}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-medium text-text-primary truncate">{t.businessName}</p>
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color || '#d45419' }} />
+                    </div>
                     <p className="text-[11px] text-text-muted">Used {t.usageCount}×</p>
                   </div>
                   <button onClick={e => { e.stopPropagation(); deleteTemplate(t._id) }}
@@ -589,6 +610,43 @@ export default function InvoicePage() {
                     </button>
                     <p className="text-[11px] text-text-muted mt-1">Recommended: square image, white background</p>
                   </div>
+                </div>
+              </div>
+
+              {/* Brand color */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-2">Invoice Color</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {PRESET_COLORS.map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setTmplForm(p => ({ ...p, color: c }))}
+                      style={{ backgroundColor: c }}
+                      className={`w-7 h-7 rounded-full transition-transform hover:scale-110 ${
+                        tmplForm.color === c ? 'ring-2 ring-offset-2 ring-offset-surface ring-current scale-110' : ''
+                      }`}
+                      title={c}
+                    />
+                  ))}
+                  {/* Custom color — swatch opens native picker */}
+                  <label className="relative cursor-pointer" title="Custom colour">
+                    <div
+                      style={{ backgroundColor: PRESET_COLORS.includes(tmplForm.color) ? '#e5e7eb' : tmplForm.color }}
+                      className={`w-7 h-7 rounded-full border-2 border-dashed border-border flex items-center justify-center transition-transform hover:scale-110 text-[10px] font-bold ${
+                        !PRESET_COLORS.includes(tmplForm.color) ? 'ring-2 ring-offset-2 ring-offset-surface scale-110' : ''
+                      }`}
+                    >
+                      {PRESET_COLORS.includes(tmplForm.color) && <span className="text-text-muted">+</span>}
+                    </div>
+                    <input
+                      type="color"
+                      value={tmplForm.color}
+                      onChange={e => setTmplForm(p => ({ ...p, color: e.target.value }))}
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    />
+                  </label>
+                  <span className="text-xs text-text-muted font-mono ml-1">{tmplForm.color}</span>
                 </div>
               </div>
 
