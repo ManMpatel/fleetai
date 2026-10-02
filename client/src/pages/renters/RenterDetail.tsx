@@ -539,7 +539,10 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
                         try {
                           const { data } = await axios.get(`/api/renters/${encodeURIComponent(renter.phone)}/media`)
                           renterData = { ...renter, ...data }
-                        } catch {}
+                        } catch {
+                          onToast('❌ Could not load the signature - please try again', 'warning')
+                          return
+                        }
                       }
                       generateDDR(renterData)
                     }}

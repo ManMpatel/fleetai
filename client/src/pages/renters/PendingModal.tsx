@@ -32,15 +32,18 @@ export default function PendingModal({ renter, onClose, onToast, onRefresh, setL
     selfieBase64?: string | null
     passportPhotoBase64?: string | null
   } | null>(null)
+  const [mediaLoading, setMediaLoading] = useState(false)
 
   useEffect(() => {
     const r = renter as any
     if (!r.licencePhotoBase64 && !r.selfieBase64 && !r.passportPhotoBase64) {
+      setMediaLoading(true)
       axios.get(`/api/renters/${encodeURIComponent(renter.phone)}/media`)
         .then(res => setFetchedMedia(res.data))
         .catch(() => {})
+        .finally(() => setMediaLoading(false))
     }
-  }, [])
+  }, [renter.phone])
 
   const photos = {
     licencePhotoBase64: (renter as any).licencePhotoBase64 || fetchedMedia?.licencePhotoBase64 || null,
@@ -206,7 +209,7 @@ export default function PendingModal({ renter, onClose, onToast, onRefresh, setL
                           className="w-full h-20 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80" />
                       ) : (
                         <div className="w-full h-20 rounded-lg border border-border bg-surface2 flex items-center justify-center">
-                          <span className="text-xs text-text-muted">Not uploaded</span>
+                          <span className="text-xs text-text-muted">{mediaLoading ? 'Loading...' : 'Not uploaded'}</span>
                         </div>
                       )}
                     </div>
