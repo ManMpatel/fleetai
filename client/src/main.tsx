@@ -6,9 +6,7 @@ import './index.css'
 import axios from 'axios'
 
 axios.defaults.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-// No global timeout — this app returns large base64 payloads (rego photos, toll images,
-// invoice PDFs) that legitimately take >20s on a slow connection. The server and Traefik
-// have their own timeouts; axios should never cancel a valid in-progress response.
+axios.defaults.timeout = 20000
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
