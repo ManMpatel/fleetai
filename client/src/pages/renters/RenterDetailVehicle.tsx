@@ -135,7 +135,7 @@ export default function RenterDetailVehicle({
                         await axios.post(`/api/fleet/${v.plate}/unassign`)
                         onToast(`✅ ${v.plate} unassigned`, 'success')
                         onRefresh()
-                        axios.get('/api/fleet').then(r => setFleetVehicles(r.data || []))
+                        axios.get('/api/fleet?light=true').then(r => setFleetVehicles(r.data || []))
                       } catch (err: any) { onToast('❌ ' + (err.response?.data?.error || 'Failed'), 'warning') }
                       finally { setAssignLoading(false) }
                     }}
@@ -201,7 +201,7 @@ export default function RenterDetailVehicle({
                     onToast(`✅ ${v.plate} assigned to ${renter.name}`, 'success')
                     setSelectedVehicleId('')
                     onRefresh()
-                    axios.get('/api/fleet').then(r => setFleetVehicles(r.data || []))
+                    axios.get('/api/fleet?light=true').then(r => setFleetVehicles(r.data || []))
                   } catch (err: any) { onToast('❌ ' + (err.response?.data?.error || 'Failed'), 'warning') }
                   finally { setAssignLoading(false) }
                 }}

@@ -163,11 +163,21 @@ router.post('/send-onboarding', async (req: Request, res: Response) => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const renters = await Renter.find({ orgId: req.orgId })
+      .select('-licencePhotoBase64 -selfieBase64 -passportPhotoBase64 -signatureBase64')
       .populate(scopedPopulate('currentVehicle', 'plate model type'))
       .populate(scopedPopulate('currentVehicles', 'plate model type'))
       .sort({ name: 1 })
 
-    res.json(renters.map(r => decryptRenter(r)))
+    const withSelfie = await Renter.find(
+      { orgId: req.orgId, selfieBase64: { $exists: true, $ne: '' } }
+    ).select('_id').lean()
+    const selfieIds = new Set(withSelfie.map((r: any) => String(r._id)))
+
+    res.json(renters.map(r => {
+      const obj = decryptRenter(r)
+      obj.hasSelfie = selfieIds.has(String(obj._id))
+      return obj
+    }))
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch renters' })
   }
@@ -230,6 +240,25 @@ router.post('/find-by-date', async (req: Request, res: Response) => {
     res.json({ found: true, renter })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/renters/:phone/media — photo blobs only, never included in the list
+router.get('/:phone/media', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone)
+    const renter = await Renter.findOne({ phone, orgId: req.orgId })
+      .select('licencePhotoBase64 selfieBase64 passportPhotoBase64 signatureBase64')
+    if (!renter) return res.status(404).json({ error: 'Renter not found' })
+    const obj = typeof renter.toObject === 'function' ? renter.toObject() : renter
+    res.json({
+      licencePhotoBase64: (obj as any).licencePhotoBase64 || null,
+      selfieBase64: (obj as any).selfieBase64 || null,
+      passportPhotoBase64: (obj as any).passportPhotoBase64 || null,
+      signatureBase64: (obj as any).signatureBase64 || null,
+    })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch media' })
   }
 })
 

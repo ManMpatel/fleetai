@@ -78,6 +78,7 @@ export interface Renter {
   emergencyContactPhone?: string
   licencePhotoUrl?: string
   selfieUrl?: string
+  hasSelfie?: boolean
   currentVehicle?: string | object
   currentVehicles?: (string | object)[]
   weeklyRate?: number

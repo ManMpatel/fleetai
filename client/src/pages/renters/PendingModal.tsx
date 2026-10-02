@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 import type { Renter } from '../../types'
 
@@ -27,6 +27,26 @@ export default function PendingModal({ renter, onClose, onToast, onRefresh, setL
   const [verifyLoading, setVerifyLoading] = useState(false)
   const [aiVerifyResults, setAiVerifyResults] = useState<any>(null)
   const [aiVerifyLoading, setAiVerifyLoading] = useState(false)
+  const [fetchedMedia, setFetchedMedia] = useState<{
+    licencePhotoBase64?: string | null
+    selfieBase64?: string | null
+    passportPhotoBase64?: string | null
+  } | null>(null)
+
+  useEffect(() => {
+    const r = renter as any
+    if (!r.licencePhotoBase64 && !r.selfieBase64 && !r.passportPhotoBase64) {
+      axios.get(`/api/renters/${encodeURIComponent(renter.phone)}/media`)
+        .then(res => setFetchedMedia(res.data))
+        .catch(() => {})
+    }
+  }, [])
+
+  const photos = {
+    licencePhotoBase64: (renter as any).licencePhotoBase64 || fetchedMedia?.licencePhotoBase64 || null,
+    selfieBase64: (renter as any).selfieBase64 || fetchedMedia?.selfieBase64 || null,
+    passportPhotoBase64: (renter as any).passportPhotoBase64 || fetchedMedia?.passportPhotoBase64 || null,
+  }
 
   async function loadVerification() {
     setVerifyLoading(true)
@@ -157,14 +177,14 @@ export default function PendingModal({ renter, onClose, onToast, onRefresh, setL
                     </span>
                   )}
                 </div>
-                {((renter as any).licencePhotoBase64 || (renter as any).passportPhotoBase64) && (
+                {(photos.licencePhotoBase64 || photos.passportPhotoBase64) && (
                   <button onClick={() => {
                     const ref = (renter as any).docRef || renter.phone
                     const safeName = renter.name.replace(/\s+/g, '-')
-                    const downloads = []
-                    if ((renter as any).licencePhotoBase64) downloads.push({ data: (renter as any).licencePhotoBase64, name: `${ref}-${safeName}-licence.jpg` })
-                    if ((renter as any).selfieBase64) downloads.push({ data: (renter as any).selfieBase64, name: `${ref}-${safeName}-selfie.jpg` })
-                    if ((renter as any).passportPhotoBase64) downloads.push({ data: (renter as any).passportPhotoBase64, name: `${ref}-${safeName}-passport.jpg` })
+                    const downloads: { data: string; name: string }[] = []
+                    if (photos.licencePhotoBase64) downloads.push({ data: photos.licencePhotoBase64, name: `${ref}-${safeName}-licence.jpg` })
+                    if (photos.selfieBase64) downloads.push({ data: photos.selfieBase64, name: `${ref}-${safeName}-selfie.jpg` })
+                    if (photos.passportPhotoBase64) downloads.push({ data: photos.passportPhotoBase64, name: `${ref}-${safeName}-passport.jpg` })
                     downloads.forEach((d, i) => setTimeout(() => {
                       const a = document.createElement('a'); a.href = `data:image/jpeg;base64,${d.data}`; a.download = d.name
                       document.body.appendChild(a); a.click(); document.body.removeChild(a)
@@ -175,9 +195,9 @@ export default function PendingModal({ renter, onClose, onToast, onRefresh, setL
                 )}
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { label: 'Licence', url: (renter as any).licencePhotoBase64 ? `data:image/jpeg;base64,${(renter as any).licencePhotoBase64}` : renter.licencePhotoUrl },
-                    { label: 'Selfie', url: (renter as any).selfieBase64 ? `data:image/jpeg;base64,${(renter as any).selfieBase64}` : (renter as any).selfieUrl },
-                    { label: 'Passport', url: (renter as any).passportPhotoBase64 ? `data:image/jpeg;base64,${(renter as any).passportPhotoBase64}` : (renter as any).passportPhotoUrl },
+                    { label: 'Licence', url: photos.licencePhotoBase64 ? `data:image/jpeg;base64,${photos.licencePhotoBase64}` : renter.licencePhotoUrl },
+                    { label: 'Selfie', url: photos.selfieBase64 ? `data:image/jpeg;base64,${photos.selfieBase64}` : (renter as any).selfieUrl },
+                    { label: 'Passport', url: photos.passportPhotoBase64 ? `data:image/jpeg;base64,${photos.passportPhotoBase64}` : (renter as any).passportPhotoUrl },
                   ].map(ph => (
                     <div key={ph.label}>
                       <p className="text-xs text-text-muted mb-1">{ph.label}</p>

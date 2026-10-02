@@ -359,7 +359,7 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
   useEffect(() => {
     if (tab === 'vehicle') {
       setFleetLoading(true)
-      axios.get('/api/fleet').then(r => setFleetVehicles(r.data || [])).finally(() => setFleetLoading(false))
+      axios.get('/api/fleet?light=true').then(r => setFleetVehicles(r.data || [])).finally(() => setFleetLoading(false))
       const plate = (renter.currentVehicle as any)?.plate
       if (plate) {
         setVehicleSvcLoading(true)
@@ -533,7 +533,16 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
                 <div className="flex justify-between mb-3">
                   <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">Personal</h3>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => generateDDR(renter)}
+                    <button onClick={async () => {
+                      let renterData: any = renter
+                      if (!(renter as any).signatureBase64) {
+                        try {
+                          const { data } = await axios.get(`/api/renters/${encodeURIComponent(renter.phone)}/media`)
+                          renterData = { ...renter, ...data }
+                        } catch {}
+                      }
+                      generateDDR(renterData)
+                    }}
                       className="text-xs bg-accent text-white px-2.5 py-1 rounded-lg font-medium hover:bg-accent/90 transition-colors">
                       ↓ DDR
                     </button>
@@ -581,7 +590,7 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
                           const safeName = renter.name.replace(/\s+/g, '-')
                           const files = [
                             { label: '🪪 Licence', name: `${ref}-${safeName}-licence.jpg`, exists: true },
-                            { label: '🤳 Selfie', name: `${ref}-${safeName}-selfie.jpg`, exists: !!(renter as any).selfieBase64 },
+                            { label: '🤳 Selfie', name: `${ref}-${safeName}-selfie.jpg`, exists: renter.hasSelfie ?? !!(renter as any).selfieBase64 },
                             { label: '📘 Passport', name: `${ref}-${safeName}-passport.jpg`, exists: true },
                           ]
                           return (
