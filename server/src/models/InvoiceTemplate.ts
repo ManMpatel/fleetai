@@ -13,7 +13,6 @@ const InvoiceTemplateSchema = new mongoose.Schema({
   bankName:     { type: String },
   bsb:          { type: String },
   account:      { type: String },
-  color:        { type: String, default: '#d45419' },
   usageCount:   { type: Number, default: 0 },
 }, { timestamps: true })
 
