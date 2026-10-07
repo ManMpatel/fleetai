@@ -5,6 +5,10 @@ import TollFolder from '../models/TollFolder'
 import Renter from '../models/Renter'
 import { sendResendEmail } from '../services/resendEmail'
 import { readMergedPdf } from '../services/tollStorage'
+import {
+  GST_MODES, upsertServiceInvoice, discardServiceInvoice, invoiceEmailBlock,
+} from '../services/serviceInvoice'
+import type { GstMode, ServiceInvoiceOk } from '../services/serviceInvoice'
 
 const router = Router()
 
@@ -47,12 +51,17 @@ router.post('/send', async (req: Request, res: Response) => {
     const {
       to, subject, message,
       attachmentType, attachmentId,
+      includeInvoice, templateId, gstMode, balancePaid,
     } = req.body as {
       to: string
       subject: string
       message: string
       attachmentType: 'toll-folder' | 'service-record'
       attachmentId: string
+      includeInvoice?: boolean
+      templateId?: string
+      gstMode?: string
+      balancePaid?: boolean
     }
 
     if (!to || !subject || !attachmentType || !attachmentId) {
@@ -89,6 +98,21 @@ router.post('/send', async (req: Request, res: Response) => {
       const record = await ServiceRecord.findOne({ _id: attachmentId, orgId: req.orgId })
       if (!record) return res.status(404).json({ error: 'Record not found' })
 
+      // Optional invoice — created (or refreshed) from this record and linked inside the email.
+      let inv: ServiceInvoiceOk | null = null
+      if (includeInvoice === true) {
+        if (gstMode !== undefined && !GST_MODES.includes(gstMode as GstMode)) {
+          return res.status(400).json({ error: 'Invalid GST option' })
+        }
+        const made = await upsertServiceInvoice({
+          org, record, toEmail: to, templateId: templateId || undefined,
+          gstMode: (gstMode as GstMode | undefined) ?? 'none',
+          balancePaid: balancePaid === true,
+        })
+        if (!made.ok) return res.status(made.status).json({ error: made.error })
+        inv = made
+      }
+
       const date = new Date(record.date).toLocaleDateString('en-AU', { dateStyle: 'medium' })
 
       let itemsHtml = ''
@@ -102,7 +126,7 @@ router.post('/send', async (req: Request, res: Response) => {
           </tr>`)
           .join('')
         const totalRow = record.cost != null
-          ? `<tr><td style="padding:8px;font-weight:600">Total</td>
+          ? `<tr><td style="padding:8px;font-weight:600">${inv && inv.gstMode === 'added' ? 'Subtotal (before GST)' : 'Total'}</td>
              <td style="padding:8px;text-align:right;font-weight:600">$${Number(record.cost).toFixed(2)}</td></tr>`
           : ''
         itemsHtml = `<table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:14px">
@@ -123,11 +147,22 @@ router.post('/send', async (req: Request, res: Response) => {
           ${record.employeeName ? `<p style="margin:4px 0;font-size:14px"><strong>Technician:</strong> ${record.employeeName}</p>` : ''}
           ${itemsHtml}
           ${record.notes ? `<p style="margin:8px 0;font-size:14px"><strong>Notes:</strong> ${record.notes}</p>` : ''}
+          ${inv ? invoiceEmailBlock(inv) : ''}
         </div>`
 
-      await sendResendEmail(org, to, subject, html)
+      try {
+        await sendResendEmail(org, to, subject, html)
+      } catch (sendErr) {
+        // The email did not go out, so do not leave a brand-new invoice behind.
+        if (inv && inv.created) await discardServiceInvoice(org._id, inv).catch(() => {})
+        throw sendErr
+      }
       await saveRecipient(org._id.toString(), to)
-      return res.json({ success: true, sentTo: to })
+      return res.json({
+        success: true,
+        sentTo: to,
+        ...(inv ? { invoice: { number: inv.number, total: inv.total, url: inv.url } } : {}),
+      })
     }
 
     return res.status(400).json({ error: 'Invalid attachment type' })

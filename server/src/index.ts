@@ -21,6 +21,7 @@ import tabletRoutes from './routes/tablet'
 import settingsRoutes from './routes/settings'
 import tollBatchRoutes from './routes/tollBatch'
 import emailRoutes from './routes/email'
+import publicInvoiceRoutes from './routes/publicInvoice'
 import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
 import TollBatch from './models/TollBatch'
@@ -122,8 +123,16 @@ const pinLimiter = rateLimit({
   message: { error: 'Too many PIN attempts, please wait before trying again' },
 })
 
+// Customers open emailed invoice links here with no login, so every caller is limited by IP.
+const publicInvoiceLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { error: 'Too many requests, please try again later' },
+})
+
 // ── Public routes (no login) ────────────────────────────────
 app.get('/api/auth/resolve/:slug', resolveSlug)
+app.use('/api/public', publicInvoiceLimiter, publicInvoiceRoutes)
 app.use('/api/whatsapp', whatsappRouter)
 app.post('/api/tablet/verify-pin', pinLimiter)
 app.use('/api/tablet', tabletLimiter, tabletRoutes)
