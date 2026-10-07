@@ -6,6 +6,14 @@ interface Recipient {
   email: string
 }
 
+type GstMode = 'none' | 'included' | 'added'
+
+interface InvoiceTemplateOption {
+  _id: string
+  businessName: string
+  isDefault?: boolean
+}
+
 interface Props {
   isOpen: boolean
   onClose: () => void
@@ -30,6 +38,16 @@ export default function SendEmailModal({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  // "Include invoice" options — only used when sending a service record.
+  const isService = attachmentType === 'service-record'
+  const [includeInvoice, setIncludeInvoice] = useState(false)
+  const [templates, setTemplates] = useState<InvoiceTemplateOption[] | null>(null)
+  const [templatesError, setTemplatesError] = useState('')
+  const [templateId, setTemplateId] = useState('')
+  const [gstMode, setGstMode] = useState<GstMode>('none')
+  const [balancePaid, setBalancePaid] = useState(false)
+  const [invoiceNo, setInvoiceNo] = useState<number | null>(null)
+
   const fetchRecipients = useCallback(async (q: string) => {
     try {
       const { data } = await axios.get<{ renters: Recipient[]; recent: string[] }>(
@@ -47,6 +65,13 @@ export default function SendEmailModal({
     setMessage(initialMessage)
     setError(null)
     setSuccess(false)
+    setIncludeInvoice(false)
+    setTemplates(null)
+    setTemplatesError('')
+    setTemplateId('')
+    setGstMode('none')
+    setBalancePaid(false)
+    setInvoiceNo(null)
     fetchRecipients('')
   }, [isOpen, initialSubject, initialMessage, fetchRecipients])
 
@@ -56,14 +81,44 @@ export default function SendEmailModal({
     return () => clearTimeout(t)
   }, [to, isOpen, fetchRecipients])
 
+  // Load the business's invoice templates the first time "Include invoice" is ticked.
+  useEffect(() => {
+    if (!isOpen || !isService || !includeInvoice || templates !== null || templatesError) return
+    let cancelled = false
+    axios.get<InvoiceTemplateOption[]>('/api/invoices/templates', { params: { light: 'true' } })
+      .then(({ data }) => {
+        if (cancelled) return
+        const list = Array.isArray(data) ? data : []
+        setTemplates(list)
+        setTemplateId((list.find(t => t.isDefault) || list[0])?._id || '')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setTemplatesError('Could not load your invoice templates — close this window and try again.')
+        setTemplates([])
+      })
+    return () => { cancelled = true }
+  }, [isOpen, isService, includeInvoice, templates, templatesError])
+
   async function send() {
     if (!to.trim()) return setError('Enter a recipient email address')
     setSending(true); setError(null)
     try {
-      const { data } = await axios.post<{ success: boolean; sentTo: string; sentAt?: string }>(
+      const wantInvoice = isService && includeInvoice
+      const { data } = await axios.post<{ success: boolean; sentTo: string; sentAt?: string; invoice?: { number: number } }>(
         '/api/email/send',
-        { to: to.trim(), subject, message, attachmentType, attachmentId }
+        {
+          to: to.trim(), subject, message, attachmentType, attachmentId,
+          ...(wantInvoice ? { includeInvoice: true, templateId, gstMode, balancePaid } : {}),
+        }
       )
+      // An older server ignores the invoice options and sends a plain email — say so instead of
+      // letting the owner believe an invoice went out.
+      if (wantInvoice && !data.invoice) {
+        setError('The email was sent, but no invoice was created. The server needs updating — ask your developer.')
+        return
+      }
+      setInvoiceNo(data.invoice?.number ?? null)
       setSuccess(true)
       onSuccess?.(data.sentTo, data.sentAt)
       setTimeout(onClose, 1500)
@@ -85,7 +140,7 @@ export default function SendEmailModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={onClose}>
-      <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+      <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-text-primary">Send {attachmentLabel}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary">
@@ -98,6 +153,7 @@ export default function SendEmailModal({
         {success ? (
           <div className="py-6 text-center">
             <p className="text-sm text-green font-medium">Sent to {to}</p>
+            {invoiceNo !== null && <p className="text-xs text-text-muted mt-1">Invoice #{invoiceNo} included</p>}
           </div>
         ) : (
           <>
@@ -142,7 +198,9 @@ export default function SendEmailModal({
             {/* Message */}
             <div className="mb-4">
               <label className="block text-xs font-medium text-text-secondary mb-1.5">
-                Message {attachmentType === 'toll-folder' ? '(PDF will be attached)' : '(record details added below)'}
+                Message {attachmentType === 'toll-folder'
+                  ? '(PDF will be attached)'
+                  : isService && includeInvoice ? '(record details and invoice link added below)' : '(record details added below)'}
               </label>
               <textarea
                 className="w-full px-3 py-2 bg-surface2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent resize-none"
@@ -152,12 +210,81 @@ export default function SendEmailModal({
               />
             </div>
 
+            {/* Invoice options — service records only */}
+            {isService && (
+              <div className="mb-4 border border-border rounded-lg p-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={includeInvoice} onChange={e => setIncludeInvoice(e.target.checked)} />
+                  <span className="text-sm font-medium text-text-primary">Include invoice</span>
+                </label>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Creates an invoice from this record and adds a link to it in the email.
+                </p>
+
+                {includeInvoice && (
+                  templates === null ? (
+                    <p className="text-xs text-text-muted mt-3">Loading templates...</p>
+                  ) : templatesError ? (
+                    <p className="text-xs text-red mt-3">{templatesError}</p>
+                  ) : templates.length === 0 ? (
+                    <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-bg text-amber">
+                      Create an invoice template first — go to Invoices → New Template.
+                    </p>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-text-secondary mb-1">Template</label>
+                        <select
+                          value={templateId}
+                          onChange={e => setTemplateId(e.target.value)}
+                          className="w-full px-3 py-2 bg-surface2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
+                        >
+                          {templates.map(t => (
+                            <option key={t._id} value={t._id}>{t.businessName}{t.isDefault ? ' (default)' : ''}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-text-secondary mb-1">GST</label>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          {([['none', 'No GST'], ['included', 'GST included'], ['added', 'Add 10% GST']] as const).map(([val, label]) => (
+                            <label key={val} className="flex items-center gap-1.5 text-xs text-text-primary cursor-pointer">
+                              <input type="radio" name="invoice-gst" checked={gstMode === val} onChange={() => setGstMode(val)} />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-text-muted mt-1">
+                          {gstMode === 'none' && 'Prices are used as they are and no GST is shown.'}
+                          {gstMode === 'included' && 'Prices already include GST — it is shown as part of the total.'}
+                          {gstMode === 'added' && '10% GST is added on top of the prices.'}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-text-secondary mb-1">Balance</label>
+                        <div className="flex gap-4">
+                          {([[false, 'Not paid'], [true, 'Paid']] as const).map(([val, label]) => (
+                            <label key={label} className="flex items-center gap-1.5 text-xs text-text-primary cursor-pointer">
+                              <input type="radio" name="invoice-paid" checked={balancePaid === val} onChange={() => setBalancePaid(val)} />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
             {error && <p className="text-xs text-red mb-3">{error}</p>}
 
             <div className="flex gap-2">
               <button
                 onClick={send}
-                disabled={sending || !to.trim()}
+                disabled={sending || !to.trim() || (isService && includeInvoice && !templateId)}
                 className="flex-1 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
               >
                 {sending ? 'Sending...' : 'Send'}
