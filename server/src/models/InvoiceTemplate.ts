@@ -14,6 +14,7 @@ const InvoiceTemplateSchema = new mongoose.Schema({
   bsb:          { type: String },
   account:      { type: String },
   usageCount:   { type: Number, default: 0 },
+  color:        { type: String, default: '#d4541a' },
 }, { timestamps: true })
 
 InvoiceTemplateSchema.plugin(tenantScope)

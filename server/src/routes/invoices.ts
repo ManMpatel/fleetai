@@ -17,10 +17,11 @@ router.get('/templates', async (req: Request, res: Response) => {
 
 router.post('/templates', async (req: Request, res: Response) => {
   try {
-    const { logoBase64, businessName, address, phone, email, abn, bankName, bsb, account } = req.body
+    const { logoBase64, businessName, address, phone, email, abn, bankName, bsb, account, color } = req.body
     if (!businessName) return res.status(400).json({ error: 'Business name required' })
     const t = await InvoiceTemplate.create({
       orgId: req.orgId, name: businessName,
+      color: typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : '#d4541a',
       logoBase64, businessName, address, phone, email, abn, bankName, bsb, account,
     })
     res.json(t.toObject())
