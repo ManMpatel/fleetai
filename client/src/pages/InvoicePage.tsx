@@ -16,6 +16,7 @@ interface Template {
   bankName: string
   bsb: string
   account: string
+  color?: string
   usageCount: number
 }
 
@@ -52,6 +53,38 @@ function Field({ label, value, onChange, placeholder }: { label: string; value: 
         className="w-full bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent" />
     </div>
   )
+}
+
+// ── Invoice brand colour ───────────────────────────────────────
+const DEFAULT_INVOICE_COLOR = '#d4541a'   // the original orange
+const INVOICE_COLOR_PRESETS = [
+  { name: 'Orange',   hex: '#d4541a' },
+  { name: 'Blue',     hex: '#2563eb' },
+  { name: 'Green',    hex: '#16a34a' },
+  { name: 'Red',      hex: '#dc2626' },
+  { name: 'Purple',   hex: '#7c3aed' },
+  { name: 'Teal',     hex: '#0d9488' },
+  { name: 'Charcoal', hex: '#374151' },
+]
+
+function hexToRgb255(hex: string): [number, number, number] {
+  const h = /^#[0-9a-fA-F]{6}$/.test(hex || '') ? hex.slice(1) : DEFAULT_INVOICE_COLOR.slice(1)
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
+}
+
+function colorLuminance([r, g, b]: [number, number, number]): number {
+  const f = (v: number) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+}
+
+// Very light colours would make the white text on the invoice unreadable,
+// so they are darkened until white text is clearly legible.
+function safeInvoiceColor(hex: string): string {
+  let c = hexToRgb255(hex)
+  for (let i = 0; i < 30 && colorLuminance(c) > 0.30; i++) {
+    c = [Math.round(c[0] * 0.9), Math.round(c[1] * 0.9), Math.round(c[2] * 0.9)]
+  }
+  return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('')
 }
 
 function fmtDate(s: string) {
@@ -99,7 +132,8 @@ async function buildInvoicePDF(tmpl: Template, params: {
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
 
-  const ORANGE = rgb(0.831, 0.329, 0.102)
+  const [accR, accG, accB] = hexToRgb255(safeInvoiceColor(tmpl.color || DEFAULT_INVOICE_COLOR))
+  const ORANGE = rgb(accR / 255, accG / 255, accB / 255) // accent = this template's colour (default = original orange)
   const BLACK  = rgb(0.173, 0.173, 0.173)
   const GRAY   = rgb(0.533, 0.533, 0.533)
   const WHITE  = rgb(1, 1, 1)
@@ -271,7 +305,7 @@ async function buildInvoicePDF(tmpl: Template, params: {
 // ── Default template form state ────────────────────────────────
 const emptyTmplForm = () => ({
   logoBase64: '', businessName: '', address: '', phone: '',
-  email: '', abn: '', bankName: '', bsb: '', account: '',
+  email: '', abn: '', bankName: '', bsb: '', account: '', color: DEFAULT_INVOICE_COLOR,
 })
 
 // ── Page ───────────────────────────────────────────────────────
@@ -601,6 +635,31 @@ export default function InvoicePage() {
                 <Field label="Bank Name" value={tmplForm.bankName} onChange={(v: string) => setTmplForm(p => ({...p, bankName: v}))} placeholder="Desi Boys Rental" />
                 <Field label="BSB" value={tmplForm.bsb} onChange={(v: string) => setTmplForm(p => ({...p, bsb: v}))} placeholder="032 065" />
                 <Field label="Account Number" value={tmplForm.account} onChange={(v: string) => setTmplForm(p => ({...p, account: v}))} placeholder="352 812" />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-text-muted uppercase tracking-wide mb-1.5">Invoice colour</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {INVOICE_COLOR_PRESETS.map(c => (
+                    <button key={c.hex} type="button" title={c.name}
+                      onClick={() => setTmplForm(p => ({ ...p, color: c.hex }))}
+                      style={{ backgroundColor: c.hex }}
+                      className={`w-7 h-7 rounded-full border-2 transition-transform ${tmplForm.color.toLowerCase() === c.hex ? 'border-accent scale-110' : 'border-transparent'}`} />
+                  ))}
+                  <label className="flex items-center gap-1.5 ml-2 text-xs text-text-secondary cursor-pointer">
+                    <input type="color" value={tmplForm.color}
+                      onChange={e => setTmplForm(p => ({ ...p, color: e.target.value }))}
+                      className="w-7 h-7 p-0 border border-border rounded cursor-pointer bg-transparent" />
+                    Custom
+                  </label>
+                  <span className="text-[11px] text-text-muted ml-1">{tmplForm.color}</span>
+                </div>
+                <div className="mt-2 h-8 rounded-lg flex items-center justify-between px-3 text-white text-xs font-semibold"
+                  style={{ backgroundColor: safeInvoiceColor(tmplForm.color) }}>
+                  <span className="truncate">{tmplForm.businessName || 'Your business'}</span>
+                  <span>INVOICE</span>
+                </div>
+                <p className="text-[11px] text-text-muted mt-1">Default is orange. Very light colours are darkened automatically so the text stays readable.</p>
               </div>
 
               <button onClick={saveTemplate} disabled={tmplSaving}
