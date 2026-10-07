@@ -4,7 +4,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { SkeletonBar } from '../components/Skeleton'
 
 // ── Types ──────────────────────────────────────────────────────
-interface Template {
+export interface Template {
   _id: string
   name: string
   logoBase64?: string
@@ -17,10 +17,11 @@ interface Template {
   bsb: string
   account: string
   color?: string
+  isDefault?: boolean
   usageCount: number
 }
 
-interface LineItem {
+export interface LineItem {
   description: string
   days: string
   unitPrice: string
@@ -34,6 +35,8 @@ interface SavedInvoice {
   billToName: string
   total: number
   createdAt: string
+  source?: string
+  publicToken?: string
 }
 
 const EMPTY_LINE = (): LineItem => ({ description: '', days: '', unitPrice: '', amount: 0 })
@@ -42,7 +45,7 @@ function today() {
   const d = new Date()
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
 }
-function fmtAmt(n: number) {
+export function fmtAmt(n: number) {
   return `$${n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -79,7 +82,7 @@ function colorLuminance([r, g, b]: [number, number, number]): number {
 
 // Very light colours would make the white text on the invoice unreadable,
 // so they are darkened until white text is clearly legible.
-function safeInvoiceColor(hex: string): string {
+export function safeInvoiceColor(hex: string): string {
   let c = hexToRgb255(hex)
   for (let i = 0; i < 30 && colorLuminance(c) > 0.30; i++) {
     c = [Math.round(c[0] * 0.9), Math.round(c[1] * 0.9), Math.round(c[2] * 0.9)]
@@ -109,7 +112,7 @@ function compressLogo(base64: string): Promise<string> {
 }
 
 // ── Build full invoice PDF from scratch ────────────────────────
-async function buildInvoicePDF(tmpl: Template, params: {
+export async function buildInvoicePDF(tmpl: Template, params: {
   number: number
   billToName: string
   billToAddress: string
@@ -124,6 +127,12 @@ async function buildInvoicePDF(tmpl: Template, params: {
   gst: number
   total: number
   balancePaid?: boolean
+  // 'added' (10% on top) is what every invoice has always used, so it is the default.
+  gstMode?: 'none' | 'included' | 'added'
+  // Invoices created by emailing a service record show service details instead of hire dates.
+  source?: string
+  serviceDate?: string
+  kilometres?: string
 }): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create()
   const W = 595.28, H = 841.89
@@ -174,17 +183,27 @@ async function buildInvoicePDF(tmpl: Template, params: {
   const ln = (x1: number, y1: number, x2: number, y2: number, color = BDGRAY, thickness = 0.5) =>
     page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, color, thickness })
 
+  // Helvetica only covers Western characters; anything else (emoji, arrows, line breaks) would
+  // stop the whole PDF from being created, so those characters are swapped for "?" / a space.
+  const okChars = new Set(font.getCharacterSet())
+  const clean = (s: string) => Array.from(s).map(ch => {
+    const cp = ch.codePointAt(0) as number
+    return cp < 0x20 ? ' ' : okChars.has(cp) ? ch : '?'
+  }).join('')
+
   const txt = (s: string, x: number, y: number, size: number, f = font, color = BLACK) => {
     if (!s?.trim()) return
-    page.drawText(s, { x, y, size, font: f, color })
+    page.drawText(clean(s), { x, y, size, font: f, color })
   }
   const txtR = (s: string, rx: number, y: number, size: number, f = font, color = BLACK) => {
     if (!s?.trim()) return
-    page.drawText(s, { x: rx - f.widthOfTextAtSize(s, size), y, size, font: f, color })
+    const t = clean(s)
+    page.drawText(t, { x: rx - f.widthOfTextAtSize(t, size), y, size, font: f, color })
   }
   const txtC = (s: string, cx: number, y: number, size: number, f = font, color = BLACK) => {
     if (!s?.trim()) return
-    page.drawText(s, { x: cx - f.widthOfTextAtSize(s, size) / 2, y, size, font: f, color })
+    const t = clean(s)
+    page.drawText(t, { x: cx - f.widthOfTextAtSize(t, size) / 2, y, size, font: f, color })
   }
 
   // ── HEADER ──────────────────────────────────────────────────
@@ -231,8 +250,14 @@ async function buildInvoicePDF(tmpl: Template, params: {
   fillRect(0, date_bot, W, DATE_H, WHITE)
   borderRect(0, date_bot, W, DATE_H)
   const COL_W4  = W / 4
-  const dateVals = [params.invoiceDate, params.hireFrom, params.hireTo, params.rego || '\u2014']
-  ;['INVOICE DATE', 'HIRE FROM', 'HIRE TO', 'REGO'].forEach((lbl, i) => {
+  const isService = params.source === 'service-email'
+  const dateVals = isService
+    ? [params.invoiceDate, params.serviceDate || '\u2014', params.kilometres || '\u2014', params.rego || '\u2014']
+    : [params.invoiceDate, params.hireFrom, params.hireTo, params.rego || '\u2014']
+  ;(isService
+    ? ['INVOICE DATE', 'SERVICE DATE', 'KILOMETRES', 'REGO']
+    : ['INVOICE DATE', 'HIRE FROM', 'HIRE TO', 'REGO']
+  ).forEach((lbl, i) => {
     const x = i * COL_W4 + 16
     txt(lbl,         x, bill_bot - 17, 7.5, fontBold, ORANGE)
     txt(dateVals[i], x, bill_bot - 35, 11,  font,     BLACK)
@@ -263,7 +288,9 @@ async function buildInvoicePDF(tmpl: Template, params: {
     if (li?.description?.trim()) {
       txt(li.description,        16,     ty, 10.5, font,     BLACK)
       txtC(String(li.days ?? ''), 375,    ty, 10.5, font,     BLACK)
-      txtC(`$${li.unitPrice}`,   455,    ty, 10.5, font,     BLACK)
+      // Amounts read back from the database are numbers (85.5) — show them with cents like AMOUNT does.
+      const unitRaw: unknown = li.unitPrice
+      txtC(`$${typeof unitRaw === 'number' ? unitRaw.toFixed(2) : String(unitRaw ?? '')}`, 455, ty, 10.5, font, BLACK)
       txtR(fmtAmt(li.amount),    W - 16, ty, 10.5, fontBold, BLACK)
     }
   }
@@ -272,9 +299,12 @@ async function buildInvoicePDF(tmpl: Template, params: {
   fillRect(0, tot_bot, W, TOT_H, WHITE)
   borderRect(0, tot_bot, W, TOT_H)
   ln(DIV_X, rows_bot - 2, W - 16, rows_bot - 2, ORANGE, 1)
-  txt('Subtotal',            DIV_X + 16, rows_bot - 24, 10,   font,     GRAY)
+  const gstMode  = params.gstMode || 'added'
+  const subLabel = gstMode === 'included' ? 'Subtotal (excl. GST)' : 'Subtotal'
+  const gstLabel = gstMode === 'none' ? 'GST (not applicable)' : gstMode === 'included' ? 'GST (10% included)' : 'GST (10%)'
+  txt(subLabel,              DIV_X + 16, rows_bot - 24, 10,   font,     GRAY)
   txtR(fmtAmt(params.subtotal), W - 16, rows_bot - 24, 10,   font,     BLACK)
-  txt('GST (10%)',           DIV_X + 16, rows_bot - 44, 10,   font,     GRAY)
+  txt(gstLabel,              DIV_X + 16, rows_bot - 44, 10,   font,     GRAY)
   txtR(fmtAmt(params.gst),      W - 16, rows_bot - 44, 10,   font,     BLACK)
   ln(DIV_X + 16, rows_bot - 54, W - 16, rows_bot - 54, BDGRAY, 0.5)
   txt('TOTAL',               DIV_X + 16, rows_bot - 72, 13,   fontBold, ORANGE)
@@ -359,7 +389,9 @@ export default function InvoicePage() {
       setTemplates(tr.data)
       setPast(ir.data)
       setInvNumber(nr.data.number)
-      if (tr.data.length > 0 && !selectedId) setSelectedId(tr.data[0]._id)
+      if (tr.data.length > 0 && !selectedId) {
+        setSelectedId((tr.data.find((t: Template) => t.isDefault) || tr.data[0])._id)
+      }
     } catch { showToast('Failed to load') }
     finally  { setTLoading(false) }
   }
@@ -401,11 +433,33 @@ export default function InvoicePage() {
     setDeleting(id)
     try {
       await axios.delete(`/api/invoices/templates/${id}`)
-      setTemplates(p => p.filter(t => t._id !== id))
+      setTemplates(p => {
+        const rest = p.filter(t => t._id !== id)
+        // The server hands "default" to the oldest remaining template when the default is deleted.
+        return rest.length > 0 && !rest.some(t => t.isDefault)
+          ? rest.map((t, i) => (i === rest.length - 1 ? { ...t, isDefault: true } : t))
+          : rest
+      })
       if (selectedId === id) setSelectedId(templates.find(t => t._id !== id)?._id || '')
       showToast('Deleted')
     } catch { showToast('Delete failed') }
     finally  { setDeleting(null) }
+  }
+
+  // ── Default template ─────────────────────────────────────────
+  async function setDefaultTemplate(id: string) {
+    try {
+      await axios.post(`/api/invoices/templates/${id}/default`)
+      setTemplates(p => p.map(t => ({ ...t, isDefault: t._id === id })))
+      showToast('Default template updated')
+    } catch { showToast('Could not set default') }
+  }
+
+  // ── Copy the public link of an emailed invoice ────────────────
+  async function copyInvoiceLink(inv: SavedInvoice) {
+    const link = `${window.location.origin}/view-invoice/${inv.publicToken}`
+    try { await navigator.clipboard.writeText(link); showToast('Invoice link copied') }
+    catch { window.prompt('Copy this invoice link:', link) }
   }
 
   // ── Line items ───────────────────────────────────────────────
@@ -580,6 +634,12 @@ export default function InvoicePage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-text-primary truncate">{t.businessName}</p>
                     <p className="text-[11px] text-text-muted">Used {t.usageCount}×</p>
+                    {t.isDefault ? (
+                      <p className="text-[11px] font-medium text-accent">★ Default</p>
+                    ) : (
+                      <button onClick={e => { e.stopPropagation(); setDefaultTemplate(t._id) }}
+                        className="text-[11px] text-text-muted hover:text-accent transition-colors">☆ Make default</button>
+                    )}
                   </div>
                   <button onClick={e => { e.stopPropagation(); deleteTemplate(t._id) }}
                     disabled={deleting === t._id}
@@ -588,7 +648,7 @@ export default function InvoicePage() {
               ))}
 
               <p className="text-[10px] text-text-muted text-center pt-1 leading-relaxed">
-                Last 20 invoices saved per owner
+                Last 20 invoices saved per owner (emailed invoices are always kept)
               </p>
             </div>
           </div>
@@ -806,13 +866,21 @@ export default function InvoicePage() {
                       <tbody>
                         {pastInvoices.map(inv => (
                           <tr key={inv._id} className="border-b border-border last:border-0 hover:bg-surface2">
-                            <td className="px-5 py-3 font-medium">#{inv.number}</td>
+                            <td className="px-5 py-3 font-medium">
+                              #{inv.number}
+                              {inv.source === 'service-email' && (
+                                <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent/10 text-accent align-middle">✉ emailed</span>
+                              )}
+                            </td>
                             <td className="px-5 py-3 text-text-muted">{inv.templateName || '—'}</td>
                             <td className="px-5 py-3">{inv.billToName || '—'}</td>
                             <td className="px-5 py-3 font-medium text-accent">{fmtAmt(inv.total || 0)}</td>
                             <td className="px-5 py-3 text-text-muted">{fmtDate(inv.createdAt)}</td>
-                            <td className="px-5 py-3">
+                            <td className="px-5 py-3 whitespace-nowrap">
                               <button onClick={() => reDownload(inv)} className="text-xs text-accent hover:underline">↓ Re-download</button>
+                              {inv.publicToken && (
+                                <button onClick={() => copyInvoiceLink(inv)} className="text-xs text-text-muted hover:text-accent ml-3">Copy link</button>
+                              )}
                             </td>
                           </tr>
                         ))}

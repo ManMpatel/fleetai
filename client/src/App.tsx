@@ -17,6 +17,7 @@ import StaffPage from './pages/StaffPage'
 import InvoicePage from './pages/InvoicePage'
 import ServiceHistoryPage from './pages/ServiceHistoryPage'
 import TollBatchPage from './pages/TollBatchPage'
+import PublicInvoicePage from './pages/PublicInvoicePage'
 import { useStore } from './store/useStore'
 
 function LoginPage() {
@@ -229,8 +230,11 @@ export default function App() {
 
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
 
+  // '/view-invoice/' (with the slash) is the public link in emailed invoices — it must not
+  // be confused with the dashboard's own '/invoices' page.
   const isPublicPath = window.location.pathname.startsWith('/onboard') ||
-                       window.location.pathname.startsWith('/tablet')
+                       window.location.pathname.startsWith('/tablet') ||
+                       window.location.pathname.startsWith('/view-invoice/')
 
   // The verified Auth0 token is the only thing that identifies the tenant. There is no
   // longer an x-owner-email header — the server derives the organisation from this token.
@@ -305,6 +309,7 @@ export default function App() {
           <Route path="/onboard/:slug" element={<OnboardPage />} />
           <Route path="/onboard" element={<OnboardPage />} />
           <Route path="/tablet" element={<TabletPage />} />
+          <Route path="/view-invoice/:token" element={<PublicInvoicePage />} />
         </Routes>
       </BrowserRouter>
     )
