@@ -288,9 +288,10 @@ export async function buildInvoicePDF(tmpl: Template, params: {
     if (li?.description?.trim()) {
       txt(li.description,        16,     ty, 10.5, font,     BLACK)
       txtC(String(li.days ?? ''), 375,    ty, 10.5, font,     BLACK)
-      // Amounts read back from the database are numbers (85.5) — show them with cents like AMOUNT does.
+      // Show the unit price like the AMOUNT column does ($1,111.00), whether it was typed in the form or read back from the database.
       const unitRaw: unknown = li.unitPrice
-      txtC(`$${typeof unitRaw === 'number' ? unitRaw.toFixed(2) : String(unitRaw ?? '')}`, 455, ty, 10.5, font, BLACK)
+      const unitNum = typeof unitRaw === 'number' ? unitRaw : Number(String(unitRaw ?? '').trim() || NaN)
+      txtC(Number.isFinite(unitNum) ? fmtAmt(unitNum) : `$${String(unitRaw ?? '')}`, 455, ty, 10.5, font, BLACK)
       txtR(fmtAmt(li.amount),    W - 16, ty, 10.5, fontBold, BLACK)
     }
   }
@@ -369,6 +370,7 @@ export default function InvoicePage() {
   const [hireTo,        setHireTo]        = useState('')
   const [rego,          setRego]          = useState('')
   const [balancePaid, setBalancePaid]     = useState(true)
+  const [gstMode, setGstMode]             = useState<'none' | 'included' | 'added'>('added')
   const [lineItems, setLineItems]         = useState<LineItem[]>([EMPTY_LINE(), EMPTY_LINE()])
 
   const logoRef = useRef<HTMLInputElement>(null)
@@ -472,9 +474,12 @@ export default function InvoicePage() {
     })
   }
 
-  const subtotal = lineItems.reduce((s, li) => s + li.amount, 0)
-  const gst      = Math.round(subtotal * 0.1 * 100) / 100
-  const total    = Math.round((subtotal + gst) * 100) / 100
+  const lineSum  = lineItems.reduce((s, li) => s + li.amount, 0)
+  const r2       = (n: number) => Math.round(n * 100) / 100
+  // 'added' (the default) puts 10% on top, exactly as before. 'included' finds the GST inside the prices. 'none' shows no GST.
+  const gst      = gstMode === 'none' ? 0 : r2(gstMode === 'included' ? lineSum / 11 : lineSum * 0.1)
+  const subtotal = gstMode === 'added' ? lineSum : r2(gstMode === 'included' ? lineSum - gst : lineSum)
+  const total    = r2(gstMode === 'added' ? lineSum + gst : lineSum)
 
   // ── Generate ─────────────────────────────────────────────────
   async function handleGenerate() {
@@ -490,7 +495,7 @@ export default function InvoicePage() {
         billToName, billToAddress, customerId, terms,
         invoiceDate, hireFrom, hireTo, rego,
         lineItems: lineItems.filter(li => li.description.trim()),
-        subtotal, gst, total, balancePaid,
+        subtotal, gst, total, balancePaid, gstMode,
       }
       const bytes = await buildInvoicePDF(selectedTmpl, form)
       const blob  = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
@@ -821,6 +826,18 @@ export default function InvoicePage() {
                 <button onClick={() => setLineItems(p => [...p, EMPTY_LINE()])}
                   className="text-xs text-accent hover:text-accent/80 transition-colors mb-4">+ Add line item</button>
 
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <span className="text-xs font-medium text-text-muted uppercase tracking-wide">GST</span>
+                  <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+                    {([['none', 'No GST'], ['included', 'GST included'], ['added', 'Add 10% GST']] as const).map(([m, label], i) => (
+                      <button key={m} onClick={() => setGstMode(m)}
+                        className={`px-3 py-1.5 transition-colors ${i > 0 ? 'border-l border-border ' : ''}${gstMode === m ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2 mb-6">
                   <span className="text-xs font-medium text-text-muted uppercase tracking-wide">Balance Status</span>
                   <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
@@ -836,12 +853,12 @@ export default function InvoicePage() {
                 </div>
 
                 <div className="flex justify-end">
-                  <div className="w-60 border border-border rounded-xl overflow-hidden">
+                  <div className={`${gstMode === 'included' ? 'w-72' : 'w-60'} border border-border rounded-xl overflow-hidden`}>
                     <div className="flex justify-between px-4 py-2.5 text-sm border-b border-border">
-                      <span className="text-text-muted">Subtotal</span><span>{fmtAmt(subtotal)}</span>
+                      <span className="text-text-muted">{gstMode === 'included' ? 'Subtotal (excl. GST)' : 'Subtotal'}</span><span>{fmtAmt(subtotal)}</span>
                     </div>
                     <div className="flex justify-between px-4 py-2.5 text-sm border-b border-border">
-                      <span className="text-text-muted">GST (10%)</span><span>{fmtAmt(gst)}</span>
+                      <span className="text-text-muted">{gstMode === 'none' ? 'GST (not applicable)' : gstMode === 'included' ? 'GST (10% included)' : 'GST (10%)'}</span><span>{fmtAmt(gst)}</span>
                     </div>
                     <div className="flex justify-between px-4 py-3 text-sm font-semibold bg-surface2">
                       <span className="text-accent">Total</span><span className="text-accent">{fmtAmt(total)}</span>
