@@ -166,6 +166,31 @@ function Splash({ text }: { text: string }) {
 }
 
 /**
+ * Errors from Auth0 that mean this browser can no longer renew the login on its own, so the
+ * person has to sign in again. Anything else (a slow network, a timeout) is treated as temporary.
+ */
+const SIGN_IN_REQUIRED = new Set([
+  'login_required', 'consent_required', 'interaction_required', 'account_selection_required',
+  'mfa_required', 'missing_refresh_token', 'invalid_grant',
+])
+const needsSignIn = (err: unknown) => SIGN_IN_REQUIRED.has((err as { error?: string } | null)?.error ?? '')
+
+/**
+ * Shown when the login has expired and cannot be renewed in the background. Before this existed,
+ * requests kept going out with no token and every save failed with a vague "Failed to save ...".
+ */
+function SessionExpiredBanner({ onLogin }: { onLogin: () => void }) {
+  return (
+    <div role="alert" className="fixed top-0 inset-x-0 z-[10000] flex flex-wrap items-center justify-center gap-3 px-4 py-2.5 bg-amber-bg border-b border-amber text-sm text-text-primary shadow-lg">
+      <span>Your login has expired, so changes can't be saved until you log in again.</span>
+      <button onClick={onLogin} className="px-3 py-1 rounded-lg bg-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">
+        Log in again
+      </button>
+    </div>
+  )
+}
+
+/**
  * Catches a render-time crash in any page below the shell so it degrades to an inline error
  * inside that page's slot instead of unmounting the whole app to a blank white body — the
  * exact failure mode a page that throws while reading an API response used to cause (see
@@ -221,10 +246,11 @@ function SuperAdminLanding() {
 }
 
 export default function App() {
-  const { isLoading, isAuthenticated, user, logout, getAccessTokenSilently } = useAuth0()
+  const { isLoading, isAuthenticated, user, logout, loginWithRedirect, getAccessTokenSilently } = useAuth0()
   const [ownerStatus, setOwnerStatus] = useState<'checking' | 'pending' | 'approved' | 'rejected' | 'error'>('checking')
   const [retryCount, setRetryCount] = useState(0)
   const [interceptorReady, setInterceptorReady] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
   const setSession = useStore(s => s.setSession)
   const isSuperAdmin = useStore(s => !!s.session?.isSuperAdmin)
 
@@ -240,6 +266,15 @@ export default function App() {
   // longer an x-owner-email header — the server derives the organisation from this token.
   useEffect(() => {
     if (!isAuthenticated) return
+
+    // A failed token fetch is not fatal here (the request still goes out and the server rejects
+    // it), but if Auth0 says the login cannot be renewed, say so. Otherwise the person only sees
+    // a vague "Failed to save" and has no idea why.
+    const handleTokenError = (err: unknown) => {
+      console.warn('[auth] could not get an access token:', (err as { error?: string })?.error || (err as Error)?.message)
+      if (needsSignIn(err)) setSessionExpired(true)
+    }
+
     const interceptor = axios.interceptors.request.use(async (config) => {
       try {
         const token = await Promise.race([
@@ -247,13 +282,25 @@ export default function App() {
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 8000)),
         ])
         config.headers.Authorization = `Bearer ${token}`
-      } catch {
+        setSessionExpired(false)
+      } catch (err) {
         // Fall through unauthenticated; the server will reject it.
+        handleTokenError(err)
       }
       return config
     })
+
+    // A tab left open for hours: check the login as soon as the person comes back to it, so an
+    // expired login is renewed (or flagged) before they start filling in a form.
+    const checkLogin = () => {
+      if (document.visibilityState !== 'visible' || isPublicPath) return
+      getAccessTokenSilently().then(() => setSessionExpired(false), handleTokenError)
+    }
+    document.addEventListener('visibilitychange', checkLogin)
+
     setInterceptorReady(true)
     return () => {
+      document.removeEventListener('visibilitychange', checkLogin)
       axios.interceptors.request.eject(interceptor)
       setInterceptorReady(false)
     }
@@ -325,6 +372,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <SuperAdminLanding />
+      {sessionExpired && (
+        <SessionExpiredBanner
+          onLogin={() => loginWithRedirect({ appState: { returnTo: window.location.pathname + window.location.search } })}
+        />
+      )}
       <Routes>
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/*" element={<DashboardShell />} />
