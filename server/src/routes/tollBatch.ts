@@ -213,6 +213,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     console.log('[processBatch] Temp file written to', tmpPdfPath)
 
     let cancelled = false
+    let gone = false
     try {
       const PAGE_BATCH = 30
       for (let batchFirst = 1; batchFirst <= totalPages; batchFirst += PAGE_BATCH) {
@@ -224,6 +225,14 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
 
         const current = await TollBatch.findOne({ _id: batchId, orgId }).select('status').lean()
         if (current?.status === 'cancelled') { cancelled = true; break }
+        if (!current) {
+          await new Promise(r => setTimeout(r, 1500))
+          const recheck = await TollBatch.findOne({ _id: batchId, orgId }).select('status').lean()
+          if (!recheck) {
+            console.warn(`[processBatch] Batch ${batchId} no longer exists — stopping`)
+            gone = true; break
+          }
+        }
 
         console.log(`[processBatch] Rasterizing pages ${batchFirst}-${batchLast}…`)
         const batchPages = await rasterizePdfBatch(tmpPdfPath, batchFirst, batchLast)
@@ -307,6 +316,8 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     } finally {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }
+
+    if (gone) return
 
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Merging folders into PDFs', lastProgressAt: new Date() } })
 
@@ -448,7 +459,19 @@ router.post('/:batchId/retry', async (req: Request, res: Response) => {
 router.delete('/:batchId', async (req: Request, res: Response) => {
   try {
     const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId })
-    if (!batch) return res.status(404).json({ error: 'Batch not found' })
+    if (!batch) {
+      // Ghost-folder recovery: the batch record was deleted (e.g. crash during a prior delete)
+      // but TollFolder/TollPage records may still exist for this batchId.
+      const ghostFolders = await TollFolder.find({ batchId: req.params.batchId, orgId: req.orgId }).select('_id mergedPdfFileId')
+      if (!ghostFolders.length) return res.status(404).json({ error: 'Batch not found' })
+      for (const f of ghostFolders) {
+        if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
+      }
+      const ghostFolderIds = ghostFolders.map(f => f._id)
+      await TollPage.deleteMany({ folderId: { $in: ghostFolderIds } })
+      await TollFolder.deleteMany({ _id: { $in: ghostFolderIds } })
+      return res.json({ success: true, ghostsCleaned: ghostFolders.length })
+    }
     if (batch.status === 'processing') return res.status(409).json({ error: 'Cancel the batch before deleting it' })
 
     if (batch.originalPdfFileId) await deleteOriginalPdf(batch.originalPdfFileId as any).catch(() => {})
@@ -844,6 +867,16 @@ async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<vo
     let moved = 0
 
     for (const page of pages) {
+      const batchStillExists = await TollBatch.exists({ _id: batchId, orgId })
+      if (!batchStillExists) {
+        await new Promise(r => setTimeout(r, 1500))
+        const recheckExists = await TollBatch.exists({ _id: batchId, orgId })
+        if (!recheckExists) {
+          console.warn(`[rescanUnrecognized] Batch ${batchId} no longer exists — stopping`)
+          return
+        }
+      }
+
       try {
         let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
 

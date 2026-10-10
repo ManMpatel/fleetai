@@ -247,26 +247,53 @@ mongoose
 
     // Hard-delete TollBatch documents (and all associated TollFolder, TollPage records,
     // plus GridFS merged PDFs) older than 45 days — daily at 3:30am.
+    // Also sweeps orphan TollFolders (created during a batch that was later deleted)
+    // even when no old batches exist, so ghost data never accumulates indefinitely.
     cron.schedule('30 3 * * *', async () => {
       try {
         const cutoff = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
+
+        // ── 1. Normal batch purge ────────────────────────────────────────────
         const oldBatches = await TollBatch.find({ createdAt: { $lt: cutoff } })
           .select('_id originalPdfFileId').setOptions({ allowCrossTenant: true })
-        if (!oldBatches.length) return
-        const batchIds = oldBatches.map(b => b._id)
-        for (const b of oldBatches) {
-          if (b.originalPdfFileId) await deleteOriginalPdf(b.originalPdfFileId as any).catch(() => {})
+        if (oldBatches.length) {
+          const batchIds = oldBatches.map(b => b._id)
+          for (const b of oldBatches) {
+            if (b.originalPdfFileId) await deleteOriginalPdf(b.originalPdfFileId as any).catch(() => {})
+          }
+          const batchFolders = await TollFolder.find({ batchId: { $in: batchIds } })
+            .select('_id mergedPdfFileId').setOptions({ allowCrossTenant: true })
+          for (const folder of batchFolders) {
+            if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId as any).catch(() => {})
+          }
+          const batchFolderIds = batchFolders.map(f => f._id)
+          await TollPage.deleteMany({ folderId: { $in: batchFolderIds } }).setOptions({ allowCrossTenant: true })
+          await TollFolder.deleteMany({ batchId: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
+          await TollBatch.deleteMany({ _id: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
+          console.log(`🗑️ TollBatch purge — hard-deleted ${oldBatches.length} batch(es) and all associated data older than 45 days`)
         }
-        const folders = await TollFolder.find({ batchId: { $in: batchIds } })
-          .select('_id mergedPdfFileId').setOptions({ allowCrossTenant: true })
-        for (const folder of folders) {
-          if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId as any).catch(() => {})
+
+        // ── 2. Orphan folder sweep ───────────────────────────────────────────
+        // Folders whose batchId no longer has a corresponding TollBatch record
+        // (e.g. batch was deleted during processing, or a crash left ghost data).
+        const staleFolders = await TollFolder.find({ createdAt: { $lt: cutoff } })
+          .select('_id batchId mergedPdfFileId').setOptions({ allowCrossTenant: true })
+        if (staleFolders.length) {
+          const staleBatchIds = [...new Set(staleFolders.map(f => f.batchId?.toString()).filter(Boolean))]
+          const liveBatches = await TollBatch.find({ _id: { $in: staleBatchIds } })
+            .select('_id').setOptions({ allowCrossTenant: true })
+          const liveBatchIdSet = new Set(liveBatches.map(b => b._id.toString()))
+          const orphanFolders = staleFolders.filter(f => !liveBatchIdSet.has(f.batchId?.toString() ?? ''))
+          if (orphanFolders.length) {
+            for (const f of orphanFolders) {
+              if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
+            }
+            const orphanFolderIds = orphanFolders.map(f => f._id)
+            await TollPage.deleteMany({ folderId: { $in: orphanFolderIds } }).setOptions({ allowCrossTenant: true })
+            await TollFolder.deleteMany({ _id: { $in: orphanFolderIds } }).setOptions({ allowCrossTenant: true })
+            console.log(`🗑️ Orphan folder sweep — hard-deleted ${orphanFolders.length} ghost folder(s) with no parent batch`)
+          }
         }
-        const folderIds = folders.map(f => f._id)
-        await TollPage.deleteMany({ folderId: { $in: folderIds } }).setOptions({ allowCrossTenant: true })
-        await TollFolder.deleteMany({ batchId: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
-        await TollBatch.deleteMany({ _id: { $in: batchIds } }).setOptions({ allowCrossTenant: true })
-        console.log(`🗑️ TollBatch purge — hard-deleted ${oldBatches.length} batch(es) and all associated data older than 45 days`)
       } catch (err) { console.error('TollBatch purge error:', err) }
     })
 
