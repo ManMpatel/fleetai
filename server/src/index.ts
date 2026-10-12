@@ -1,4 +1,4 @@
-import express from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import mongoose from 'mongoose'
 import dotenv from 'dotenv'
@@ -178,6 +178,17 @@ app.get('/api/health', (_req, res) => {
       legacyOrg: legacyOrgEmail(),
     },
   })
+})
+
+// ── Error handler ───────────────────────────────────────────
+// express-oauth2-jwt-bearer calls next(UnauthorizedError) on invalid/expired tokens.
+// Without this, Express's default handler catches it and returns 500, which makes the
+// client show "Server Unavailable" instead of the "Log in again" banner.
+app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  if (err.status === 401 || err.name === 'UnauthorizedError') {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  next(err)
 })
 
 // ── MongoDB + server start ──────────────────────────────────
