@@ -3,6 +3,7 @@ import Organization from '../models/Organization'
 import ServiceRecord from '../models/ServiceRecord'
 import TollFolder from '../models/TollFolder'
 import Renter from '../models/Renter'
+import Invoice from '../models/Invoice'
 import { sendResendEmail } from '../services/resendEmail'
 import { readMergedPdf } from '../services/tollStorage'
 import {
@@ -11,6 +12,15 @@ import {
 import type { GstMode, ServiceInvoiceOk } from '../services/serviceInvoice'
 
 const router = Router()
+
+// The browser builds invoice PDFs (there is no invoice renderer on the server), so an invoice to email arrives
+// as base64. Only a real PDF of a sensible size is accepted.
+const MAX_INVOICE_PDF_BASE64 = 14000000   // about 10 MB of PDF
+function decodeInvoicePdf(data: unknown): Buffer | null {
+  if (typeof data !== 'string' || data.length === 0 || data.length > MAX_INVOICE_PDF_BASE64) return null
+  const pdf = Buffer.from(data, 'base64')
+  return pdf.length > 5 && pdf.subarray(0, 5).toString('latin1') === '%PDF-' ? pdf : null
+}
 
 // GET /api/email/recipients?q=
 // Returns matching renters (with email) + recent recipients saved on the org.
@@ -45,23 +55,25 @@ router.get('/recipients', async (req: Request, res: Response) => {
 // POST /api/email/send
 // Body: { to, subject, message, attachmentType, attachmentId }
 // attachmentType: 'toll-folder' — attaches the merged PDF; marks folder as sent.
+// attachmentType: 'invoice' - attaches the invoice PDF the browser built (pdfBase64); needs an invoice of this business.
 // attachmentType: 'service-record' — embeds record details in the HTML body.
 router.post('/send', async (req: Request, res: Response) => {
   try {
     const {
       to, subject, message,
       attachmentType, attachmentId,
-      includeInvoice, templateId, gstMode, balancePaid,
+      includeInvoice, templateId, gstMode, balancePaid, pdfBase64,
     } = req.body as {
       to: string
       subject: string
       message: string
-      attachmentType: 'toll-folder' | 'service-record'
+      attachmentType: 'toll-folder' | 'service-record' | 'invoice'
       attachmentId: string
       includeInvoice?: boolean
       templateId?: string
       gstMode?: string
       balancePaid?: boolean
+      pdfBase64?: string
     }
 
     if (!to || !subject || !attachmentType || !attachmentId) {
@@ -163,6 +175,22 @@ router.post('/send', async (req: Request, res: Response) => {
         sentTo: to,
         ...(inv ? { invoice: { number: inv.number, total: inv.total, url: inv.url } } : {}),
       })
+    }
+
+    if (attachmentType === 'invoice') {
+      const invoice = await Invoice.findOne({ _id: attachmentId, orgId: req.orgId }).select('number')
+      if (!invoice) return res.status(404).json({ error: 'Invoice not found' })
+      const pdf = decodeInvoicePdf(pdfBase64)
+      if (!pdf) return res.status(400).json({ error: 'The invoice PDF is missing or not a valid PDF' })
+
+      await sendResendEmail(
+        org, to, subject,
+        `<div style="font-family:sans-serif"><p>${msgHtml}</p></div>`,
+        { filename: `Invoice-${invoice.number}.pdf`, content: pdf },
+      )
+
+      await saveRecipient(org._id.toString(), to)
+      return res.json({ success: true, sentTo: to })
     }
 
     return res.status(400).json({ error: 'Invalid attachment type' })
