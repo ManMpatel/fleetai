@@ -133,6 +133,8 @@ export async function buildInvoicePDF(tmpl: Template, params: {
   source?: string
   serviceDate?: string
   kilometres?: string
+  // 'service' = made by hand as a Service invoice: no Customer ID, Terms or hire dates.
+  invoiceType?: string
 }): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create()
   const W = 595.28, H = 841.89
@@ -234,34 +236,41 @@ export async function buildInvoicePDF(tmpl: Template, params: {
   txtR(`# ${params.number}`, W - 16, H - 66, 13, fontBold, WHITE)
 
   // ── BILL TO ──────────────────────────────────────────────────
+  // Service invoices (emailed from a service record, or made by hand as a Service invoice) are not a hire,
+  // so they leave out Customer ID, Terms and the hire dates.
+  const isServiceInvoice = params.source === 'service-email' || params.invoiceType === 'service'
+
   fillRect(0, bill_bot, W, BILL_H, WHITE)
   borderRect(0, bill_bot, W, BILL_H)
-  ln(DIV_X, hdr_bot - 8, DIV_X, bill_bot + 8)
+  if (!isServiceInvoice) ln(DIV_X, hdr_bot - 8, DIV_X, bill_bot + 8)
 
   txt('BILL TO',            16,        hdr_bot - 18, 7.5,  fontBold, ORANGE)
   txt(params.billToName,    16,        hdr_bot - 34, 12,   fontBold, BLACK)
   txt(params.billToAddress, 16,        hdr_bot - 50, 10,   font,     BLACK)
-  txt('CUSTOMER ID',                                    DIV_X + 16, hdr_bot - 18, 7.5, fontBold, ORANGE)
-  txt(params.customerId?.trim() || '\u2014',            DIV_X + 16, hdr_bot - 33, 10,  font,     GRAY)
-  txt('TERMS',                                          DIV_X + 16, hdr_bot - 53, 7.5, fontBold, ORANGE)
-  txt(params.terms?.trim() || '\u2014',                 DIV_X + 16, hdr_bot - 68, 10,  font,     GRAY)
+  if (!isServiceInvoice) txt('CUSTOMER ID',                                    DIV_X + 16, hdr_bot - 18, 7.5, fontBold, ORANGE)
+  if (!isServiceInvoice) txt(params.customerId?.trim() || '\u2014',            DIV_X + 16, hdr_bot - 33, 10,  font,     GRAY)
+  if (!isServiceInvoice) txt('TERMS',                                          DIV_X + 16, hdr_bot - 53, 7.5, fontBold, ORANGE)
+  if (!isServiceInvoice) txt(params.terms?.trim() || '\u2014',                 DIV_X + 16, hdr_bot - 68, 10,  font,     GRAY)
 
   // ── DATES ────────────────────────────────────────────────────
   fillRect(0, date_bot, W, DATE_H, WHITE)
   borderRect(0, date_bot, W, DATE_H)
-  const COL_W4  = W / 4
   const isService = params.source === 'service-email'
   const dateVals = isService
     ? [params.invoiceDate, params.serviceDate || '\u2014', params.kilometres || '\u2014', params.rego || '\u2014']
     : [params.invoiceDate, params.hireFrom, params.hireTo, params.rego || '\u2014']
-  ;(isService
+  // Hire invoice: four boxes with the hire dates. Emailed service invoice: four boxes with the service date and
+  // kilometres. Service invoice made by hand: only Invoice date and Rego, in two wider boxes.
+  const dateLabels = isService
     ? ['INVOICE DATE', 'SERVICE DATE', 'KILOMETRES', 'REGO']
     : ['INVOICE DATE', 'HIRE FROM', 'HIRE TO', 'REGO']
-  ).forEach((lbl, i) => {
-    const x = i * COL_W4 + 16
-    txt(lbl,         x, bill_bot - 17, 7.5, fontBold, ORANGE)
-    txt(dateVals[i], x, bill_bot - 35, 11,  font,     BLACK)
-    if (i < 3) ln((i + 1) * COL_W4, bill_bot - 4, (i + 1) * COL_W4, date_bot + 4)
+  const shown = isServiceInvoice && !isService ? [0, 3] : [0, 1, 2, 3]
+  const colW = W / shown.length
+  shown.forEach((idx, col) => {
+    const x = col * colW + 16
+    txt(dateLabels[idx], x, bill_bot - 17, 7.5, fontBold, ORANGE)
+    txt(dateVals[idx],   x, bill_bot - 35, 11,  font,     BLACK)
+    if (col < shown.length - 1) ln((col + 1) * colW, bill_bot - 4, (col + 1) * colW, date_bot + 4)
   })
 
   // ── TABLE HEADER ─────────────────────────────────────────────
@@ -368,6 +377,7 @@ export default function InvoicePage() {
   const [invoiceDate,   setInvoiceDate]   = useState(today())
   const [hireFrom,      setHireFrom]      = useState('')
   const [hireTo,        setHireTo]        = useState('')
+  const [invoiceType, setInvoiceType] = useState<'normal' | 'service'>('normal')
   const [rego,          setRego]          = useState('')
   const [balancePaid, setBalancePaid]     = useState(true)
   const [gstMode, setGstMode]             = useState<'none' | 'included' | 'added'>('added')
@@ -492,8 +502,14 @@ export default function InvoicePage() {
         templateId:   selectedTmpl._id,
         templateName: selectedTmpl.businessName,
         number: invNumber,
-        billToName, billToAddress, customerId, terms,
-        invoiceDate, hireFrom, hireTo, rego,
+        billToName, billToAddress,
+        // A Service invoice has no Customer ID, Terms or hire dates, even if something was typed before switching type.
+        customerId: invoiceType === 'service' ? '' : customerId,
+        terms:      invoiceType === 'service' ? '' : terms,
+        invoiceDate,
+        hireFrom:   invoiceType === 'service' ? '' : hireFrom,
+        hireTo:     invoiceType === 'service' ? '' : hireTo,
+        rego, invoiceType,
         lineItems: lineItems.filter(li => li.description.trim()),
         subtotal, gst, total, balancePaid, gstMode,
       }
@@ -775,16 +791,28 @@ export default function InvoicePage() {
                   </div>
                 )}
 
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <span className="text-xs font-medium text-text-muted uppercase tracking-wide">Invoice type</span>
+                  <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+                    {([['normal', 'Normal invoice'], ['service', 'Service invoice']] as const).map(([t, label], i) => (
+                      <button key={t} onClick={() => setInvoiceType(t)}
+                        className={`px-3 py-1.5 transition-colors ${i > 0 ? 'border-l border-border ' : ''}${invoiceType === t ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <Field label="Bill To — Name" value={billToName} onChange={setBillToName} placeholder="Sydney Auto Warehouse" />
                   <Field label="Bill To — Address" value={billToAddress} onChange={setBillToAddress} placeholder="12 Main St, Sydney NSW 2000" />
-                  <Field label="Customer ID (optional)" value={customerId} onChange={setCustomerId} placeholder="e.g. CUST-001" />
-                  <Field label="Terms (optional)" value={terms} onChange={setTerms} placeholder="e.g. Net 30" />
+                  {invoiceType === 'normal' && <Field label="Customer ID (optional)" value={customerId} onChange={setCustomerId} placeholder="e.g. CUST-001" />}
+                  {invoiceType === 'normal' && <Field label="Terms (optional)" value={terms} onChange={setTerms} placeholder="e.g. Net 30" />}
                 </div>
-                <div className="grid grid-cols-4 gap-4 mb-6">
+                <div className={`grid ${invoiceType === 'normal' ? 'grid-cols-4' : 'grid-cols-2'} gap-4 mb-6`}>
                   <Field label="Invoice Date" value={invoiceDate} onChange={setInvoiceDate} placeholder="DD/MM/YYYY" />
-                  <Field label="Hire From" value={hireFrom} onChange={setHireFrom} placeholder="DD/MM/YYYY" />
-                  <Field label="Hire To" value={hireTo} onChange={setHireTo} placeholder="DD/MM/YYYY" />
+                  {invoiceType === 'normal' && <Field label="Hire From" value={hireFrom} onChange={setHireFrom} placeholder="DD/MM/YYYY" />}
+                  {invoiceType === 'normal' && <Field label="Hire To" value={hireTo} onChange={setHireTo} placeholder="DD/MM/YYYY" />}
                   <Field label="Rego (optional)" value={rego} onChange={setRego} placeholder="e.g. ERG18P" />
                 </div>
 
