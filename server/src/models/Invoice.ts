@@ -45,6 +45,10 @@ const InvoiceSchema = new mongoose.Schema({
   // that have no value stored read back exactly as they always printed.
   gstMode:       { type: String, enum: ['none', 'included', 'added'], default: 'added' },
 
+  // 'service' = an invoice made by hand for a service instead of a hire: it has no Customer ID, Terms or
+  // hire dates, and it re-downloads with the same layout. Older invoices have no value and read as 'normal'.
+  invoiceType:   { type: String, enum: ['normal', 'service'], default: 'normal' },
+
   // Invoices created by emailing a service record. These carry an unguessable public token,
   // are not counted towards the 20-invoice limit, and are kept when their template is deleted
   // so that links already sent to customers keep working.
