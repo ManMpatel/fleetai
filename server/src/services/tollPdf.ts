@@ -65,6 +65,19 @@ export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
   return doc.getPageCount()
 }
 
+// Every page is rendered to this many pixels on its long side. 2339 px is an A4 page at
+// 200 DPI, so ordinary scans come out exactly as they always did (at 150 DPI a 10pt font is
+// only ~21px tall — borderline for OCR on the dense "Licence plate number:" field in
+// WestConnex/Linkt notices; 200 DPI puts it at ~28px).
+//
+// Rendering at a fixed DPI made the image size depend on the PDF's page size in points. A PDF
+// with 1654 x 2339 pt pages (our own downloaded folder PDFs are built that way)
+// came out at 4595 x 6498 px (~30 megapixels), which Gemini rejects with
+// "400 Bad Request: Unable to process input image" — so every page silently landed in
+// Unrecognized. Capping the pixel size gives Gemini (and the stored copy) the same page
+// whatever size the PDF declares.
+const RASTER_LONG_SIDE_PX = 2339
+
 /**
  * Rasterizes a range of pages from a PDF already written to disk.
  * Callers write the PDF once, call this in a loop with different ranges, and let each
@@ -76,7 +89,7 @@ export async function rasterizePdfBatch(inputPath: string, firstPage: number, la
   try {
     try {
       await execFileAsync('pdftoppm', [
-        '-jpeg', '-jpegopt', 'quality=85', '-r', '200',
+        '-jpeg', '-jpegopt', 'quality=85', '-scale-to', String(RASTER_LONG_SIDE_PX),
         '-f', String(firstPage), '-l', String(lastPage),
         inputPath, outPrefix,
       ])
@@ -128,11 +141,9 @@ export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]>
   try {
     await writeFile(inputPath, pdfBuffer)
 
-    // 200 DPI: at 150 DPI a 10pt font renders at ~21px tall — borderline for OCR confidence
-    // on the dense "Licence plate number:" field in WestConnex/Linkt notices. 200 DPI
-    // puts the same text at ~28px, which is solidly in the reliable-OCR range for Gemini.
+    // Same pixel size as rasterizePdfBatch — see RASTER_LONG_SIDE_PX.
     try {
-      await execFileAsync('pdftoppm', ['-jpeg', '-jpegopt', 'quality=85', '-r', '200', inputPath, outPrefix])
+      await execFileAsync('pdftoppm', ['-jpeg', '-jpegopt', 'quality=85', '-scale-to', String(RASTER_LONG_SIDE_PX), inputPath, outPrefix])
     } catch (err: any) {
       const detail = err.stderr?.toString().trim() || err.message
       throw new Error(`pdftoppm failed to rasterize this PDF: ${detail}`)
