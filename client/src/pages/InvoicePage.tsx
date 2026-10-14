@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { SkeletonBar } from '../components/Skeleton'
+import SendEmailModal from '../components/SendEmailModal'
 
 // ── Types ──────────────────────────────────────────────────────
 export interface Template {
@@ -40,6 +41,17 @@ interface SavedInvoice {
 }
 
 const EMPTY_LINE = (): LineItem => ({ description: '', days: '', unitPrice: '', amount: 0 })
+
+// Sharing a file straight from the browser (WhatsApp and other apps) needs the Web Share API with files.
+const CAN_WEB_SHARE = typeof navigator !== 'undefined' && 'share' in navigator && 'canShare' in navigator
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 0x8000)))
+  }
+  return btoa(bin)
+}
 
 function today() {
   const d = new Date()
@@ -403,6 +415,10 @@ export default function InvoicePage() {
   const [toast, setToast]           = useState('')
   const [deleting, setDeleting]     = useState<string|null>(null)
 
+  // Past Invoices: the Share / Email button that is preparing its PDF, and the invoice whose email window is open
+  const [sendingKey, setSendingKey] = useState<string|null>(null)
+  const [emailing, setEmailing]     = useState<{ inv: SavedInvoice; pdfBase64: string } | null>(null)
+
   // Template form
   const [showTmplForm, setShowTmplForm] = useState(false)
   const [tmplForm, setTmplForm]     = useState(emptyTmplForm())
@@ -616,6 +632,39 @@ export default function InvoicePage() {
     } catch { showToast('Re-download failed') }
   }
 
+  // ---- Share / email a past invoice ----
+  // Builds the same PDF as Re-download. Returns null (after saying why) when it cannot be made.
+  async function pastInvoicePdf(inv: SavedInvoice): Promise<Uint8Array | null> {
+    const { data: full } = await axios.get(`/api/invoices/${inv._id}`)
+    const tmpl = templates.find(t => t._id === full.templateId)
+    if (!tmpl) { showToast('Template deleted - cannot regenerate'); return null }
+    return buildInvoicePDF(tmpl, full)
+  }
+
+  async function shareInvoice(inv: SavedInvoice) {
+    if (sendingKey) return
+    setSendingKey(`share-${inv._id}`)
+    try {
+      const bytes = await pastInvoicePdf(inv)
+      if (!bytes) return
+      const file = new File([bytes.buffer as ArrayBuffer], `Invoice-${inv.number}.pdf`, { type: 'application/pdf' })
+      if (!navigator.canShare({ files: [file] })) { showToast('Sharing is not supported here - use Re-download'); return }
+      await navigator.share({ files: [file], title: `Invoice #${inv.number}` })
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') showToast('Share failed - use Re-download')
+    } finally { setSendingKey(null) }
+  }
+
+  async function emailInvoice(inv: SavedInvoice) {
+    if (sendingKey) return
+    setSendingKey(`email-${inv._id}`)
+    try {
+      const bytes = await pastInvoicePdf(inv)
+      if (bytes) setEmailing({ inv, pdfBase64: bytesToBase64(bytes) })
+    } catch { showToast('Could not prepare the invoice') }
+    finally { setSendingKey(null) }
+  }
+
   
 
   // ── Render ────────────────────────────────────────────────────
@@ -624,6 +673,20 @@ export default function InvoicePage() {
 
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-text-primary shadow-sm">{toast}</div>
+      )}
+
+      {emailing && (
+        <SendEmailModal
+          isOpen
+          onClose={() => setEmailing(null)}
+          subject={`Invoice #${emailing.inv.number}${emailing.inv.templateName ? ` from ${emailing.inv.templateName}` : ''}`}
+          message="Please find your invoice attached."
+          attachmentType="invoice"
+          attachmentId={emailing.inv._id}
+          attachmentLabel={`Invoice #${emailing.inv.number}`}
+          pdfBase64={emailing.pdfBase64}
+          onSuccess={(sentTo) => showToast(`Sent to ${sentTo}`)}
+        />
       )}
 
       {/* Preview modal */}
@@ -962,6 +1025,36 @@ export default function InvoicePage() {
                             <td className="px-5 py-3 text-text-muted">{fmtDate(inv.createdAt)}</td>
                             <td className="px-5 py-3 whitespace-nowrap">
                               <button onClick={() => reDownload(inv)} className="text-xs text-accent hover:underline">↓ Re-download</button>
+                              {CAN_WEB_SHARE && (
+                                <button onClick={() => shareInvoice(inv)} disabled={sendingKey !== null}
+                                  title="Share directly to WhatsApp Desktop or other apps - no download needed" aria-label="Share invoice"
+                                  className="ml-3 px-2 py-1 align-middle bg-surface2 border border-border text-text-secondary rounded-lg hover:border-accent disabled:opacity-50 transition-colors">
+                                  {sendingKey === `share-${inv._id}` ? (
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5 animate-spin">
+                                      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                                    </svg>
+                                  ) : (
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
+                                      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                                    </svg>
+                                  )}
+                                </button>
+                              )}
+                              <button onClick={() => emailInvoice(inv)} disabled={sendingKey !== null}
+                                title="Send this invoice by email" aria-label="Email invoice"
+                                className="ml-2 px-2 py-1 align-middle bg-surface2 border border-border text-text-secondary rounded-lg hover:border-accent disabled:opacity-50 transition-colors">
+                                {sendingKey === `email-${inv._id}` ? (
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5 animate-spin">
+                                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                                  </svg>
+                                ) : (
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
+                                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                    <polyline points="22,6 12,13 2,6"/>
+                                  </svg>
+                                )}
+                              </button>
                               {inv.publicToken && (
                                 <button onClick={() => copyInvoiceLink(inv)} className="text-xs text-text-muted hover:text-accent ml-3">Copy link</button>
                               )}

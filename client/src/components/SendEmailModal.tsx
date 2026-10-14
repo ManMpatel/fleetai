@@ -19,15 +19,17 @@ interface Props {
   onClose: () => void
   subject: string
   message: string
-  attachmentType: 'toll-folder' | 'service-record'
+  attachmentType: 'toll-folder' | 'service-record' | 'invoice'
   attachmentId: string
   attachmentLabel: string
+  // Only for attachmentType 'invoice': the finished PDF as base64 (the browser builds invoice PDFs).
+  pdfBase64?: string
   onSuccess?: (sentTo: string, sentAt?: string) => void
 }
 
 export default function SendEmailModal({
   isOpen, onClose, subject: initialSubject, message: initialMessage,
-  attachmentType, attachmentId, attachmentLabel, onSuccess,
+  attachmentType, attachmentId, attachmentLabel, pdfBase64, onSuccess,
 }: Props) {
   const [to, setTo] = useState('')
   const [subject, setSubject] = useState(initialSubject)
@@ -110,6 +112,7 @@ export default function SendEmailModal({
         {
           to: to.trim(), subject, message, attachmentType, attachmentId,
           ...(wantInvoice ? { includeInvoice: true, templateId, gstMode, balancePaid } : {}),
+          ...(attachmentType === 'invoice' ? { pdfBase64 } : {}),
         }
       )
       // An older server ignores the invoice options and sends a plain email — say so instead of
@@ -123,7 +126,7 @@ export default function SendEmailModal({
       onSuccess?.(data.sentTo, data.sentAt)
       setTimeout(onClose, 1500)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to send — check your Resend settings')
+      setError(attachmentType === 'invoice' && err.response?.data?.error === 'Invalid attachment type' ? 'The server needs updating before invoices can be emailed - ask your developer.' : err.response?.data?.error || 'Failed to send — check your Resend settings')
     } finally {
       setSending(false)
     }
@@ -198,7 +201,7 @@ export default function SendEmailModal({
             {/* Message */}
             <div className="mb-4">
               <label className="block text-xs font-medium text-text-secondary mb-1.5">
-                Message {attachmentType === 'toll-folder'
+                Message {attachmentType === 'toll-folder' || attachmentType === 'invoice'
                   ? '(PDF will be attached)'
                   : isService && includeInvoice ? '(record details and invoice link added below)' : '(record details added below)'}
               </label>
