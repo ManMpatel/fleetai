@@ -13,6 +13,7 @@ import { sendTollEmail } from '../services/tollEmail'
 import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay, isRetryableError } from '../config/gemini'
 import TollPage from '../models/TollPage'
 import { saveMergedPdf, readMergedPdf, deleteMergedPdf, saveOriginalPdf, readOriginalPdf, deleteOriginalPdf } from '../services/tollStorage'
+import { parsePlateRead, decidePlates, fitToFleet, samePlate, nearFleetPlates, PlateDecision } from '../services/tollPlates'
 
 // TollBatch — an owner scans ~200-300 printed toll notices into one PDF, uploads it
 // here, and the pages get sorted into one folder per number plate. Mounted behind
@@ -83,14 +84,18 @@ async function getMergedPdfBuffer(folder: any): Promise<Buffer> {
 }
 
 interface PlateReadResult {
-  plates: string[]
+  /** Every plate printed on the page, in reading order, duplicates kept. */
+  copies: string[]
+  /** How many separate toll demands Gemini says are on the page (1 or 2). */
+  notices: number
 }
 
 /**
  * Regex-extracts plates from the text layer of a digital PDF page. Covers the
  * "Licence plate number: ABC123 (NSW)" pattern used by WestConnex, Linkt, and
- * Transport for NSW notices. Returns [] when the page has no matching text so the
- * caller can fall through to Gemini vision.
+ * Transport for NSW notices. Duplicates are kept on purpose — how many copies agree is
+ * the evidence decidePlates works from. Returns [] when the page has no matching text
+ * so the caller can fall through to Gemini vision.
  */
 function platesFromText(text: string): string[] {
   const upper = text.toUpperCase()
@@ -98,71 +103,154 @@ function platesFromText(text: string): string[] {
   const re = /LICEN[SC]E\s+PLATE\s+NUMBER[:\s]+([A-Z0-9]{3,8})/g
   let match
   while ((match = re.exec(upper)) !== null) {
-    const p = match[1].trim()
-    if (!plates.includes(p)) plates.push(p)
+    plates.push(match[1].trim())
   }
   return plates
 }
 
 /**
- * Reads ALL licence plates off one toll-notice page. Australian toll notice PDFs
- * (WestConnex, Linkt) commonly print two separate demands on a single page, each for
- * a different vehicle. Returns an empty array (never a guess) when Gemini is not
- * confident — those pages route to Unrecognized for manual review.
+ * Asks Gemini to copy the licence plate EXACTLY as printed, in every place it appears on
+ * one toll-notice page (these notices print it several times), plus how many separate
+ * demands are on the page. It decides nothing: decidePlates compares the copies.
+ * The fleet list is deliberately NOT sent — shown a list of "known" plates, a model will
+ * quietly swap a near-miss for one of them (EHF76K → EHF76J). Returns no copies (never a
+ * guess) when Gemini is not confident.
  */
-async function readPlatesFromPage(imageBase64: string, mimeType: string, knownPlates: string[] = []): Promise<PlateReadResult> {
+async function readPlatesFromPage(imageBase64: string, mimeType: string): Promise<PlateReadResult> {
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
     const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
-    const prompt = `You are reading a page from an Australian toll payment demand PDF (WestConnex, Linkt, Transport for NSW, etc.).
-Each page may contain one or two separate toll demand notices.
+    const prompt = `You are reading one page from an Australian toll payment demand PDF (WestConnex, Linkt, Transport for NSW, etc.).
+A page usually holds one toll demand notice, and sometimes two.
 
-For each toll demand visible on this page, find the vehicle licence plate. In Australian toll
-notices it is typically labelled one of:
-  • "Licence plate number: ABC123 (NSW)"
+Your job is to copy the vehicle licence plate EXACTLY as it is printed, in EVERY place it
+appears on this page. These notices usually print the same plate several times, for example:
+  • "Licence plate number: ABC123 (NSW)" in the box at the top
   • "Registration: ABC123"
-  • Embedded in the body: "Your vehicle ABC123 was detected travelling on..."
+  • in a sentence: "Your vehicle ABC123 was detected travelling on..."
+  • again in the payment slip at the bottom of the page
+List each place separately, even when the copies are identical. Do NOT merge or remove duplicates.
 
-Collect EVERY distinct plate you can read from this page.
+Rules:
+- Copy each plate character by character, exactly as printed. Never correct it, guess it, or change it to look like another plate.
+- Leave out any state suffix such as "(NSW)".
+- Look closely at look-alike characters (J/K, 0/O, 1/I, 5/S, 8/B, M/N) and copy the one that is actually printed.
+- If you cannot read a particular copy with confidence, leave that copy out.
+- Also say how many separate toll demand notices are on this page (usually 1, sometimes 2).
 
 Return ONLY a valid JSON object — no markdown, no explanation:
-{ "plates": ["ABC123", "XYZ456"] }
+{ "notices": 1, "plates": ["ABC123", "ABC123", "ABC123"] }
 
-If you cannot confidently read any plate, return: { "plates": [] }
-
-This business's registered plates: ${knownPlates.length ? knownPlates.join(', ') : '(none on file)'}.
-If a plate you read closely matches one of these (common misreads: O↔0, I↔1, B↔8, S↔5),
-use the exact string from this list instead.
-
-Only include plates you can actually read. Never guess or invent a plate.`
+If you cannot confidently read any plate, return: { "notices": 1, "plates": [] }`
 
     const result = await generateWithRetry(model, [
       { inlineData: { data: imageBase64, mimeType } },
       prompt,
     ])
 
-    const clean = result.response.text().trim().replace(/```json|```/g, '').trim()
-    const parsed = JSON.parse(clean)
-    const raw: unknown[] = Array.isArray(parsed.plates) ? parsed.plates : []
-    const plates = raw
-      .map((p: unknown) => {
-        if (typeof p !== 'string') return ''
-        return p.toUpperCase()
-          .replace(/\s+/g, '')          // remove all whitespace
-          .replace(/\([A-Z]{2,3}\).*$/, '') // strip state suffix: "(NSW)", "(VIC)", etc.
-      })
-      .filter((p): p is string => p.length >= 3 && p.length <= 10 && p !== 'NULL')
-    return { plates }
+    return parsePlateRead(result.response.text())
   } catch (err: any) {
     console.error('TollBatch plate read error:', err.message)
     // Quota/rate errors mean "try again later" — re-throw so processBatch fails the batch
     // rather than silently routing this page to Unrecognized. isRetryableError is the same
     // predicate generateWithRetry uses, so the two layers can never disagree.
     if (isRetryableError(err)) throw err
-    return { plates: [] }
+    return { copies: [], notices: 1 }
   }
+}
+
+interface PageDecision extends PlateDecision {
+  source: 'text' | 'vision'
+}
+
+/**
+ * The one place that works out which plate folder(s) a page belongs in — the main batch
+ * run and the Re-scan Unrecognized job both go through it, so they can never disagree.
+ *
+ *  1. Text layer first (free). Trusted unless its own copies disagree.
+ *  2. Otherwise Gemini vision, copying every printed plate exactly; one retry if it
+ *     returns nothing. Pacing between Gemini calls is unchanged.
+ *
+ * Rate/quota errors still throw (processBatch fails the batch and Resume picks it up).
+ */
+async function decidePage(args: { imageBase64: string; mimeType: string; text: string; orgId: string }): Promise<PageDecision> {
+  const fromText = platesFromText(args.text)
+  if (fromText.length > 0) {
+    // A digital page may genuinely hold two notices, so two plates are allowed here.
+    const d = decidePlates(fromText, 2)
+    if (d.status !== 'conflict') return { ...d, source: 'text' }
+    // The text copies disagree — let vision look at the real page instead of trusting either.
+  }
+
+  let read = await readPlatesFromPage(args.imageBase64, args.mimeType)
+  Organization.findByIdAndUpdate(args.orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+
+  if (read.copies.length === 0) {
+    await geminiPacingDelay()
+    read = await readPlatesFromPage(args.imageBase64, args.mimeType)
+    Organization.findByIdAndUpdate(args.orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
+  }
+  // Pace before the next Gemini call (skipped entirely for text-extracted pages).
+  await geminiPacingDelay()
+
+  return { ...decidePlates(read.copies, read.notices), source: 'vision' }
+}
+
+/**
+ * Strict fleet rule applied to each plate a page was read as: an exact fleet plate, or a
+ * single unambiguous O/0-type slip, is fitted to the fleet plate. Everything else keeps the
+ * plate as printed — a plate that is merely close is never swapped for another vehicle.
+ */
+function fitPlatesToFleet(plates: string[], knownPlates: string[]): { plates: string[]; correctedFrom?: string } {
+  const out: string[] = []
+  const printedAs: string[] = []
+  for (const printed of plates) {
+    const fit = fitToFleet(printed, knownPlates)
+    if (fit.correctedFrom) printedAs.push(fit.correctedFrom)
+    if (!out.includes(fit.plate)) out.push(fit.plate)
+  }
+  return { plates: out, correctedFrom: printedAs.length ? printedAs.join(', ') : undefined }
+}
+
+/** The fields stored on each TollPage so the plate read can be audited later. */
+function pageReadFields(d: PageDecision, correctedFrom?: string) {
+  return {
+    readSource: d.source,
+    readStatus: d.status === 'none' ? undefined : d.status,
+    plateCopies: d.copies,
+    correctedFrom,
+  }
+}
+
+/**
+ * Folders that hold at least one page whose printed plate copies disagreed (status
+ * 'conflict'), mapped to the OTHER plates seen on those pages — shown as "Check plate".
+ * One small query: matching pages are rare and their images are never loaded.
+ * If it fails the lists still load — just without the flag — so this extra can never take
+ * the Toll Batch page down.
+ */
+async function loadCheckFlags(orgId: unknown, plateByFolder: Map<string, string | null>, batchId?: unknown): Promise<Map<string, string[]>> {
+  const flags = new Map<string, string[]>()
+  try {
+    const filter: Record<string, unknown> = { orgId, readStatus: 'conflict' }
+    if (batchId) filter.batchId = batchId
+    const pages = await TollPage.find(filter).select('folderId plateCopies').lean()
+    for (const p of pages) {
+      const key = String(p.folderId)
+      const own = plateByFolder.get(key)
+      const seen = flags.get(key) ?? []
+      for (const c of p.plateCopies ?? []) {
+        if (own && samePlate(c, own)) continue
+        if (!seen.includes(c)) seen.push(c)
+      }
+      flags.set(key, seen)
+    }
+  } catch (err: any) {
+    console.error('[tollBatch] could not load Check plate flags:', err.message)
+  }
+  return flags
 }
 
 /**
@@ -187,8 +275,8 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
     console.log('[processBatch] Total pages:', totalPages)
     await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { totalPages } })
 
-    // Every plate this business has ever had on file (active, sold or stolen) — passed to
-    // Gemini so it matches against known plates instead of reading each one blind.
+    // Every plate this business has ever had on file (active, sold or stolen) — used AFTER
+    // reading, under a strict rule, to fit a printed plate to the fleet. Never shown to Gemini.
     const fleetVehicles = await Vehicle.find({ orgId }).select('plate')
     const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
 
@@ -243,33 +331,33 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
 
           console.log(`[processBatch] Page ${page.pageNumber}/${totalPages} — processing`)
           try {
-            // Primary: text extraction — exact and instant for digital PDFs, no Gemini cost.
-            // Fallback: Gemini vision for scanned/image-only pages where text layer is absent.
-            let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
+            // Text layer first (exact, free), Gemini vision otherwise. Gemini copies every
+            // printed plate exactly as it appears; decidePage compares the copies and decides
+            // which folder the page goes in — see services/tollPlates.ts.
+            const decision = await decidePage({
+              imageBase64: page.imageBase64,
+              mimeType: page.mimeType,
+              text: pageTexts.get(page.pageNumber) ?? '',
+              orgId,
+            })
 
-            if (plates.length === 0) {
-              // No text layer — use Gemini vision with one retry on empty result.
-              plates = (await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)).plates
-              Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
-
-              if (plates.length === 0) {
-                await geminiPacingDelay()
-                const retry = await readPlatesFromPage(page.imageBase64, page.mimeType, knownPlates)
-                Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
-                plates = retry.plates
-              }
-              // Pace before the next Gemini call (skipped entirely for text-extracted pages).
-              await geminiPacingDelay()
-            }
+            // Strict fleet rule: an exact fleet plate, or one unambiguous O/0-type slip. A plate
+            // that is merely close to a fleet plate (EHF76K vs EHF76J) keeps the plate as printed.
+            const fitted = fitPlatesToFleet(decision.plates, knownPlates)
+            const plates = fitted.plates
+            const needsCheck = decision.status === 'conflict'
 
             // When a page has 2 toll notices for 2 different plates, the same image goes into
             // both plates' folders. When no plates were read, route the page to Unrecognized.
             const effectivePlates: (string | null)[] = plates.length > 0 ? plates : [null]
             const step = plates.length > 0
-              ? `Page ${page.pageNumber} of ${totalPages} — sorted to ${plates.join(', ')}`
+              ? `Page ${page.pageNumber} of ${totalPages} — sorted to ${plates.join(', ')}${needsCheck ? ' (please check)' : ''}`
               : `Page ${page.pageNumber} of ${totalPages} — sent to Unrecognized`
 
-            console.log(`[processBatch] Page ${page.pageNumber}/${totalPages} → ${plates.join(', ') || 'Unrecognized'}`)
+            // The copies are logged so a wrong folder can be traced to exactly what was read.
+            const readNote = `${decision.status}, ${decision.source}, copies: ${decision.copies.join(' ') || 'none'}${fitted.correctedFrom ? `, corrected from ${fitted.correctedFrom}` : ''}`
+            console.log(`[processBatch] Page ${page.pageNumber}/${totalPages} → ${plates.join(', ') || 'Unrecognized'} (${readNote})`)
+            if (needsCheck) console.warn(`[processBatch] Page ${page.pageNumber}/${totalPages} — plate copies disagree, flagged for a check`)
 
             // One folder per plate per batch — never per plate alone, so a repeat plate next
             // week starts a fresh folder rather than appending to this one.
@@ -282,6 +370,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
               await TollPage.create({
                 orgId, batchId, folderId: folder._id,
                 pageNumber: page.pageNumber, imageBase64: page.imageBase64,
+                ...pageReadFields(decision, fitted.correctedFrom),
               })
               await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
             }
@@ -500,6 +589,14 @@ router.get('/', async (req: Request, res: Response) => {
     const vehicles = await Vehicle.find({ orgId: req.orgId, plate: { $in: plates } }).select('plate regoStatus')
     const statusByPlate = new Map(vehicles.map(v => [v.plate, v.regoStatus || 'in_stock']))
 
+    // Fleet plates (for the "close to …" hint) and the folders holding a page whose plate
+    // copies disagreed (for the "Check plate" flag).
+    const fleetPlates = (await Vehicle.find({ orgId: req.orgId }).select('plate').lean()).map(v => v.plate)
+    const checkFlags = await loadCheckFlags(
+      req.orgId,
+      new Map<string, string | null>(allFolders.map(f => [String(f._id), f.plate] as [string, string | null]))
+    )
+
     let sorted = 0, flagged = 0, unrecognized = 0
     for (const f of allFolders) {
       const count = (f.pages?.length ?? 0) + (f.pageCount ?? 0)
@@ -536,6 +633,9 @@ router.get('/', async (req: Request, res: Response) => {
         sentStatus: f.sentStatus,
         hasMergedPdf: Boolean(f.mergedPdfFileId || f.merged || (f.pages?.length ?? 0) + (f.pageCount ?? 0) > 0),
         imagesDeleted: f.imagesDeleted ?? false,
+        needsCheck: checkFlags.has(String(f._id)),
+        checkAlternatives: checkFlags.get(String(f._id)) ?? [],
+        closeTo: mt === 'unregistered' && f.plate ? nearFleetPlates(f.plate, fleetPlates) : [],
       })
     }
 
@@ -553,6 +653,8 @@ router.get('/', async (req: Request, res: Response) => {
         const tA = batchTimeMap.get(a.batchId?.toString()) ?? 0
         const tB = batchTimeMap.get(b.batchId?.toString()) ?? 0
         if (tA !== tB) return tB - tA
+        // Folders needing a plate check come before everything else in their batch.
+        if (a.needsCheck !== b.needsCheck) return a.needsCheck ? -1 : 1
         // Secondary: stolen/sold surface first within each batch, then alphabetical
         const pa = PRIORITY[a.matchType as MatchType] ?? 4
         const pb = PRIORITY[b.matchType as MatchType] ?? 4
@@ -602,6 +704,14 @@ router.get('/:batchId', async (req: Request, res: Response) => {
     const vehicles = await Vehicle.find({ orgId: req.orgId, plate: { $in: plates } }).select('plate regoStatus')
     const statusByPlate = new Map(vehicles.map(v => [v.plate, v.regoStatus || 'in_stock']))
 
+    // Same plate-check extras as the list route, scoped to this batch.
+    const fleetPlates = (await Vehicle.find({ orgId: req.orgId }).select('plate').lean()).map(v => v.plate)
+    const checkFlags = await loadCheckFlags(
+      req.orgId,
+      new Map<string, string | null>(folders.map(f => [String(f._id), f.plate] as [string, string | null])),
+      batch._id
+    )
+
     // A process crash mid-batch leaves status stuck at 'processing' forever with no
     // error — lastProgressAt not moving for 10+ minutes (generous next to the ~5s/page
     // pace) is the only signal that this job actually died.
@@ -621,6 +731,9 @@ router.get('/:batchId', async (req: Request, res: Response) => {
         sentStatus: f.sentStatus,
         sentTo: f.sentTo,
         sentAt: f.sentAt,
+        needsCheck: checkFlags.has(String(f._id)),
+        checkAlternatives: checkFlags.get(String(f._id)) ?? [],
+        closeTo: f.plate && matchTypeFor(f.plate, statusByPlate) === 'unregistered' ? nearFleetPlates(f.plate, fleetPlates) : [],
       })),
     })
   } catch (err: any) {
@@ -688,11 +801,31 @@ router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Respon
 
     const legacyPages = folder.pages ?? []
     const newPages = await TollPage.find({ folderId: folder._id, orgId: req.orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
-    const pages = [...legacyPages, ...newPages]
+    // Legacy embedded pages carry no plate-read info; TollPage docs may.
+    type PageLike = { pageNumber: number; imageBase64: string; readStatus?: string; plateCopies?: string[] }
+    const pages = ([...legacyPages, ...newPages] as PageLike[])
       .sort((a, b) => a.pageNumber - b.pageNumber)
-      .map(p => ({ pageNumber: p.pageNumber, imageBase64: p.imageBase64 }))
+      .map(p => ({ pageNumber: p.pageNumber, imageBase64: p.imageBase64, readStatus: p.readStatus, plateCopies: p.plateCopies ?? [] }))
 
     res.json({ pages })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/toll-batch/:batchId/folders/:folderId/confirm — the owner looked at the flagged
+// page(s) and the plate is right. Clears the "Check plate" flag; nothing is moved or re-read.
+// Stored as 'confirmed' (not 'verified') so false alarms can be counted later.
+router.post('/:batchId/folders/:folderId/confirm', async (req: Request, res: Response) => {
+  try {
+    const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId }).select('_id')
+    if (!folder) return res.status(404).json({ error: 'Folder not found' })
+
+    const result = await TollPage.updateMany(
+      { folderId: folder._id, orgId: req.orgId, readStatus: 'conflict' },
+      { $set: { readStatus: 'confirmed' } }
+    )
+    res.json({ success: true, cleared: result.modifiedCount })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -878,20 +1011,14 @@ async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<vo
       }
 
       try {
-        let plates = platesFromText(pageTexts.get(page.pageNumber) ?? '')
-
-        if (plates.length === 0) {
-          plates = (await readPlatesFromPage(page.imageBase64, 'image/jpeg', knownPlates)).plates
-          Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
-
-          if (plates.length === 0) {
-            await geminiPacingDelay()
-            const retry = await readPlatesFromPage(page.imageBase64, 'image/jpeg', knownPlates)
-            Organization.findByIdAndUpdate(orgId, { $inc: { geminiCalls: 1 } }).catch(() => {})
-            plates = retry.plates
-          }
-          await geminiPacingDelay()
-        }
+        const decision = await decidePage({
+          imageBase64: page.imageBase64,
+          mimeType: 'image/jpeg',
+          text: pageTexts.get(page.pageNumber) ?? '',
+          orgId,
+        })
+        const fitted = fitPlatesToFleet(decision.plates, knownPlates)
+        const plates = fitted.plates
 
         if (plates.length > 0) {
           // Remove from Unrecognized
@@ -904,7 +1031,7 @@ async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<vo
               { $setOnInsert: { orgId, batchId, plate } },
               { upsert: true, new: true }
             )
-            await TollPage.create({ orgId, batchId, folderId: destFolder._id, pageNumber: page.pageNumber, imageBase64: page.imageBase64 })
+            await TollPage.create({ orgId, batchId, folderId: destFolder._id, pageNumber: page.pageNumber, imageBase64: page.imageBase64, ...pageReadFields(decision, fitted.correctedFrom) })
             await TollFolder.updateOne({ _id: destFolder._id, orgId }, { $inc: { pageCount: 1 } })
 
             // Invalidate destination's merged PDF once per folder touched this run.
@@ -986,8 +1113,10 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/rescan', async (req: 
     const fleetVehicles = await Vehicle.find({ orgId: req.orgId }).select('plate')
     const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
 
-    const { plates } = await readPlatesFromPage(imageBase64, 'image/jpeg', knownPlates)
-    res.json({ plates })
+    // Same rules as a batch run: copy the printed plate(s) exactly, decide in code, fit to the fleet strictly.
+    const read = await readPlatesFromPage(imageBase64, 'image/jpeg')
+    const decision = decidePlates(read.copies, read.notices)
+    res.json({ plates: fitPlatesToFleet(decision.plates, knownPlates).plates, status: decision.status, copies: decision.copies })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
