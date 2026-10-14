@@ -42,6 +42,12 @@ interface TollFolderSummary {
   sentAt?: string
   imagesDeleted?: boolean
   matchType?: 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized'
+  /** A page in this folder had plate copies that disagreed — the owner should look at it. */
+  needsCheck?: boolean
+  /** The other plates seen on those pages (e.g. EHF76J on the EHF76K folder). */
+  checkAlternatives?: string[]
+  /** Fleet plates one character away from this folder's plate (only on "Not in your fleet"). */
+  closeTo?: string[]
 }
 
 interface TollDateGroup {
@@ -672,15 +678,18 @@ function FolderGrid({ folders, batchId, batch, onSend, onToast, onRefresh, onRes
     return <div className="text-center py-20 text-text-muted text-sm">No pages were found in this batch.</div>
   }
 
-  const known = folders.filter(f => f.plate)
+  // Folders whose plate needs a look come first, so the owner never has to hunt for them.
+  const known = folders.filter(f => f.plate).sort((a, b) => Number(!!b.needsCheck) - Number(!!a.needsCheck))
   const unrecognized = folders.find(f => !f.plate)
   const rescan = batch?.rescan
+  const checkCount = known.filter(f => f.needsCheck).length
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs text-text-secondary">
           <span className="font-medium text-text-primary">{known.length}</span> plate{known.length !== 1 ? 's' : ''} sorted
+          {checkCount > 0 && <> · <span className="font-medium text-amber">{checkCount}</span> to check</>}
           {unrecognized && <> · <span className="font-medium text-text-primary">{unrecognized.pageCount}</span> page{unrecognized.pageCount !== 1 ? 's' : ''} unrecognized</>}
         </p>
         {unrecognized && (
@@ -719,6 +728,9 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   const downloadUrl = `${API_BASE}/${batchId}/folders/${folder._id}/download`
   const sent = folder.sentStatus === 'sent'
   const cfg = matchTypeConfig[folder.matchType ?? 'sorted']
+  // A plain sorted folder that needs a plate check gets an amber frame; stolen / sold /
+  // not-in-fleet folders keep their own colour, since that warning matters more.
+  const box = folder.needsCheck && (folder.matchType ?? 'sorted') === 'sorted' ? 'border-amber' : cfg.box
   const [reviewing, setReviewing] = useState(false)
   const [emailing, setEmailing] = useState(false)
 
@@ -801,7 +813,7 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
       onMouseEnter={prefetchForDrag}
       onDragStart={handleDragStart}
       className={`bg-surface border rounded-xl p-4 transition-colors ${
-        sent ? `${cfg.box} bg-surface2/60` : `${cfg.box} hover:border-accent`
+        sent ? `${box} bg-surface2/60` : `${box} hover:border-accent`
       } ${folder.hasMergedPdf ? 'cursor-grab active:cursor-grabbing' : ''}`}
       title={folder.hasMergedPdf ? 'Drag onto WhatsApp Desktop to send manually (or use Download for WhatsApp Web)' : undefined}
     >
@@ -809,12 +821,33 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
         <div className="min-w-0">
           {cfg.label && <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>}
           <p className={`text-sm font-semibold truncate ${folder.plate ? 'text-text-primary' : 'text-text-muted'}`}>{label}</p>
+          {folder.closeTo && folder.closeTo.length > 0 && (
+            <p className="text-[11px] text-purple truncate" title={`Not in your fleet, but ${folder.closeTo.join(', ')} is — one character different`}>
+              close to {folder.closeTo.join(', ')}
+            </p>
+          )}
         </div>
         {sent && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-green/10 text-green shrink-0">Sent</span>
         )}
       </div>
       <p className="text-xs text-text-secondary mb-3">{folder.pageCount} page{folder.pageCount !== 1 ? 's' : ''}</p>
+
+      {folder.needsCheck && (
+        <button onClick={() => setReviewing(true)}
+          title={folder.checkAlternatives && folder.checkAlternatives.length > 0
+            ? `The plate is printed several times on the page. One copy read as ${folder.checkAlternatives.join(', ')} — click to look at the page.`
+            : 'The plate is printed several times on the page and the copies were not read the same way — click to look at the page.'}
+          className="w-full flex items-center gap-1.5 mb-3 px-2.5 py-1.5 bg-amber-bg border border-amber text-amber rounded-lg text-xs font-medium hover:opacity-80 transition-opacity">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5 shrink-0">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span className="truncate">
+            Check plate{folder.checkAlternatives && folder.checkAlternatives.length > 0 ? ` · also read ${folder.checkAlternatives.slice(0, 2).join(', ')}` : ''}
+          </span>
+        </button>
+      )}
 
       {sent && folder.sentTo && (
         <p className="text-xs text-text-secondary mb-3 truncate">to {folder.sentTo}</p>
@@ -891,8 +924,23 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   )
 }
 
-// ── Review modal — Unrecognized folder only: view each page's photo, type its plate,
-// it moves out of Unrecognized immediately. No paper needed.
+interface ReviewPage {
+  pageNumber: number
+  imageBase64: string
+  readStatus?: string
+  plateCopies?: string[]
+}
+
+/** ["EHF76K","EHF76K","EHF76J"] → "EHF76K ×2 · EHF76J ×1" */
+function summariseCopies(copies: string[] = []): string {
+  const counts = new Map<string, number>()
+  for (const c of copies) counts.set(c, (counts.get(c) ?? 0) + 1)
+  return [...counts.entries()].map(([plate, n]) => `${plate} ×${n}`).join(' · ')
+}
+
+// ── Review modal — two uses. Unrecognized folder: view each page's photo, type its plate,
+// it moves out of Unrecognized immediately. A plated folder marked "Check plate": only the
+// flagged pages are listed — press "Looks right", or type the right plate and Save to move it.
 function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
   batchId: string
   folder: TollFolderSummary
@@ -900,18 +948,33 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
   onResolved: () => void
   onToast: (msg: string) => void
 }) {
-  const [pages, setPages] = useState<{ pageNumber: number; imageBase64: string }[]>([])
+  const [pages, setPages] = useState<ReviewPage[]>([])
   const [loading, setLoading] = useState(true)
   const [plateInputs, setPlateInputs] = useState<Record<number, string>>({})
   const [savingPage, setSavingPage] = useState<number | null>(null)
   const [detecting, setDetecting] = useState<number | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const checking = !!folder.plate
 
   useEffect(() => {
-    axios.get<{ pages: { pageNumber: number; imageBase64: string }[] }>(`${API_BASE}/${batchId}/folders/${folder._id}/pages`)
-      .then(({ data }) => setPages(data.pages))
+    axios.get<{ pages: ReviewPage[] }>(`${API_BASE}/${batchId}/folders/${folder._id}/pages`)
+      .then(({ data }) => setPages(checking ? data.pages.filter(p => p.readStatus === 'conflict') : data.pages))
       .catch(() => onToast('✗ Could not load these pages'))
       .finally(() => setLoading(false))
   }, [batchId, folder._id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function confirmPlate() {
+    setConfirming(true)
+    try {
+      await axios.post(`${API_BASE}/${batchId}/folders/${folder._id}/confirm`)
+      onToast(`✓ ${folder.plate} confirmed`)
+      onResolved()
+    } catch (err: any) {
+      onToast(`✗ ${err.response?.data?.error || 'Could not confirm this plate'}`)
+    } finally {
+      setConfirming(false)
+    }
+  }
 
   async function autoDetect(pageNumber: number) {
     setDetecting(pageNumber)
@@ -952,13 +1015,20 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={onClose}>
       <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-text-primary">Review unrecognized pages</h2>
+          <h2 className="text-sm font-semibold text-text-primary">{checking ? `Check plate — ${folder.plate}` : 'Review unrecognized pages'}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
+        {checking && (
+          <p className="text-xs text-text-secondary mb-4">
+            This plate is printed several times on the page, and the copies were not read the same way.
+            Look at the page: if <span className="font-mono font-medium text-text-primary">{folder.plate}</span> is right, press Looks right.
+            If it belongs to another plate, type that plate and Save.
+          </p>
+        )}
         {loading ? (
           <p className="text-xs text-text-muted text-center py-8">Loading pages…</p>
         ) : pages.length === 0 ? (
@@ -969,6 +1039,11 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
               <div key={p.pageNumber} className="border border-border rounded-xl overflow-hidden">
                 <img src={`data:image/png;base64,${p.imageBase64}`} alt={`Page ${p.pageNumber}`} className="w-full max-h-64 object-contain bg-surface2" />
                 <div className="p-3 flex flex-col gap-2">
+                  {p.plateCopies && p.plateCopies.length > 0 && (
+                    <p className="text-[11px] text-text-secondary">
+                      Read on this page: <span className="font-mono text-text-primary">{summariseCopies(p.plateCopies)}</span>
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-text-muted shrink-0">Page {p.pageNumber}</span>
                     <input
@@ -991,6 +1066,12 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
                 </div>
               </div>
             ))}
+            {checking && (
+              <button onClick={confirmPlate} disabled={confirming}
+                className="w-full px-3 py-2 bg-green-bg border border-green text-green rounded-lg text-xs font-medium hover:opacity-80 disabled:opacity-50 transition-opacity">
+                {confirming ? 'Saving…' : `Looks right — keep in ${folder.plate}`}
+              </button>
+            )}
           </div>
         )}
       </div>
