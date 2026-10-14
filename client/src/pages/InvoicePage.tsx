@@ -229,9 +229,48 @@ export async function buildInvoicePDF(tmpl: Template, params: {
   }
 
   const BX = LX + LW + 14
-  txt(tmpl.businessName,                    BX, H - 36,  18, fontBold, WHITE)
-  txt(tmpl.address,                         BX, H - 52,  9,  font,     WHITE)
-  txt(`${tmpl.phone}  |  ${tmpl.email}`,   BX, H - 64,  9,  font,     WHITE)
+
+  // The business name uses the room left of the INVOICE word and keeps a gap from it. A longer name carries on
+  // in the lines below, and if it is still too long it gets smaller (3 lines at most, then "..."). Returns how
+  // far down the name grew, so the address and phone lines move down with it. A name that fits is drawn as before.
+  const drawName = (s: string, x: number, y: number, size: number, f = fontBold, color = WHITE): number => {
+    if (!s?.trim()) return 0
+    const room = W - 16 - fontBold.widthOfTextAtSize('INVOICE', 30) - 18 - x
+    // Width as it is drawn: letter by letter, because the text is drawn without kerning.
+    const wide = (t: string, sz: number) => Array.from(t).reduce((sum, ch) => sum + f.widthOfTextAtSize(ch, sz), 0)
+    if (wide(clean(s), size) <= room) { txt(s, x, y, size, f, color); return 0 }
+
+    const wrap = (sz: number): string[] => {
+      const out: string[] = []
+      let cur = ''
+      for (const word of clean(s).slice(0, 400).split(' ').filter(Boolean)) {
+        if (cur && wide(cur + ' ' + word, sz) <= room) { cur += ' ' + word; continue }
+        if (cur) out.push(cur)
+        cur = ''
+        for (const ch of Array.from(word)) {   // a single word that is wider than the line is broken
+          if (cur && wide(cur + ch, sz) > room) { out.push(cur); cur = ch } else cur += ch
+        }
+      }
+      if (cur) out.push(cur)
+      return out
+    }
+
+    let sz = size
+    let lines = wrap(sz)
+    while (lines.length > 3 && sz > size - 6) { sz -= 2; lines = wrap(sz) }
+    if (lines.length > 3) {
+      lines = lines.slice(0, 3)
+      let last = lines[2]
+      while (last && wide(last + '...', sz) > room) last = last.slice(0, -1)
+      lines[2] = last.trimEnd() + '...'
+    }
+    const lead = Math.round(sz * 1.12)
+    lines.forEach((line, i) => txt(line, x, y - i * lead, sz, f, color))
+    return (lines.length - 1) * lead
+  }
+  const nameDrop = drawName(tmpl.businessName,                    BX, H - 36,  18, fontBold, WHITE)
+  txt(tmpl.address,                         BX, H - 52 - nameDrop,  9,  font,     WHITE)
+  txt(`${tmpl.phone}  |  ${tmpl.email}`,   BX, H - 64 - nameDrop,  9,  font,     WHITE)
   txtR('INVOICE',        W - 16, H - 44, 30, fontBold, WHITE)
   txtR(`# ${params.number}`, W - 16, H - 66, 13, fontBold, WHITE)
 
