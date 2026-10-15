@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import { useStore } from '../../store/useStore'
+import CarPicker from './CarPicker'
 import RentTable from './RentTable'
 import RenterPicker from './RenterPicker'
 import { addMonths, money } from './format'
@@ -18,15 +19,18 @@ const patchRow = (id: string, patch: (r: GridRow) => GridRow) => (g: Grid): Grid
   rows: g.rows.map(r => (r.vehicleId === id ? patch(r) : r)),
 })
 
-function Card({ title, main, sub }: { title: string; main: string; sub: string }) {
+function Card({ title, main, sub, note }: { title: string; main: string; sub: string; note?: string }) {
   return (
     <div className="bg-surface border border-border rounded-xl px-4 py-3">
       <p className="text-xs font-medium text-text-muted">{title}</p>
       <p className="text-2xl font-bold text-text-primary mt-0.5">{main}</p>
       <p className="text-xs text-text-secondary mt-0.5">{sub}</p>
+      {note && <p className="text-[11px] text-text-muted mt-0.5">{note}</p>}
     </div>
   )
 }
+
+const fromEarlier = (earlier: number) => (earlier > 0 ? `Includes ${money(earlier)} from earlier renters` : undefined)
 
 const pill = 'px-3 py-2 rounded-lg text-sm font-medium border border-border bg-surface text-text-secondary hover:border-accent'
 
@@ -40,6 +44,7 @@ export default function RentTrackerPage() {
   const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [picking, setPicking] = useState<GridRow | null>(null)
+  const [adding, setAdding] = useState(false)
   const view = useRef({ end, months })
   view.current = { end, months }
   const latest = useRef(0)
@@ -78,7 +83,7 @@ export default function RentTrackerPage() {
 
   const onCell = (row: GridRow, week: string, next: CellValue | null) =>
     save(
-      () => axios.put('/api/rent-tracker/entry', { vehicleId: row.vehicleId, weekStart: week, amount: next ? next.amount : null, nd: next?.nd ? true : undefined }),
+      () => axios.put('/api/rent-tracker/entry', { vehicleId: row.vehicleId, weekStart: week, amount: next ? next.amount : null, nd: next?.nd ? true : undefined, renterId: row.renter?._id }),
       patchRow(row.vehicleId, r => ({ ...r, entries: withEntry(r.entries, week, next) })),
     )
   const onRent = (row: GridRow, value: number) =>
@@ -89,12 +94,17 @@ export default function RentTrackerPage() {
   // Giving a car to a renter, or taking it back, uses the same Fleet actions as the Renters page.
   async function assign(row: GridRow, hit: RenterHit) {
     setPicking(null)
-    if (row.renter && !window.confirm(`Give ${row.plate} to ${hit.name}? ${row.renter.name} will no longer have this car.`)) return
+    if (row.renter && !window.confirm(`Give ${row.plate} to ${hit.name}? ${row.renter.name} will no longer have this car, and the row starts empty for ${hit.name}. ${row.renter.name}'s money stays in History.`)) return
     await save(() => axios.post(`/api/fleet/${encodeURIComponent(row.plate)}/assign`, { renterId: hit._id }))
   }
   async function returned(row: GridRow) {
-    if (!window.confirm(`Mark ${row.plate} as returned? The car becomes Available in Fleet and the Owing for ${row.renter?.name} stops counting.`)) return
+    if (!window.confirm(`Mark ${row.plate} as returned? The car becomes Available in Fleet and the Owing for ${row.renter?.name} stops counting. ${row.renter?.name}'s money stays in History.`)) return
     await save(() => axios.post(`/api/fleet/${encodeURIComponent(row.plate)}/unassign`))
+  }
+  // Taking a car off the table does not touch the car: it stays in Fleet and Rego Import.
+  async function removeCar(row: GridRow) {
+    if (!window.confirm(`Take ${row.plate} off the Rent Tracker? The car stays in Fleet and Rego Import. The money you typed for it is kept and comes back if you add the plate again.`)) return
+    await save(() => axios.delete(`/api/rent-tracker/cars/${row.vehicleId}`), g => ({ ...g, rows: g.rows.filter(r => r.vehicleId !== row.vehicleId) }))
   }
 
   if (!allowed) {
@@ -126,9 +136,9 @@ export default function RentTrackerPage() {
       <div className="px-6 py-5 space-y-4">
         {grid && endPair && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Card title="This week" main={money(grid.totals.thisWeek.received)} sub={`Expected ${money(grid.totals.thisWeek.expected)}`} />
-            <Card title={onThisMonth ? 'This month' : last!.label} main={money(endPair.received)} sub={`Expected ${money(endPair.expected)}`} />
-            <Card title="Overall" main={money(grid.totals.overall.received)} sub={`Expected ${money(grid.totals.overall.expected)} - Owing ${money(grid.totals.overall.owing)}`} />
+            <Card title="This week" main={money(grid.totals.thisWeek.received)} sub={`Expected ${money(grid.totals.thisWeek.expected)}`} note={fromEarlier(grid.totals.thisWeek.earlier)} />
+            <Card title={onThisMonth ? 'This month' : last!.label} main={money(endPair.received)} sub={`Expected ${money(endPair.expected)}`} note={fromEarlier(endPair.earlier)} />
+            <Card title="Overall" main={money(grid.totals.overall.received)} sub={`Expected ${money(grid.totals.overall.expected)} - Owing ${money(grid.totals.overall.owing)}`} note={fromEarlier(grid.totals.overall.earlier)} />
           </div>
         )}
 
@@ -140,6 +150,7 @@ export default function RentTrackerPage() {
             aria-label="Search cars"
             className="w-72 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           />
+          <button onClick={() => setAdding(true)} className="px-3 py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:opacity-90">+ Add number plate</button>
           <div className="flex items-center gap-1 ml-auto">
             <button aria-label="Previous month" disabled={!shownEnd} onClick={() => shownEnd && setEnd(addMonths(shownEnd, -1))} className={pill}>&lt;</button>
             <span className="min-w-[230px] px-2 text-center text-sm font-semibold text-text-primary">
@@ -161,16 +172,18 @@ export default function RentTrackerPage() {
         )}
 
         {!grid && loading && <p className="text-sm text-text-muted">Loading...</p>}
-        {grid && grid.rows.length === 0 && <p className="text-sm text-text-muted">No cars yet. Add the plates in Rego Import first.</p>}
+        {grid && grid.rows.length === 0 && <p className="text-sm text-text-muted">No cars yet. Click Add number plate to choose the cars you want to track.</p>}
         {grid && grid.rows.length > 0 && rows.length === 0 && (
-          <p className="text-sm text-text-muted">No car found for "{query.trim()}". Add the plate in Rego Import first.</p>
+          <p className="text-sm text-text-muted">No car in the tracker matches "{query.trim()}". Click Add number plate.</p>
         )}
         {grid && rows.length > 0 && (
           <div className={loading ? 'opacity-60' : ''}>
-            <RentTable grid={grid} rows={rows} onCell={onCell} onRent={onRent} onStart={onStart} onPickRenter={setPicking} onReturned={returned} />
+            <RentTable grid={grid} rows={rows} onCell={onCell} onRent={onRent} onStart={onStart} onPickRenter={setPicking} onReturned={returned} onRemove={removeCar} />
           </div>
         )}
       </div>
+
+      {adding && <CarPicker onAdded={() => load(true)} onClose={() => { setAdding(false); load(true) }} />}
 
       {picking && (
         <RenterPicker
