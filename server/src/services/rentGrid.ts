@@ -10,11 +10,17 @@ import { addMonths, dateInTz, mondayOf, mondaysInMonth, monthLabel, shadowWeekOf
 const toCents = (n: number) => Math.round(n * 100)
 const timeOf = (d: unknown) => (d ? new Date(d as string).getTime() : 0)
 
-interface Pair { received: number; expected: number }
+// earlier = the part of received that came from earlier renters of the car (it is already inside
+// received, so the screen can say "includes $X from earlier renters").
+interface Pair { received: number; expected: number; earlier: number }
 interface Group { month: string; label: string; shadow: string | null; weeks: string[] }
 
-// Everything the Rent Tracker table needs for one view: the weeks on screen, one row per car in
-// stock, the money received in each week and what each renter still owes.
+// Everything the Rent Tracker table needs for one view: the weeks on screen, one row per car the
+// owner has added (Add number plate), the money received in each week and what each renter still
+// owes. Money belongs to the renter who had the car when it was typed: a row shows and counts the
+// money of the renter who has the car now, and the money of earlier renters stays in History.
+// The week, month and overall "received" totals count everybody's money; Expected and Owing are
+// for the renters who have a car now.
 // endMonth 'YYYY-MM' (default: this month) is the last month shown; months is 1 or 6.
 export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: string | undefined, months: 1 | 6, now = new Date()) {
   const today = dateInTz(now, tz)
@@ -26,47 +32,34 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
     const month = addMonths(end, -i)
     groups.push({ month, label: monthLabel(month), shadow: months === 1 ? shadowWeekOf(month) : null, weeks: mondaysInMonth(month) })
   }
-  const shown = groups.flatMap(g => (g.shadow ? [g.shadow] : []).concat(g.weeks))
-  const from = shown[0]
-  const to = shown[shown.length - 1]
 
-  // Cars in stock (Rego Import): everything except stolen or sold. Older cars have no regoStatus.
-  const vehicles: any[] = await Vehicle.find({ orgId, regoStatus: { $nin: ['stolen', 'sold'] } })
-    .select('plate model status currentRenter rentStartDate')
-    .populate(scopedPopulate('currentRenter', 'name phone email'))
-    .sort({ plate: 1 })
-    .lean()
+  // The cars on the table: added by the owner and not taken off again. Stolen or sold cars never
+  // show. Older cars have no regoStatus.
+  const settings: any[] = await RentRow.find({ orgId, removed: { $ne: true } }).lean()
+  const vehicles: any[] = settings.length === 0
+    ? []
+    : await Vehicle.find({ orgId, _id: { $in: settings.map(s => s.vehicleId) }, regoStatus: { $nin: ['stolen', 'sold'] } })
+        .select('plate model status currentRenter rentStartDate')
+        .populate(scopedPopulate('currentRenter', 'name phone email'))
+        .sort({ plate: 1 })
+        .lean()
   const ids = vehicles.map(v => v._id)
-  const mine = { orgId, vehicleId: { $in: ids } }
-
-  const [settings, inView, receivedSums, ndWeeks, thisWeekDocs]: any[] = await Promise.all([
-    RentRow.find(mine).lean(),
-    RentEntry.find({ ...mine, weekStart: { $gte: from, $lte: to } }).select('vehicleId weekStart amount nd').lean(),
-    RentEntry.aggregate([{ $match: { ...mine, amount: { $ne: null } } }, { $group: { _id: '$vehicleId', total: { $sum: '$amount' } } }]),
-    RentEntry.find({ ...mine, nd: true }).select('vehicleId weekStart').lean(),
-    RentEntry.find({ ...mine, weekStart: currentWeek }).select('vehicleId amount nd').lean(),
-  ])
+  const entries: any[] = ids.length === 0
+    ? []
+    : await RentEntry.find({ orgId, vehicleId: { $in: ids } }).select('vehicleId renterId weekStart amount nd').lean()
 
   const settingsBy = new Map<string, any>(settings.map((s: any) => [String(s.vehicleId), s]))
-  const receivedBy = new Map<string, number>(receivedSums.map((s: any) => [String(s._id), toCents(s.total)]))
-  const ndBy = new Map<string, Set<string>>()
-  for (const e of ndWeeks) {
+  const entriesBy = new Map<string, any[]>()
+  for (const e of entries) {
     const k = String(e.vehicleId)
-    if (!ndBy.has(k)) ndBy.set(k, new Set())
-    ndBy.get(k)!.add(e.weekStart)
+    if (!entriesBy.has(k)) entriesBy.set(k, [])
+    entriesBy.get(k)!.push(e)
   }
-  const viewBy = new Map<string, Map<string, { amount: number | null; nd: boolean }>>()
-  for (const e of inView) {
-    const k = String(e.vehicleId)
-    if (!viewBy.has(k)) viewBy.set(k, new Map())
-    viewBy.get(k)!.set(e.weekStart, { amount: e.amount ?? null, nd: !!e.nd })
-  }
-  const thisWeekBy = new Map<string, number>(thisWeekDocs.filter((e: any) => e.amount != null).map((e: any) => [String(e.vehicleId), toCents(e.amount)]))
 
   const weekSums = new Map<string, Pair>()
-  for (const g of groups) for (const w of g.weeks) weekSums.set(w, { received: 0, expected: 0 })
-  const thisWeek: Pair = { received: 0, expected: 0 }
-  const overall = { received: 0, expected: 0, owing: 0 }
+  for (const g of groups) for (const w of g.weeks) weekSums.set(w, { received: 0, expected: 0, earlier: 0 })
+  const thisWeek: Pair = { received: 0, expected: 0, earlier: 0 }
+  const overall = { received: 0, expected: 0, owing: 0, earlier: 0 }
 
   const rows = vehicles.map(v => {
     const id = String(v._id)
@@ -84,35 +77,57 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
       startIsCustom = true
     }
 
-    const nd = ndBy.get(id) ?? new Set<string>()
+    // The money of this car, split into the renter who has it now (own) and everybody before.
+    const cur = renter ? String(renter._id) : null
+    const own = new Map<string, { amount: number | null; nd: boolean }>()
+    const nd = new Set<string>()
+    const earlierByWeek = new Map<string, number>()
+    let receivedC = 0
+    let earlierC = 0
+    for (const e of entriesBy.get(id) ?? []) {
+      if (cur && e.renterId && String(e.renterId) === cur) {
+        own.set(e.weekStart, { amount: e.amount ?? null, nd: !!e.nd })
+        if (e.nd) nd.add(e.weekStart)
+        if (e.amount != null) receivedC += toCents(e.amount)
+      } else if (e.amount != null) {
+        earlierC += toCents(e.amount)
+        earlierByWeek.set(e.weekStart, (earlierByWeek.get(e.weekStart) ?? 0) + toCents(e.amount))
+      }
+    }
+
     let weeksDue = 0
     if (renter && startWeek <= currentWeek) {
       weeksDue = weeksBetween(startWeek, currentWeek) + 1
       for (const w of nd) if (w >= startWeek && w <= currentWeek) weeksDue--
     }
     const expectedC = rentC * weeksDue
-    const receivedC = receivedBy.get(id) ?? 0
     const owingC = renter ? Math.max(0, expectedC - receivedC) : 0
-    overall.received += receivedC
+    overall.received += receivedC + earlierC
+    overall.earlier += earlierC
     overall.expected += expectedC
     overall.owing += owingC
 
-    const cells = viewBy.get(id) ?? new Map()
-    const entries: Record<string, { amount: number | null; nd: boolean }> = {}
+    const entriesOut: Record<string, { amount: number | null; nd: boolean }> = {}
     const monthTotals: Record<string, number> = {}
     for (const g of groups) {
-      for (const w of g.shadow ? [g.shadow, ...g.weeks] : g.weeks) if (cells.has(w)) entries[w] = cells.get(w)
+      for (const w of g.shadow ? [g.shadow, ...g.weeks] : g.weeks) if (own.has(w)) entriesOut[w] = own.get(w)!
       let monthC = 0
       for (const w of g.weeks) {
         const sum = weekSums.get(w)!
-        const amount = cells.get(w)?.amount
+        const amount = own.get(w)?.amount
         if (amount != null) { monthC += toCents(amount); sum.received += toCents(amount) }
+        const before = earlierByWeek.get(w) ?? 0
+        sum.received += before
+        sum.earlier += before
         if (renter && w >= startWeek && !nd.has(w)) sum.expected += rentC
       }
       monthTotals[g.month] = monthC / 100
     }
 
-    thisWeek.received += thisWeekBy.get(id) ?? 0
+    const nowAmount = own.get(currentWeek)?.amount
+    const nowBefore = earlierByWeek.get(currentWeek) ?? 0
+    thisWeek.received += (nowAmount != null ? toCents(nowAmount) : 0) + nowBefore
+    thisWeek.earlier += nowBefore
     if (renter && currentWeek >= startWeek && !nd.has(currentWeek)) thisWeek.expected += rentC
 
     return {
@@ -124,21 +139,27 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
       weeklyRent: rentC / 100,
       startWeek,
       startIsCustom,
-      entries,
+      entries: entriesOut,
       monthTotals,
       expected: expectedC / 100,
       received: receivedC / 100,
       owing: owingC / 100,
+      earlier: earlierC / 100,
     }
   })
 
-  const out = (p: Pair) => ({ received: p.received / 100, expected: p.expected / 100 })
-  const weekTotals: Record<string, Pair> = {}
+  const out = (p: Pair) => ({ received: p.received / 100, expected: p.expected / 100, earlier: p.earlier / 100 })
+  const weekTotals: Record<string, ReturnType<typeof out>> = {}
   weekSums.forEach((p, w) => { weekTotals[w] = out(p) })
-  const monthSums: Record<string, Pair> = {}
+  const monthSums: Record<string, ReturnType<typeof out>> = {}
   for (const g of groups) {
-    const p: Pair = { received: 0, expected: 0 }
-    for (const w of g.weeks) { p.received += weekSums.get(w)!.received; p.expected += weekSums.get(w)!.expected }
+    const p: Pair = { received: 0, expected: 0, earlier: 0 }
+    for (const w of g.weeks) {
+      const s = weekSums.get(w)!
+      p.received += s.received
+      p.expected += s.expected
+      p.earlier += s.earlier
+    }
     monthSums[g.month] = out(p)
   }
 
@@ -154,7 +175,7 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
       weeks: weekTotals,
       months: monthSums,
       thisWeek: out(thisWeek),
-      overall: { received: overall.received / 100, expected: overall.expected / 100, owing: overall.owing / 100 },
+      overall: { received: overall.received / 100, expected: overall.expected / 100, owing: overall.owing / 100, earlier: overall.earlier / 100 },
     },
   }
 }
