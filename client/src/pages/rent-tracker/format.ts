@@ -41,6 +41,13 @@ export function weekSpan(ymd: string): string {
   return `${shortDate(ymd)} - ${shortDate(addDays(ymd, 6))}`
 }
 
+// '2026-10-12' -> '12 Oct - 18 Oct 2026' (both years when the week crosses New Year)
+export function weekLabel(ymd: string): string {
+  const end = addDays(ymd, 6)
+  const y1 = Number(ymd.slice(0, 4)), y2 = Number(end.slice(0, 4))
+  return `${shortDate(ymd)}${y1 !== y2 ? ' ' + y1 : ''} - ${shortDate(end)} ${y2}`
+}
+
 export function money(n: number): string {
   const whole = Math.abs(n - Math.round(n)) < 0.005
   return '$' + n.toLocaleString('en-AU', { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 })

@@ -18,9 +18,11 @@ export interface GridGroup {
   weeks: string[]
 }
 
+// earlier = the part of received that came from earlier renters of the cars (already inside received).
 export interface MoneyPair {
   received: number
   expected: number
+  earlier: number
 }
 
 export interface GridRow {
@@ -37,6 +39,7 @@ export interface GridRow {
   expected: number
   received: number
   owing: number
+  earlier: number
 }
 
 export interface Grid {
@@ -61,4 +64,41 @@ export interface RenterHit {
   phone: string
   email: string
   cars: number
+}
+
+// A car that can be added to the table (Add number plate).
+export interface CarHit {
+  _id: string
+  plate: string
+  model: string
+  status: string
+  inTracker: boolean
+}
+
+export interface CarSearch {
+  total: number
+  cars: CarHit[]
+}
+
+export interface HistoryWeek {
+  weekStart: string
+  amount: number | null
+  nd: boolean
+}
+
+export interface HistoryRenter {
+  renter: RenterRef
+  total: number
+  weeks: HistoryWeek[]
+}
+
+// Who paid what on one number plate (History).
+export interface History {
+  vehicleId: string
+  plate: string
+  model: string
+  total: number
+  current: { renter: RenterRef; total: number } | null
+  previous: HistoryRenter[]
+  noRenter: { total: number; weeks: HistoryWeek[] } | null
 }

@@ -7,6 +7,7 @@ interface Props {
   label: string
   coord: string
   readOnly?: boolean
+  disabled?: boolean
   noNd?: boolean
   placeholder?: string
   tone: 'normal' | 'before' | 'unpaid'
@@ -21,7 +22,8 @@ const TONE = {
 
 // One money cell. Empty = not paid, a number = money received, 0 = no reminder this week,
 // ND = no rent due. Saves when you leave the cell; Enter saves and moves down; Escape cancels.
-export default function RentCell({ value, label, coord, readOnly, noNd, placeholder, tone, onCommit }: Props) {
+// disabled = greyed out (nobody has the car); readOnly = shown but not editable (last month's week).
+export default function RentCell({ value, label, coord, readOnly, disabled, noNd, placeholder, tone, onCommit }: Props) {
   const [draft, setDraft] = useState<string | null>(null)
   const [bad, setBad] = useState(false)
   const cancelled = useRef(false)
@@ -31,6 +33,14 @@ export default function RentCell({ value, label, coord, readOnly, noNd, placehol
 
   if (readOnly) {
     return <div className={`h-9 px-2 flex items-center justify-end text-sm opacity-50 ${look}`}>{text}</div>
+  }
+  // A car with nobody on it has no money to type: the cell is greyed out until a renter is added.
+  if (disabled) {
+    return (
+      <div title="Add a renter first" data-cell-off={coord} className="h-9">
+        <input disabled tabIndex={-1} aria-label={label} className="w-full h-9 px-2 rounded border border-transparent bg-surface2 opacity-60 cursor-not-allowed" />
+      </div>
+    )
   }
 
   function commit() {
@@ -53,7 +63,12 @@ export default function RentCell({ value, label, coord, readOnly, noNd, placehol
       e.preventDefault()
       const [row, col] = coord.split(':')
       e.currentTarget.blur()
-      document.querySelector<HTMLInputElement>(`[data-cell="${Number(row) + 1}:${col}"]`)?.focus()
+      // down to the next cell that can be typed in (cars with nobody on them are greyed out and skipped)
+      for (let r = Number(row) + 1; ; r++) {
+        const next = document.querySelector<HTMLInputElement>(`[data-cell="${r}:${col}"]`)
+        if (next) { next.focus(); break }
+        if (!document.querySelector(`[data-cell-off="${r}:${col}"]`)) break
+      }
     } else if (e.key === 'Escape') {
       cancelled.current = true
       e.currentTarget.blur()
