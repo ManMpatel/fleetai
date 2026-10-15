@@ -3,6 +3,7 @@ import { Types } from 'mongoose'
 import Organization, { IOrganization } from '../models/Organization'
 import { hash } from '../services/encryption'
 import { integrationStatus } from '../services/integrationStatus'
+import { rentTrackerAllowed } from '../config/rentTracker'
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -133,6 +134,7 @@ function statusPayload(req: Request, org: IOrganization) {
     status: org.status,
     email: org.email,
     isSuperAdmin: isSuperAdminRequest(req),
+    features: { rentTracker: rentTrackerAllowed(org.email) },
     org: {
       displayName: org.displayName || org.name || org.email,
       logoUrl: org.logoUrl || null,
