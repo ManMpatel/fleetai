@@ -107,6 +107,7 @@ export default function SettingsPage() {
     setSession({
       email: session?.email ?? null,
       isSuperAdmin: session?.isSuperAdmin ?? false,
+      features: session?.features,
       org: {
         displayName: data.displayName,
         logoUrl: data.logoUrl,

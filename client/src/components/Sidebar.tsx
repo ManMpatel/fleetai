@@ -124,11 +124,27 @@ const navItems = [
   },
 ]
 
+// Shown only for accounts the server has switched Rent Tracker on for.
+const rentTrackerItem = {
+  to: '/rent-tracker',
+  label: 'Rent Tracker',
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-5 h-5 shrink-0">
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="8" y1="15" x2="16" y2="15" />
+    </svg>
+  ),
+}
+
 export default function Sidebar() {
   const { darkMode, toggleDarkMode, notifications, session } = useStore()
   const [collapsed, setCollapsed] = useState(false)
   const { user, logout } = useAuth0()
   const orgName = session?.org?.displayName
+  const items = session?.features?.rentTracker ? [...navItems.slice(0, 2), rentTrackerItem, ...navItems.slice(2)] : navItems
   const unread = notifications.filter((n) => !n.read).length
 
   return (
@@ -193,7 +209,7 @@ export default function Sidebar() {
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 space-y-0.5">
-          {navItems.map((item) => (
+          {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

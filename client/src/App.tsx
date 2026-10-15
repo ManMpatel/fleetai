@@ -17,6 +17,7 @@ import StaffPage from './pages/StaffPage'
 import InvoicePage from './pages/InvoicePage'
 import ServiceHistoryPage from './pages/ServiceHistoryPage'
 import TollBatchPage from './pages/TollBatchPage'
+import RentTrackerPage from './pages/rent-tracker/RentTrackerPage'
 import PublicInvoicePage from './pages/PublicInvoicePage'
 import { useStore } from './store/useStore'
 
@@ -321,7 +322,7 @@ export default function App() {
         })
         if (cancelled) return
         setOwnerStatus(data.status)
-        setSession({ email: data.email ?? null, isSuperAdmin: !!data.isSuperAdmin, org: data.org ?? null })
+        setSession({ email: data.email ?? null, isSuperAdmin: !!data.isSuperAdmin, org: data.org ?? null, features: data.features ?? undefined })
         return data.status
       } catch (err: any) {
         if (!cancelled) {
@@ -410,6 +411,7 @@ function DashboardShell() {
             <Route path="/service-history" element={<ServiceHistoryPage />} />
             <Route path="/rego-import"    element={<RegoImportPage />} />
             <Route path="/toll-batch"     element={<TollBatchPage />} />
+            <Route path="/rent-tracker"   element={<RentTrackerPage />} />
           </Routes>
         </PageErrorBoundary>
       </main>
