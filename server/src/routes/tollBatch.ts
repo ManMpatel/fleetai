@@ -1,18 +1,24 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import multer from 'multer'
+import mongoose from 'mongoose'
 import TollBatch from '../models/TollBatch'
 import TollFolder from '../models/TollFolder'
 import Vehicle from '../models/Vehicle'
 import Renter from '../models/Renter'
 import Organization from '../models/Organization'
-import { rasterizePdfBatch, getPdfPageCount, mergeImagesToPdf, extractPageTexts, extractPagesFromPdf } from '../services/tollPdf'
+import { rasterizePdfBatch, getPdfPageCount, extractPageTexts } from '../services/tollPdf'
 import { writeFile, mkdtemp, rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { sendTollEmail } from '../services/tollEmail'
 import { GEMINI_MODEL, generateWithRetry, geminiPacingDelay, isRetryableError } from '../config/gemini'
 import TollPage from '../models/TollPage'
-import { saveMergedPdf, readMergedPdf, deleteMergedPdf, saveOriginalPdf, readOriginalPdf, deleteOriginalPdf } from '../services/tollStorage'
+import {
+  storeOriginal, loadOriginal, hasOriginal, deleteOriginal, getFolderPdfBuffer, getFolderPdfLink, invalidateFolderPdf,
+  buildBatchFolderPdfs, storePageImage, loadPageImageBase64, pageImageLink, deleteBatchFiles,
+} from '../services/tollFiles'
+import { tollKeys, tollS3Configured, tollS3DeletePrefix } from '../services/tollS3'
+import { tollExpiryFrom, tollExpiryOf, daysUntil, TOLL_LEGACY_RETENTION_DAYS, DAY_MS } from '../config/toll'
 import { parsePlateRead, decidePlates, fitToFleet, samePlate, nearFleetPlates, PlateDecision } from '../services/tollPlates'
 
 // TollBatch — an owner scans ~200-300 printed toll notices into one PDF, uploads it
@@ -45,43 +51,10 @@ function matchTypeFor(plate: string | null, statusByPlate: Map<string, string>):
   return 'unregistered'
 }
 
-/** Returns the merged PDF for a folder, computing and caching it in GridFS on first call. */
-async function getMergedPdfBuffer(folder: any): Promise<Buffer> {
-  if (folder.mergedPdfFileId) return readMergedPdf(folder.mergedPdfFileId)
-  if (folder.mergedPdfBase64) return Buffer.from(folder.mergedPdfBase64, 'base64')
+// Where the files of a batch are kept (S3 or MongoDB), how a plate's PDF is cut from the original
+// scan, and how long files live: all in services/tollFiles.ts and config/toll.ts.
 
-  // Preferred path: extract the relevant pages from the original uploaded PDF.
-  // This is far more memory-efficient than loading hundreds of rasterized JPEG images
-  // from MongoDB — the original PDF is one 35 MB read vs. potentially 150 MB of images.
-  const batch = await TollBatch.findOne({ _id: folder.batchId, orgId: folder.orgId }).select('originalPdfFileId').lean()
-  if (batch?.originalPdfFileId) {
-    const legacyNums = (folder.pages ?? []).map((p: any) => p.pageNumber as number)
-    const newNums = await TollPage.find({ folderId: folder._id, orgId: folder.orgId })
-      .select('pageNumber').sort({ pageNumber: 1 }).lean()
-      .then(docs => docs.map(d => d.pageNumber))
-    const pageNums = [...new Set([...legacyNums, ...newNums])].sort((a, b) => a - b)
-    if (pageNums.length > 0) {
-      const origBuf = await readOriginalPdf(batch.originalPdfFileId)
-      const buf = await extractPagesFromPdf(origBuf, pageNums)
-      const mergedPdfFileId = await saveMergedPdf(buf, `${folder._id}.pdf`)
-      await TollFolder.updateOne({ _id: folder._id, orgId: folder.orgId }, { $set: { merged: true, mergedPdfFileId } })
-      return buf
-    }
-  }
-
-  // Fallback for legacy batches that predate originalPdfFileId storage: re-merge the
-  // rasterized JPEG images from MongoDB. Works fine for small folders; may be slow or
-  // memory-intensive for very large ones if the original PDF was never saved.
-  const legacyPages = folder.pages ?? []
-  const newPages = await TollPage.find({ folderId: folder._id, orgId: folder.orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
-  const allPages = [...legacyPages, ...newPages].sort((a: any, b: any) => a.pageNumber - b.pageNumber)
-  if (allPages.length === 0) throw new Error('No pages found for this folder')
-  const buf = await mergeImagesToPdf(allPages.map((p: any) => p.imageBase64))
-  if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId).catch(() => {})
-  const mergedPdfFileId = await saveMergedPdf(buf, `${folder._id}.pdf`)
-  await TollFolder.updateOne({ _id: folder._id, orgId: folder.orgId }, { $set: { merged: true, mergedPdfFileId } })
-  return buf
-}
+const GONE_MESSAGE = 'These toll notices were automatically deleted when their storage time ended'
 
 interface PlateReadResult {
   /** Every plate printed on the page, in reading order, duplicates kept. */
@@ -347,9 +320,13 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
             const plates = fitted.plates
             const needsCheck = decision.status === 'conflict'
 
-            // When a page has 2 toll notices for 2 different plates, the same image goes into
+            // When a page has 2 toll notices for 2 different plates, the same page goes into
             // both plates' folders. When no plates were read, route the page to Unrecognized.
             const effectivePlates: (string | null)[] = plates.length > 0 ? plates : [null]
+            // Only store the page picture for pages that need a human look.
+            const picture = (needsCheck || plates.length === 0)
+              ? await storePageImage(orgId, batchId, page.pageNumber, page.imageBase64)
+              : {}
             const step = plates.length > 0
               ? `Page ${page.pageNumber} of ${totalPages} — sorted to ${plates.join(', ')}${needsCheck ? ' (please check)' : ''}`
               : `Page ${page.pageNumber} of ${totalPages} — sent to Unrecognized`
@@ -369,7 +346,7 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
               )
               await TollPage.create({
                 orgId, batchId, folderId: folder._id,
-                pageNumber: page.pageNumber, imageBase64: page.imageBase64,
+                pageNumber: page.pageNumber, ...picture,
                 ...pageReadFields(decision, fitted.correctedFrom),
               })
               await TollFolder.updateOne({ _id: folder._id, orgId }, { $inc: { pageCount: 1 } })
@@ -389,7 +366,8 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
                 { $setOnInsert: { orgId, batchId, plate: null } },
                 { upsert: true, new: true }
               )
-              await TollPage.create({ orgId, batchId, folderId: unrecFolder._id, pageNumber: page.pageNumber, imageBase64: page.imageBase64 })
+              const fallbackPicture = await storePageImage(orgId, batchId, page.pageNumber, page.imageBase64)
+              await TollPage.create({ orgId, batchId, folderId: unrecFolder._id, pageNumber: page.pageNumber, ...fallbackPicture })
               await TollFolder.updateOne({ _id: unrecFolder._id, orgId }, { $inc: { pageCount: 1 } })
             } catch (saveErr: any) {
               console.error(`[processBatch] Page ${page.pageNumber}/${totalPages} — fallback save also failed: ${saveErr.message}`)
@@ -408,40 +386,19 @@ async function processBatch(batchId: string, orgId: string, pdfBuffer: Buffer): 
 
     if (gone) return
 
-    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Merging folders into PDFs', lastProgressAt: new Date() } })
-
-    // Merging all images into one PDF per folder is memory-intensive. Folders with many
-    // pages (e.g. a large Unrecognized folder) can exhaust RAM on the VPS and block for
-    // many minutes. Folders above this limit are skipped here and merged on-demand when
-    // the user first clicks Download or Send — still cached in GridFS after that.
-    const MERGE_UPFRONT_LIMIT = 20
-
-    const folders = await TollFolder.find({ orgId, batchId })
-    for (const folder of folders) {
-      const legacyPages = folder.pages ?? []
-      const estimatedTotal = legacyPages.length + (folder.pageCount ?? 0)
-      if (estimatedTotal > MERGE_UPFRONT_LIMIT) continue  // merge on-demand at download time
-
-      const newPages = await TollPage.find({ folderId: folder._id, orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
-      const allPages = [...legacyPages, ...newPages].sort((a, b) => a.pageNumber - b.pageNumber)
-      if (allPages.length === 0) continue
-
-      const mergedBuffer = await mergeImagesToPdf(allPages.map(p => p.imageBase64))
-      if (folder.mergedPdfFileId) await deleteMergedPdf(folder.mergedPdfFileId as any).catch(() => {})
-      const mergedPdfFileId = await saveMergedPdf(mergedBuffer, `${folder._id}.pdf`)
-      await TollFolder.updateOne({ _id: folder._id, orgId }, { $set: { merged: true, mergedPdfFileId } })
-      await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { lastProgressAt: new Date() } })
-    }
+    await TollBatch.findOneAndUpdate({ _id: batchId, orgId }, { $set: { currentStep: 'Building plate PDFs', lastProgressAt: new Date() } })
+    const folderCount = await TollFolder.countDocuments({ orgId, batchId })
+    await buildBatchFolderPdfs(batchId, orgId, pdfBuffer)
 
     if (cancelled) {
       await TollBatch.findOneAndUpdate(
         { _id: batchId, orgId },
-        { $set: { currentStep: `Cancelled — ${folders.length} folder${folders.length !== 1 ? 's' : ''} sorted before stopping`, completedAt: new Date() } }
+        { $set: { currentStep: `Cancelled — ${folderCount} folder${folderCount !== 1 ? 's' : ''} sorted before stopping`, completedAt: new Date() } }
       )
     } else {
       await TollBatch.findOneAndUpdate(
         { _id: batchId, orgId },
-        { $set: { status: 'done', currentStep: `Done — ${folders.length} folder${folders.length !== 1 ? 's' : ''}`, completedAt: new Date() } }
+        { $set: { status: 'done', currentStep: `Done — ${folderCount} folder${folderCount !== 1 ? 's' : ''}`, completedAt: new Date() } }
       )
     }
   } catch (err: any) {
@@ -471,10 +428,6 @@ router.post('/', handleUpload, async (req: Request, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
 
-    console.log('[TollBatch] Saving original PDF to GridFS…')
-    const originalPdfFileId = await saveOriginalPdf(req.file.buffer, req.file.originalname)
-    console.log('[TollBatch] GridFS save OK, fileId:', originalPdfFileId)
-
     const batch = await TollBatch.create({
       orgId: req.orgId,
       originalFilename: req.file.originalname,
@@ -482,10 +435,13 @@ router.post('/', handleUpload, async (req: Request, res: Response) => {
       totalPages: 0,
       processedPages: 0,
       currentStep: 'Starting…',
-      originalPdfFileId,
+      expiresAt: tollExpiryFrom(),
       lastProgressAt: new Date(),
     })
-    console.log('[TollBatch] Batch created, id:', batch._id, '— firing background job')
+    console.log('[TollBatch] Batch created, id:', batch._id, '— storing original…')
+    const stored = await storeOriginal(req.orgId!.toString(), batch._id.toString(), req.file.buffer, req.file.originalname)
+    await TollBatch.updateOne({ _id: batch._id }, { $set: stored })
+    console.log('[TollBatch] Original stored — firing background job')
 
     // Fire and forget — the client polls GET /:batchId for progress instead of holding
     // this request open for the duration of the batch.
@@ -525,7 +481,7 @@ router.post('/:batchId/retry', async (req: Request, res: Response) => {
     const batch = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId })
     if (!batch) return res.status(404).json({ error: 'Batch not found' })
     if (batch.status === 'done') return res.status(409).json({ error: 'This batch already finished' })
-    if (!batch.originalPdfFileId) {
+    if (!hasOriginal(batch)) {
       return res.status(410).json({ error: 'The original scan was not kept — please re-upload it as a new batch' })
     }
 
@@ -534,7 +490,8 @@ router.post('/:batchId/retry', async (req: Request, res: Response) => {
       { $set: { status: 'processing', currentStep: 'Resuming…', lastProgressAt: new Date() }, $unset: { error: '' } }
     )
 
-    const pdfBuffer = await readOriginalPdf(batch.originalPdfFileId as any)
+    const pdfBuffer = await loadOriginal(batch)
+    if (!pdfBuffer) return res.status(410).json({ error: 'The original scan was not kept — please re-upload it as a new batch' })
     void processBatch(batch._id.toString(), req.orgId!.toString(), pdfBuffer)
 
     res.status(202).json({ batchId: batch._id })
@@ -551,23 +508,19 @@ router.delete('/:batchId', async (req: Request, res: Response) => {
     if (!batch) {
       // Ghost-folder recovery: the batch record was deleted (e.g. crash during a prior delete)
       // but TollFolder/TollPage records may still exist for this batchId.
-      const ghostFolders = await TollFolder.find({ batchId: req.params.batchId, orgId: req.orgId }).select('_id mergedPdfFileId')
+      const ghostFolders = await TollFolder.find({ batchId: req.params.batchId, orgId: req.orgId }).select('_id pdfKey mergedPdfFileId')
       if (!ghostFolders.length) return res.status(404).json({ error: 'Batch not found' })
-      for (const f of ghostFolders) {
-        if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
-      }
       const ghostFolderIds = ghostFolders.map(f => f._id)
+      await deleteBatchFiles(req.orgId!.toString(), { _id: req.params.batchId }, ghostFolders)
       await TollPage.deleteMany({ folderId: { $in: ghostFolderIds } })
       await TollFolder.deleteMany({ _id: { $in: ghostFolderIds } })
       return res.json({ success: true, ghostsCleaned: ghostFolders.length })
     }
     if (batch.status === 'processing') return res.status(409).json({ error: 'Cancel the batch before deleting it' })
 
-    if (batch.originalPdfFileId) await deleteOriginalPdf(batch.originalPdfFileId as any).catch(() => {})
-    const folders = await TollFolder.find({ batchId: batch._id }).select('_id mergedPdfFileId')
-    for (const f of folders) {
-      if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
-    }
+    const folders = await TollFolder.find({ batchId: batch._id }).select('_id pdfKey mergedPdfFileId')
+    const filesGone = await deleteBatchFiles(req.orgId!.toString(), batch, folders)
+    if (!filesGone) return res.status(500).json({ error: 'Could not remove all stored files — please try again' })
     const folderIds = folders.map(f => f._id)
     await TollPage.deleteMany({ folderId: { $in: folderIds } })
     await TollFolder.deleteMany({ batchId: batch._id })
@@ -631,7 +584,7 @@ router.get('/', async (req: Request, res: Response) => {
         matchType: mt,
         pageCount: (f.pages?.length ?? 0) + (f.pageCount ?? 0),
         sentStatus: f.sentStatus,
-        hasMergedPdf: Boolean(f.mergedPdfFileId || f.merged || (f.pages?.length ?? 0) + (f.pageCount ?? 0) > 0),
+        hasMergedPdf: Boolean(f.pdfKey || f.mergedPdfFileId || f.merged || (f.pages?.length ?? 0) + (f.pageCount ?? 0) > 0),
         imagesDeleted: f.imagesDeleted ?? false,
         needsCheck: checkFlags.has(String(f._id)),
         checkAlternatives: checkFlags.get(String(f._id)) ?? [],
@@ -670,7 +623,11 @@ router.get('/', async (req: Request, res: Response) => {
         const [y, m, d] = dateKey.split('-').map(Number)
         const dateObj = new Date(Date.UTC(y, m - 1, d))
         const dateLabel = `${d} ${MON_NAMES[m - 1]} ${y}, ${DAY_NAMES[dateObj.getUTCDay()]}`
-        const daysRemaining = Math.max(0, 45 - Math.floor((now - dateObj.getTime()) / 86400000))
+        // Use the actual expiry of any batches in this date group; fall back to the legacy
+        // 45-day rule keyed on the date key when there are no in-progress batches to reference.
+        const batchExpiries = group.batches.map(b => daysUntil(tollExpiryOf(b as any), now))
+        const dateExpiry = Math.max(0, TOLL_LEGACY_RETENTION_DAYS - Math.floor((now - dateObj.getTime()) / DAY_MS))
+        const daysRemaining = batchExpiries.length ? Math.min(...batchExpiries) : dateExpiry
         return { date: dateKey, dateLabel, daysRemaining, batches: group.batches, folders: group.folders }
       })
 
@@ -727,7 +684,7 @@ router.get('/:batchId', async (req: Request, res: Response) => {
         plate: f.plate,
         matchType: matchTypeFor(f.plate, statusByPlate),
         pageCount: (f.pages?.length ?? 0) + (f.pageCount ?? 0),
-        hasMergedPdf: Boolean(f.mergedPdfFileId || f.merged || (f.pages?.length ?? 0) + (f.pageCount ?? 0) > 0),
+        hasMergedPdf: Boolean(f.pdfKey || f.mergedPdfFileId || f.merged || (f.pages?.length ?? 0) + (f.pageCount ?? 0) > 0),
         sentStatus: f.sentStatus,
         sentTo: f.sentTo,
         sentAt: f.sentAt,
@@ -779,12 +736,16 @@ router.get('/:batchId/folders/:folderId/download', async (req: Request, res: Res
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
-    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: GONE_MESSAGE })
 
     const label = folder.plate || 'Unrecognized'
-    const pdfBuffer = await getMergedPdfBuffer(folder)
+    const filename = `${label}.pdf`
+    const link = await getFolderPdfLink(String(folder._id), String(req.orgId), filename)
+    if (link) return res.redirect(302, link)
+
+    const pdfBuffer = await getFolderPdfBuffer(String(folder._id), String(req.orgId))
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="${label}.pdf"`)
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
     res.send(pdfBuffer)
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -797,15 +758,24 @@ router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Respon
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
-    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: GONE_MESSAGE })
 
     const legacyPages = folder.pages ?? []
     const newPages = await TollPage.find({ folderId: folder._id, orgId: req.orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
-    // Legacy embedded pages carry no plate-read info; TollPage docs may.
-    type PageLike = { pageNumber: number; imageBase64: string; readStatus?: string; plateCopies?: string[] }
-    const pages = ([...legacyPages, ...newPages] as PageLike[])
-      .sort((a, b) => a.pageNumber - b.pageNumber)
-      .map(p => ({ pageNumber: p.pageNumber, imageBase64: p.imageBase64, readStatus: p.readStatus, plateCopies: p.plateCopies ?? [] }))
+
+    // Load the original PDF once — loadPageImageBase64 uses it to re-rasterize when a page
+    // picture was not kept (all correctly sorted pages). One read for the whole folder.
+    const batchDoc = await TollBatch.findOne({ _id: req.params.batchId, orgId: req.orgId }).select('originalPdfFileId originalKey').lean()
+    const original = batchDoc ? await loadOriginal(batchDoc) : null
+
+    type PageLike = { pageNumber: number; imageBase64?: string | null; imageKey?: string | null; readStatus?: string; plateCopies?: string[] }
+    const allSorted = ([...legacyPages, ...newPages] as PageLike[]).sort((a, b) => a.pageNumber - b.pageNumber)
+
+    const pages = await Promise.all(allSorted.map(async (p) => {
+      const link = pageImageLink(p)
+      const imageBase64 = link ? null : await loadPageImageBase64(p, { original })
+      return { pageNumber: p.pageNumber, imageBase64, imageUrl: link, readStatus: p.readStatus, plateCopies: p.plateCopies ?? [] }
+    }))
 
     res.json({ pages })
   } catch (err: any) {
@@ -848,16 +818,18 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/reassign', async (req
 
     // Look for the page in TollPage first, then fall back to legacy embedded pages.
     const pageDoc = await TollPage.findOne({ folderId: sourceFolder._id, pageNumber, orgId: req.orgId })
-    let pageImageBase64: string
+    // Carry the stored image reference (base64 in MongoDB or key in S3) to the destination.
+    let imageRef: { imageBase64?: string; imageKey?: string } = {}
 
     if (pageDoc) {
-      pageImageBase64 = pageDoc.imageBase64
+      if (pageDoc.imageBase64) imageRef = { imageBase64: pageDoc.imageBase64 }
+      else if (pageDoc.imageKey) imageRef = { imageKey: pageDoc.imageKey }
       await TollPage.deleteOne({ _id: pageDoc._id })
       await TollFolder.updateOne({ _id: sourceFolder._id, orgId: req.orgId }, { $inc: { pageCount: -1 } })
     } else {
       const legacyPage = sourceFolder.pages.find(p => p.pageNumber === pageNumber)
       if (!legacyPage) return res.status(404).json({ error: 'Page not found in this folder' })
-      pageImageBase64 = legacyPage.imageBase64
+      imageRef = { imageBase64: legacyPage.imageBase64 }
       sourceFolder.pages = sourceFolder.pages.filter(p => p.pageNumber !== pageNumber)
       await sourceFolder.save()
     }
@@ -869,34 +841,24 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/reassign', async (req
     )
     await TollPage.create({
       orgId: req.orgId, batchId: req.params.batchId, folderId: destFolder._id,
-      pageNumber, imageBase64: pageImageBase64,
+      pageNumber, ...imageRef,
     })
     await TollFolder.updateOne({ _id: destFolder._id, orgId: req.orgId }, { $inc: { pageCount: 1 } })
 
+    // Invalidate the stored plate PDF for both affected folders so the next Download/Send
+    // cuts a fresh one from the original — moving a page always changes the page set.
     for (const folderId of [sourceFolder._id, destFolder._id]) {
       const f = await TollFolder.findOne({ _id: folderId, orgId: req.orgId })
       if (!f) continue
       const legacyPgs = f.pages ?? []
-      const newPgs = await TollPage.find({ folderId: f._id, orgId: req.orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
-      const totalCount = legacyPgs.length + newPgs.length
+      const newPgsCount = await TollPage.countDocuments({ folderId: f._id, orgId: req.orgId })
+      const totalCount = legacyPgs.length + newPgsCount
       if (totalCount === 0) {
-        if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
+        await invalidateFolderPdf(f._id, req.orgId)
         await TollFolder.deleteOne({ _id: f._id })
         continue
       }
-      // Large folders: skip eager re-merge here — getMergedPdfBuffer uses extractPagesFromPdf
-      // from the original scan PDF (fast, one small read) when the user next downloads/sends.
-      // Merging 20+ JPEG images in-request can exceed 20s for a large plate folder.
-      if (totalCount > 20) {
-        if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
-        await TollFolder.updateOne({ _id: f._id }, { $set: { merged: false, mergedPdfFileId: null } })
-        continue
-      }
-      const allPgs = [...legacyPgs, ...newPgs].sort((a, b) => a.pageNumber - b.pageNumber)
-      const mergedBuffer = await mergeImagesToPdf(allPgs.map(p => p.imageBase64))
-      if (f.mergedPdfFileId) await deleteMergedPdf(f.mergedPdfFileId as any).catch(() => {})
-      const newMergedFileId = await saveMergedPdf(mergedBuffer, `${f._id}.pdf`)
-      await TollFolder.updateOne({ _id: f._id }, { $set: { merged: true, mergedPdfFileId: newMergedFileId } })
+      await invalidateFolderPdf(f._id, req.orgId)
     }
 
     res.json({ success: true, movedTo: cleanPlate })
@@ -913,7 +875,7 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
   try {
     const folder = await TollFolder.findOne({ _id: req.params.folderId, orgId: req.orgId, batchId: req.params.batchId })
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
-    if (folder.imagesDeleted) return res.status(410).json({ error: 'Images for this toll were automatically removed after 45 days' })
+    if (folder.imagesDeleted) return res.status(410).json({ error: GONE_MESSAGE })
     const { renterId, email } = req.body as { renterId?: string; email?: string }
 
     let toAddress: string | null = null
@@ -938,7 +900,7 @@ router.post('/:batchId/folders/:folderId/send', async (req: Request, res: Respon
     const org = req.org!
 
     const label = folder.plate || 'Unrecognized'
-    const pdfBuffer = await getMergedPdfBuffer(folder)
+    const pdfBuffer = await getFolderPdfBuffer(String(folder._id), String(req.orgId))
 
     // sendTollEmail throws with the real failure reason (bad address, SMTP auth
     // rejected, not connected) — that reaches the owner as-is, never a false "sent".
@@ -973,12 +935,8 @@ async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<vo
       return
     }
 
-    // Invalidate merged PDF upfront — pages are about to move out, so the existing
-    // merged file is immediately stale. Download/Send regenerates on-demand.
-    if (unrecFolder.mergedPdfFileId) {
-      await deleteMergedPdf(unrecFolder.mergedPdfFileId as any).catch(() => {})
-      await TollFolder.updateOne({ _id: unrecFolder._id, orgId }, { $set: { mergedPdfFileId: null, merged: false } })
-    }
+    // Invalidate the Unrecognized folder's PDF upfront — pages are about to move out.
+    await invalidateFolderPdf(unrecFolder._id, orgId)
 
     const fleetVehicles = await Vehicle.find({ orgId }).select('plate')
     const knownPlates = fleetVehicles.map(v => v.plate).filter(Boolean)
@@ -986,11 +944,11 @@ async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<vo
     // Try to extract a text layer from the original PDF — zero cost for scanned PDFs
     // (returns empty map), but avoids Gemini calls for any digital pages in the batch.
     let pageTexts = new Map<number, string>()
-    const batchDoc = await TollBatch.findOne({ _id: batchId, orgId }).select('originalPdfFileId').lean()
-    if (batchDoc?.originalPdfFileId) {
+    const batchDoc = await TollBatch.findOne({ _id: batchId, orgId }).select('originalPdfFileId originalKey').lean()
+    if (batchDoc && hasOriginal(batchDoc)) {
       try {
-        const origBuf = await readOriginalPdf(batchDoc.originalPdfFileId as any)
-        pageTexts = await extractPageTexts(origBuf).catch(() => new Map<number, string>())
+        const origBuf = await loadOriginal(batchDoc)
+        if (origBuf) pageTexts = await extractPageTexts(origBuf).catch(() => new Map<number, string>())
       } catch { /* no original stored — vision only */ }
     }
 
@@ -1011,8 +969,10 @@ async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<vo
       }
 
       try {
+        const imageBase64 = await loadPageImageBase64(page)
+        if (!imageBase64) { processed++; continue }
         const decision = await decidePage({
-          imageBase64: page.imageBase64,
+          imageBase64,
           mimeType: 'image/jpeg',
           text: pageTexts.get(page.pageNumber) ?? '',
           orgId,
@@ -1025,19 +985,23 @@ async function rescanUnrecognizedJob(batchId: string, orgId: string): Promise<vo
           await TollPage.deleteOne({ _id: page._id })
           await TollFolder.updateOne({ _id: unrecFolder._id, orgId }, { $inc: { pageCount: -1 } })
 
+          // Carry the stored image reference to the destination folder.
+          const imageRef: { imageBase64?: string; imageKey?: string } = {}
+          if (page.imageBase64) imageRef.imageBase64 = page.imageBase64
+          else if (page.imageKey) imageRef.imageKey = page.imageKey
+
           for (const plate of plates) {
             const destFolder = await TollFolder.findOneAndUpdate(
               { orgId, batchId, plate },
               { $setOnInsert: { orgId, batchId, plate } },
               { upsert: true, new: true }
             )
-            await TollPage.create({ orgId, batchId, folderId: destFolder._id, pageNumber: page.pageNumber, imageBase64: page.imageBase64, ...pageReadFields(decision, fitted.correctedFrom) })
+            await TollPage.create({ orgId, batchId, folderId: destFolder._id, pageNumber: page.pageNumber, ...imageRef, ...pageReadFields(decision, fitted.correctedFrom) })
             await TollFolder.updateOne({ _id: destFolder._id, orgId }, { $inc: { pageCount: 1 } })
 
-            // Invalidate destination's merged PDF once per folder touched this run.
-            if (!invalidatedFolders.has(destFolder._id.toString()) && destFolder.mergedPdfFileId) {
-              await deleteMergedPdf(destFolder.mergedPdfFileId as any).catch(() => {})
-              await TollFolder.updateOne({ _id: destFolder._id, orgId }, { $set: { mergedPdfFileId: null, merged: false } })
+            // Invalidate destination's PDF once per folder touched this run.
+            if (!invalidatedFolders.has(destFolder._id.toString())) {
+              await invalidateFolderPdf(destFolder._id, orgId)
               invalidatedFolders.add(destFolder._id.toString())
             }
           }
@@ -1107,7 +1071,8 @@ router.post('/:batchId/folders/:folderId/pages/:pageNumber/rescan', async (req: 
     if (!folder) return res.status(404).json({ error: 'Folder not found' })
 
     const pageDoc = await TollPage.findOne({ folderId: folder._id, pageNumber, orgId: req.orgId })
-    const imageBase64 = pageDoc?.imageBase64 ?? folder.pages?.find(p => p.pageNumber === pageNumber)?.imageBase64
+    const legacyImage = folder.pages?.find(p => p.pageNumber === pageNumber)?.imageBase64 ?? null
+    const imageBase64 = pageDoc ? await loadPageImageBase64(pageDoc) : legacyImage
     if (!imageBase64) return res.status(404).json({ error: 'Page not found' })
 
     const fleetVehicles = await Vehicle.find({ orgId: req.orgId }).select('plate')

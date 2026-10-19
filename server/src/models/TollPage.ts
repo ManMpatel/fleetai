@@ -9,7 +9,11 @@ export interface ITollPage extends Document {
   batchId: mongoose.Types.ObjectId
   folderId: mongoose.Types.ObjectId
   pageNumber: number
-  imageBase64: string
+  /** The page picture, kept here only when it is not in S3 (older batches, or MongoDB storage).
+   *  Since the one-copy change only pages that need a look (Unrecognized or Check plate) have a picture at all. */
+  imageBase64?: string
+  /** Where the page picture is kept when it is in S3. */
+  imageKey?: string
   /** How the plate on this page was read — see services/tollPlates.ts. All four fields
    *  are absent on pages filed before the plate check existed, and on manually moved pages. */
   readSource?: 'text' | 'vision'
@@ -29,7 +33,8 @@ const TollPageSchema = new Schema<ITollPage>(
     batchId:     { type: Schema.Types.ObjectId, required: true, index: true },
     folderId:    { type: Schema.Types.ObjectId, required: true, index: true },
     pageNumber:  { type: Number, required: true },
-    imageBase64: { type: String, required: true },
+    imageBase64: { type: String },
+    imageKey:    { type: String },
     readSource:    { type: String, enum: ['text', 'vision'] },
     readStatus:    { type: String, enum: ['verified', 'single', 'conflict', 'confirmed'] },
     plateCopies:   { type: [String], default: undefined },
