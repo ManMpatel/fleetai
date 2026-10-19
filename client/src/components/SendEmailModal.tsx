@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
+import { BusyStrip, Spinner } from './BusyBar'
+import { useSlow } from '../hooks/useSlow'
 
 interface Recipient {
   name?: string
@@ -37,6 +39,9 @@ export default function SendEmailModal({
   const [renters, setRenters] = useState<Recipient[]>([])
   const [recent, setRecent] = useState<string[]>([])
   const [sending, setSending] = useState(false)
+  // A toll folder PDF may have to be cut from the scan before it can be attached - say so when the wait
+  // is noticeable. Invoices and service records are quick, so they behave as before.
+  const preparingToll = useSlow(sending && attachmentType === 'toll-folder')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
@@ -284,13 +289,22 @@ export default function SendEmailModal({
 
             {error && <p className="text-xs text-red mb-3">{error}</p>}
 
+            {sending && preparingToll && (
+              <div role="status" className="mb-3">
+                <p className="text-xs text-accent mb-1.5 animate-pulse">Preparing the PDF and sending...</p>
+                <BusyStrip />
+              </div>
+            )}
+
             <div className="flex gap-2">
               <button
                 onClick={send}
                 disabled={sending || !to.trim() || (isService && includeInvoice && !templateId)}
                 className="flex-1 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
               >
-                {sending ? 'Sending...' : 'Send'}
+                {sending && attachmentType === 'toll-folder' ? (
+                  <span className="inline-flex items-center justify-center gap-1.5"><Spinner />Sending...</span>
+                ) : sending ? 'Sending...' : 'Send'}
               </button>
               <button onClick={onClose}
                 className="px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-accent transition-colors">
