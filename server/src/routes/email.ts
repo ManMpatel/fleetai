@@ -5,7 +5,7 @@ import TollFolder from '../models/TollFolder'
 import Renter from '../models/Renter'
 import Invoice from '../models/Invoice'
 import { sendResendEmail } from '../services/resendEmail'
-import { readMergedPdf } from '../services/tollStorage'
+import { getFolderPdfBuffer } from '../services/tollFiles'
 import {
   GST_MODES, upsertServiceInvoice, discardServiceInvoice, invoiceEmailBlock,
 } from '../services/serviceInvoice'
@@ -86,9 +86,11 @@ router.post('/send', async (req: Request, res: Response) => {
     if (attachmentType === 'toll-folder') {
       const folder = await TollFolder.findOne({ _id: attachmentId, orgId: req.orgId })
       if (!folder) return res.status(404).json({ error: 'Folder not found' })
-      if (!folder.mergedPdfFileId) return res.status(400).json({ error: 'PDF not ready yet — wait for processing to finish' })
+      if (folder.imagesDeleted) return res.status(410).json({ error: 'These toll notices were automatically deleted when their storage time ended' })
 
-      const pdfBuffer = await readMergedPdf(folder.mergedPdfFileId as any)
+      // The PDF of this plate: the stored one, or cut from the original scan now if there is none yet
+      // (a folder of any size works, there is no "not ready yet").
+      const pdfBuffer = await getFolderPdfBuffer(String(folder._id), String(req.orgId))
       const filename = `${folder.plate || 'toll-notice'}.pdf`
 
       await sendResendEmail(
