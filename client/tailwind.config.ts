@@ -33,14 +33,15 @@ const config: Config = {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+      // The moving bar shown while a PDF is being prepared (components/BusyBar.tsx).
       keyframes: {
         'toll-bar': {
-          '0%':   { transform: 'translateX(-100%)' },
-          '100%': { transform: 'translateX(400%)' },
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(300%)' },
         },
       },
       animation: {
-        'toll-bar': 'toll-bar 1.4s ease-in-out infinite',
+        'toll-bar': 'toll-bar 1.2s ease-in-out infinite',
       },
     },
   },

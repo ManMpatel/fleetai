@@ -44,6 +44,12 @@ interface TollFolderSummary {
   sentAt?: string
   imagesDeleted?: boolean
   matchType?: 'sorted' | 'stolen' | 'sold' | 'unregistered' | 'unrecognized'
+  /** A page in this folder had plate copies that disagreed — the owner should look at it. */
+  needsCheck?: boolean
+  /** The other plates seen on those pages (e.g. EHF76J on the EHF76K folder). */
+  checkAlternatives?: string[]
+  /** Fleet plates one character away from this folder's plate (only on "Not in your fleet"). */
+  closeTo?: string[]
 }
 
 interface TollDateGroup {
@@ -70,27 +76,6 @@ interface RenterMatch {
 }
 
 const API_BASE = '/api/toll-batch'
-
-// If the server redirects to an S3 presigned URL and the browser hits a CORS error fetching
-// it, this flag is set for the session so subsequent calls skip the redirect attempt.
-let directLinksUnusable = false
-
-async function fetchFolderPdf(url: string): Promise<Blob> {
-  try {
-    const { data } = await axios.get<Blob>(url, { responseType: 'blob' })
-    return data
-  } catch (err: any) {
-    if (!err?.response) {
-      // Network-level failure — likely CORS blocking the S3 redirect.
-      directLinksUnusable = true
-    }
-    throw err
-  }
-}
-
-// Suppress the "never read" warning — directLinksUnusable is written on error and
-// read by future fetchFolderPdf calls once the redirect path is known to be broken.
-void directLinksUnusable
 
 export default function TollBatchPage() {
   const [batches, setBatches] = useState<TollBatch[]>([])
@@ -695,15 +680,18 @@ function FolderGrid({ folders, batchId, batch, onSend, onToast, onRefresh, onRes
     return <div className="text-center py-20 text-text-muted text-sm">No pages were found in this batch.</div>
   }
 
-  const known = folders.filter(f => f.plate)
+  // Folders whose plate needs a look come first, so the owner never has to hunt for them.
+  const known = folders.filter(f => f.plate).sort((a, b) => Number(!!b.needsCheck) - Number(!!a.needsCheck))
   const unrecognized = folders.find(f => !f.plate)
   const rescan = batch?.rescan
+  const checkCount = known.filter(f => f.needsCheck).length
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs text-text-secondary">
           <span className="font-medium text-text-primary">{known.length}</span> plate{known.length !== 1 ? 's' : ''} sorted
+          {checkCount > 0 && <> · <span className="font-medium text-amber">{checkCount}</span> to check</>}
           {unrecognized && <> · <span className="font-medium text-text-primary">{unrecognized.pageCount}</span> page{unrecognized.pageCount !== 1 ? 's' : ''} unrecognized</>}
         </p>
         {unrecognized && (
@@ -731,6 +719,36 @@ function FolderGrid({ folders, batchId, batch, onSend, onToast, onRefresh, onRes
   )
 }
 
+// If this browser page cannot open a direct S3 link (the bucket has no CORS rule for this site, a
+// firewall blocks it ...) there is no point asking for links again: use the server for the rest of
+// the visit. Reloading the page tries again.
+let directLinksUnusable = false
+
+/**
+ * The PDF of one folder as a Blob. When the files are in S3 the server only hands out a short-lived link
+ * and the browser fetches the PDF straight from S3, so it never passes through our server. Anything that
+ * goes wrong with that (an older server, links switched off, a blocked link) falls back to the server route
+ * `folderUrl`, which always works.
+ */
+async function fetchFolderPdf(folderUrl: string): Promise<Blob> {
+  if (!directLinksUnusable) {
+    try {
+      const { data } = await axios.get<{ url: string | null }>(`${folderUrl}-link`)
+      if (data.url) {
+        // fetch, not axios: the link is on another site, and our login header must not be sent there
+        const res = await fetch(data.url)
+        if (res.ok) return await res.blob()
+      }
+    } catch (err: any) {
+      // A reply from our server (say, 404 from an older server) or a failed link: use the server route.
+      // A failure of the browser itself (no CORS rule, blocked) will repeat every time, so remember it.
+      if (!axios.isAxiosError(err) || err.response?.status === 404) directLinksUnusable = true
+    }
+  }
+  const res = await axios.get(folderUrl, { responseType: 'blob' })
+  return res.data
+}
+
 function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   folder: TollFolderSummary
   batchId: string
@@ -742,6 +760,9 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   const downloadUrl = `${API_BASE}/${batchId}/folders/${folder._id}/download`
   const sent = folder.sentStatus === 'sent'
   const cfg = matchTypeConfig[folder.matchType ?? 'sorted']
+  // A plain sorted folder that needs a plate check gets an amber frame; stolen / sold /
+  // not-in-fleet folders keep their own colour, since that warning matters more.
+  const box = folder.needsCheck && (folder.matchType ?? 'sorted') === 'sorted' ? 'border-amber' : cfg.box
   const [reviewing, setReviewing] = useState(false)
   const [emailing, setEmailing] = useState(false)
 
@@ -754,6 +775,8 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   const [prefetching, setPrefetching] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  // A quick action stays calm. If the PDF has to be built first and the wait is noticeable, the button
+  // says so and a bar moves along the bottom of the card.
   const downloadSlow = useSlow(downloading)
   const shareSlow = useSlow(sharing)
   const preparing = (downloading && downloadSlow) || (sharing && shareSlow)
@@ -770,7 +793,7 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
     if (dragUrl || prefetching || !folder.hasMergedPdf) return
     setPrefetching(true)
     fetchFolderPdf(downloadUrl)
-      .then(blob => setDragUrl(window.URL.createObjectURL(blob)))
+      .then(blob => setDragUrl(window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))))
       .catch(() => { /* drag just won't work for this card — Download below still will */ })
       .finally(() => setPrefetching(false))
   }
@@ -805,7 +828,7 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
       a.click()
       setTimeout(() => window.URL.revokeObjectURL(url), 10_000)
     } catch {
-      onToast('✗ Download failed')
+      onToast('\u2717 Download failed')
     } finally {
       setDownloading(false)
     }
@@ -832,7 +855,7 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
       onMouseEnter={prefetchForDrag}
       onDragStart={handleDragStart}
       className={`relative overflow-hidden bg-surface border rounded-xl p-4 transition-colors ${
-        sent ? `${cfg.box} bg-surface2/60` : `${cfg.box} hover:border-accent`
+        sent ? `${box} bg-surface2/60` : `${box} hover:border-accent`
       } ${folder.hasMergedPdf ? 'cursor-grab active:cursor-grabbing' : ''}`}
       title={folder.hasMergedPdf ? 'Drag onto WhatsApp Desktop to send manually (or use Download for WhatsApp Web)' : undefined}
       aria-busy={preparing || undefined}
@@ -841,12 +864,37 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
         <div className="min-w-0">
           {cfg.label && <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>}
           <p className={`text-sm font-semibold truncate ${folder.plate ? 'text-text-primary' : 'text-text-muted'}`}>{label}</p>
+          {folder.closeTo && folder.closeTo.length > 0 && (
+            <p className="text-[11px] text-purple truncate" title={`Not in your fleet, but ${folder.closeTo.join(', ')} is — one character different`}>
+              close to {folder.closeTo.join(', ')}
+            </p>
+          )}
         </div>
         {sent && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-green/10 text-green shrink-0">Sent</span>
         )}
       </div>
-      <p className="text-xs text-text-secondary mb-3">{folder.pageCount} page{folder.pageCount !== 1 ? 's' : ''}</p>
+      {preparing ? (
+        <p role="status" className="text-xs text-accent mb-3 animate-pulse">Preparing the PDF...</p>
+      ) : (
+        <p className="text-xs text-text-secondary mb-3">{folder.pageCount} page{folder.pageCount !== 1 ? 's' : ''}</p>
+      )}
+
+      {folder.needsCheck && (
+        <button onClick={() => setReviewing(true)}
+          title={folder.checkAlternatives && folder.checkAlternatives.length > 0
+            ? `The plate is printed several times on the page. One copy read as ${folder.checkAlternatives.join(', ')} — click to look at the page.`
+            : 'The plate is printed several times on the page and the copies were not read the same way — click to look at the page.'}
+          className="w-full flex items-center gap-1.5 mb-3 px-2.5 py-1.5 bg-amber-bg border border-amber text-amber rounded-lg text-xs font-medium hover:opacity-80 transition-opacity">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5 shrink-0">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span className="truncate">
+            Check plate{folder.checkAlternatives && folder.checkAlternatives.length > 0 ? ` · also read ${folder.checkAlternatives.slice(0, 2).join(', ')}` : ''}
+          </span>
+        </button>
+      )}
 
       {sent && folder.sentTo && (
         <p className="text-xs text-text-secondary mb-3 truncate">to {folder.sentTo}</p>
@@ -854,16 +902,20 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
 
       <div className="flex gap-1.5">
         <button onClick={download} disabled={!folder.hasMergedPdf || downloading}
-          className="flex-1 px-2.5 py-1.5 bg-surface2 border border-border text-text-secondary rounded-lg text-xs font-medium hover:border-accent disabled:opacity-50 transition-colors">
-          {downloading && downloadSlow
-            ? <span className="inline-flex items-center justify-center gap-1"><Spinner />Getting PDF…</span>
-            : 'Download'}
+          className="flex-1 px-2.5 py-1.5 bg-surface2 border border-border text-text-secondary rounded-lg text-xs font-medium hover:border-accent disabled:opacity-50 transition-colors whitespace-nowrap">
+          {downloading ? (
+            <span className="inline-flex items-center justify-center gap-1.5">
+              <Spinner />{downloadSlow ? 'Preparing...' : 'Download'}
+            </span>
+          ) : 'Download'}
         </button>
         {canWebShare && (
           <button onClick={shareFile} disabled={!folder.hasMergedPdf || sharing}
             title="Share directly to WhatsApp Desktop or other apps — no download needed"
             className="px-2.5 py-1.5 bg-surface2 border border-border text-text-secondary rounded-lg text-xs hover:border-accent disabled:opacity-50 transition-colors shrink-0">
-            {sharing ? <Spinner /> : (
+            {sharing ? (
+              <Spinner />
+            ) : (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
                 <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
                 <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
@@ -894,7 +946,7 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
           </button>
         )}
       </div>
-      {preparing && <BusyStrip className="absolute bottom-0 inset-x-0" />}
+      {preparing && <BusyStrip className="absolute inset-x-0 bottom-0 rounded-none" />}
     </div>
     {reviewing && (
       <ReviewModal
@@ -922,8 +974,32 @@ function FolderCard({ folder, batchId, onSend, onToast, onRefresh }: {
   )
 }
 
-// ── Review modal — Unrecognized folder only: view each page's photo, type its plate,
-// it moves out of Unrecognized immediately. No paper needed.
+interface ReviewPage {
+  pageNumber: number
+  // New server: a short-lived link straight to the picture (imageUrl) when it is kept in S3, otherwise the
+  // picture itself (imageBase64). An old server only ever sends imageBase64.
+  imageBase64?: string
+  imageUrl?: string | null
+  readStatus?: string
+  plateCopies?: string[]
+}
+
+function reviewImageSrc(p: ReviewPage): string | undefined {
+  if (p.imageUrl) return p.imageUrl
+  if (p.imageBase64) return `data:image/png;base64,${p.imageBase64}`
+  return undefined
+}
+
+/** ["EHF76K","EHF76K","EHF76J"] → "EHF76K ×2 · EHF76J ×1" */
+function summariseCopies(copies: string[] = []): string {
+  const counts = new Map<string, number>()
+  for (const c of copies) counts.set(c, (counts.get(c) ?? 0) + 1)
+  return [...counts.entries()].map(([plate, n]) => `${plate} ×${n}`).join(' · ')
+}
+
+// ── Review modal — two uses. Unrecognized folder: view each page's photo, type its plate,
+// it moves out of Unrecognized immediately. A plated folder marked "Check plate": only the
+// flagged pages are listed — press "Looks right", or type the right plate and Save to move it.
 function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
   batchId: string
   folder: TollFolderSummary
@@ -931,26 +1007,48 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
   onResolved: () => void
   onToast: (msg: string) => void
 }) {
-  type ReviewPage = { pageNumber: number; imageBase64?: string; imageUrl?: string }
   const [pages, setPages] = useState<ReviewPage[]>([])
   const [loading, setLoading] = useState(true)
   const [plateInputs, setPlateInputs] = useState<Record<number, string>>({})
   const [savingPage, setSavingPage] = useState<number | null>(null)
   const [detecting, setDetecting] = useState<number | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  // Pages whose picture would not show. A picture link lives about an hour, so a window left open for
+  // a long time can find its links run out; "Try again" asks the server for new ones.
   const [broken, setBroken] = useState<Set<number>>(new Set())
+  const checking = !!folder.plate
 
-  function reviewImageSrc(p: ReviewPage) {
-    if (p.imageUrl) return p.imageUrl
-    if (p.imageBase64) return `data:image/png;base64,${p.imageBase64}`
-    return ''
+  function loadPages() {
+    // links=1: pictures kept in S3 come as short-lived links and the browser fetches them straight from S3.
+    // only=conflict: for a "Check plate" folder the server sends just the flagged pages. An older server
+    // ignores both and sends every picture inline, so the filter below stays.
+    axios.get<{ pages: ReviewPage[] }>(`${API_BASE}/${batchId}/folders/${folder._id}/pages`, {
+      params: { links: 1, ...(checking ? { only: 'conflict' } : {}) },
+    })
+      .then(({ data }) => {
+        setPages(checking ? data.pages.filter(p => p.readStatus === 'conflict') : data.pages)
+        setBroken(new Set())
+      })
+      .catch(() => onToast('✗ Could not load these pages'))
+      .finally(() => setLoading(false))
   }
 
   useEffect(() => {
-    axios.get<{ pages: ReviewPage[] }>(`${API_BASE}/${batchId}/folders/${folder._id}/pages`)
-      .then(({ data }) => setPages(data.pages))
-      .catch(() => onToast('✗ Could not load these pages'))
-      .finally(() => setLoading(false))
+    loadPages()
   }, [batchId, folder._id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function confirmPlate() {
+    setConfirming(true)
+    try {
+      await axios.post(`${API_BASE}/${batchId}/folders/${folder._id}/confirm`)
+      onToast(`✓ ${folder.plate} confirmed`)
+      onResolved()
+    } catch (err: any) {
+      onToast(`✗ ${err.response?.data?.error || 'Could not confirm this plate'}`)
+    } finally {
+      setConfirming(false)
+    }
+  }
 
   async function autoDetect(pageNumber: number) {
     setDetecting(pageNumber)
@@ -991,13 +1089,20 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={onClose}>
       <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-text-primary">Review unrecognized pages</h2>
+          <h2 className="text-sm font-semibold text-text-primary">{checking ? `Check plate — ${folder.plate}` : 'Review unrecognized pages'}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
+        {checking && (
+          <p className="text-xs text-text-secondary mb-4">
+            This plate is printed several times on the page, and the copies were not read the same way.
+            Look at the page: if <span className="font-mono font-medium text-text-primary">{folder.plate}</span> is right, press Looks right.
+            If it belongs to another plate, type that plate and Save.
+          </p>
+        )}
         {loading ? (
           <p className="text-xs text-text-muted text-center py-8">Loading pages…</p>
         ) : pages.length === 0 ? (
@@ -1006,19 +1111,28 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
           <div className="space-y-5">
             {pages.map(p => (
               <div key={p.pageNumber} className="border border-border rounded-xl overflow-hidden">
-                {broken.has(p.pageNumber) ? (
-                  <div className="w-full h-32 bg-surface2 flex items-center justify-center">
-                    <span className="text-xs text-text-muted">Image unavailable</span>
-                  </div>
-                ) : (
+                {reviewImageSrc(p) && !broken.has(p.pageNumber) ? (
                   <img
                     src={reviewImageSrc(p)}
                     alt={`Page ${p.pageNumber}`}
-                    className="w-full max-h-64 object-contain bg-surface2"
                     onError={() => setBroken(prev => new Set(prev).add(p.pageNumber))}
+                    className="w-full max-h-64 object-contain bg-surface2"
                   />
+                ) : (
+                  <div className="w-full h-40 flex flex-col items-center justify-center gap-2 bg-surface2 text-xs text-text-muted">
+                    <span>The picture could not be loaded</span>
+                    <button onClick={loadPages}
+                      className="px-3 py-1 border border-border rounded-lg text-text-secondary hover:border-accent transition-colors">
+                      Try again
+                    </button>
+                  </div>
                 )}
                 <div className="p-3 flex flex-col gap-2">
+                  {p.plateCopies && p.plateCopies.length > 0 && (
+                    <p className="text-[11px] text-text-secondary">
+                      Read on this page: <span className="font-mono text-text-primary">{summariseCopies(p.plateCopies)}</span>
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-text-muted shrink-0">Page {p.pageNumber}</span>
                     <input
@@ -1041,6 +1155,12 @@ function ReviewModal({ batchId, folder, onClose, onResolved, onToast }: {
                 </div>
               </div>
             ))}
+            {checking && (
+              <button onClick={confirmPlate} disabled={confirming}
+                className="w-full px-3 py-2 bg-green-bg border border-green text-green rounded-lg text-xs font-medium hover:opacity-80 disabled:opacity-50 transition-opacity">
+                {confirming ? 'Saving…' : `Looks right — keep in ${folder.plate}`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1062,7 +1182,8 @@ function SendModal({ batchId, folder, onClose, onSent, onToast }: {
   const [selectedRenter, setSelectedRenter] = useState<RenterMatch | null>(null)
   const [rawEmail, setRawEmail] = useState('')
   const [sending, setSending] = useState(false)
-  const sendSlow = useSlow(sending)
+  // The server may have to cut the PDF before it can attach it; say so when the wait is noticeable.
+  const sendingSlow = useSlow(sending)
   const [loadingMatches, setLoadingMatches] = useState(true)
 
   const search = useCallback(async (q: string) => {
@@ -1186,16 +1307,22 @@ function SendModal({ batchId, folder, onClose, onSent, onToast }: {
           <p className="text-xs text-red mb-4">{selectedRenter.name} has no email on file — clear the selection above and type an address instead.</p>
         )}
 
-        {sending && sendSlow && <BusyStrip className="mb-3" />}
+        {sending && sendingSlow && (
+          <div role="status" className="mb-3">
+            <p className="text-xs text-accent mb-1.5 animate-pulse">Preparing the PDF and sending...</p>
+            <BusyStrip />
+          </div>
+        )}
+
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 px-4 py-2 bg-surface2 border border-border text-text-secondary rounded-lg text-sm font-medium hover:border-accent transition-colors">
             Cancel
           </button>
           <button onClick={send} disabled={!canSend || (!!selectedRenter && !selectedRenter.email)}
-            className="flex-1 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors">
-            {sending
-              ? <span className="inline-flex items-center justify-center gap-1.5"><Spinner />Sending...</span>
-              : 'Send'}
+            className="flex-1 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors whitespace-nowrap">
+            {sending ? (
+              <span className="inline-flex items-center justify-center gap-1.5"><Spinner />Sending...</span>
+            ) : 'Send'}
           </button>
         </div>
       </div>
