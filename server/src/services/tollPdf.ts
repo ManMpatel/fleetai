@@ -132,6 +132,57 @@ export async function extractPagesFromPdf(pdfBuffer: Buffer, pageNumbers: number
   return Buffer.from(await outDoc.save())
 }
 
+export interface PdfGroup {
+  id: string
+  /** 1-indexed page numbers of the big PDF that belong in this group's PDF. */
+  pages: number[]
+}
+
+export interface CutPdf {
+  id: string
+  /** The cut PDF, or null when none of the group's pages exist in the big PDF. */
+  buffer: Buffer | null
+}
+
+/**
+ * Cuts one small PDF out of a big one for every group of pages (one group = one plate folder).
+ * The big PDF is read ONCE, which is what makes a whole batch fast, and the small PDFs come out
+ * one at a time so memory stays near the size of the big PDF however many groups there are.
+ * Pages are copied as they are - the scanned picture is not re-compressed or redrawn.
+ */
+export async function* cutPdfGroups(pdfBuffer: Buffer, groups: PdfGroup[]): AsyncGenerator<CutPdf> {
+  const srcDoc = await PDFDocument.load(pdfBuffer, { updateMetadata: false })
+  const totalPages = srcDoc.getPageCount()
+  for (const group of groups) {
+    const indices = [...new Set(group.pages)]
+      .map(p => p - 1)
+      .filter(i => i >= 0 && i < totalPages)
+      .sort((a, b) => a - b)
+    if (indices.length === 0) {
+      yield { id: group.id, buffer: null }
+      continue
+    }
+    const outDoc = await PDFDocument.create()
+    const copied = await outDoc.copyPages(srcDoc, indices)
+    copied.forEach(page => outDoc.addPage(page))
+    yield { id: group.id, buffer: Buffer.from(await outDoc.save()) }
+  }
+}
+
+/** Renders one page (1-indexed) of a PDF as a JPEG - used when the stored picture of a page is missing. */
+export async function rasterizeOnePage(pdfBuffer: Buffer, pageNumber: number): Promise<RasterizedPage> {
+  const workDir = await mkdtemp(join(tmpdir(), 'tollbatch-one-'))
+  try {
+    const inputPath = join(workDir, 'input.pdf')
+    await writeFile(inputPath, pdfBuffer)
+    const pages = await rasterizePdfBatch(inputPath, pageNumber, pageNumber)
+    if (pages.length === 0) throw new Error(`Page ${pageNumber} could not be rendered`)
+    return pages[0]
+  } finally {
+    await rm(workDir, { recursive: true, force: true })
+  }
+}
+
 /** Rasterizes every page of a scanned PDF into a JPEG, 1-indexed to match how pages are numbered on screen. */
 export async function rasterizePdf(pdfBuffer: Buffer): Promise<RasterizedPage[]> {
   const workDir = await mkdtemp(join(tmpdir(), 'tollbatch-'))

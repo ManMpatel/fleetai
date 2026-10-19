@@ -28,6 +28,10 @@ export interface ITollFolder extends Document {
   sentRenter?: mongoose.Types.ObjectId
   pageCount?: number
   mergedPdfFileId?: mongoose.Types.ObjectId
+  /** Where this plate's PDF is kept when it is in S3 (the file in MongoDB is mergedPdfFileId). */
+  pdfKey?: string
+  /** Fingerprint of the page list the stored PDF was cut from. When the pages change, the PDF is cut again. */
+  pdfSig?: string
   imagesDeleted: boolean
   createdAt: Date
 }
@@ -57,6 +61,8 @@ const TollFolderSchema = new Schema<ITollFolder>(
     sentRenter: { type: Schema.Types.ObjectId, ref: 'Renter', default: null },
     pageCount:       { type: Number, default: 0 },
     mergedPdfFileId: { type: Schema.Types.ObjectId, default: null },
+    pdfKey:          { type: String },
+    pdfSig:          { type: String },
     imagesDeleted:   { type: Boolean, default: false },
   },
   { timestamps: { createdAt: true, updatedAt: false } }

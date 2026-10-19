@@ -27,6 +27,11 @@ export interface ITollBatch extends Document {
   createdAt: Date
   completedAt?: Date
   originalPdfFileId?: mongoose.Types.ObjectId
+  /** Where the scan is kept when it is in S3 (originalPdfFileId is used when it is in MongoDB). */
+  originalKey?: string
+  /** When the nightly clean-up deletes this batch. Batches from before the one-copy change have
+   *  none and keep the old rule, createdAt + 45 days (see config/toll.ts). */
+  expiresAt?: Date
   originalPdfBase64?: string
   lastProgressAt?: Date
   rescan?: IRescan
@@ -46,6 +51,9 @@ const TollBatchSchema = new Schema<ITollBatch>(
     // large scan can't push the TollBatch document past MongoDB's 16 MB limit.
     // Used by /retry to resume without asking the owner to re-upload.
     originalPdfFileId: { type: Schema.Types.ObjectId, default: null },
+    // The same scan when it is kept in S3 instead (see services/tollS3.ts).
+    originalKey: { type: String },
+    expiresAt:   { type: Date },
     // Legacy field kept in schema only so select:false suppresses it from all find()
     // calls — old documents in MongoDB still carry the raw base64 PDF, and without
     // this entry Mongoose omits the projection and returns MBs of data on every list.
