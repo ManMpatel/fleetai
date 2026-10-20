@@ -4,6 +4,7 @@ import Organization, { IOrganization } from '../models/Organization'
 import { hash } from '../services/encryption'
 import { integrationStatus } from '../services/integrationStatus'
 import { rentTrackerAllowed } from '../config/rentTracker'
+import { featureAllowed } from '../config/featureAccess'
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -134,7 +135,11 @@ function statusPayload(req: Request, org: IOrganization) {
     status: org.status,
     email: org.email,
     isSuperAdmin: isSuperAdminRequest(req),
-    features: { rentTracker: rentTrackerAllowed(org.email) },
+    features: {
+      rentTracker: rentTrackerAllowed(org.email),
+      ddr: featureAllowed('ddr', org.email),
+      forms: featureAllowed('forms', org.email),
+    },
     org: {
       displayName: org.displayName || org.name || org.email,
       logoUrl: org.logoUrl || null,

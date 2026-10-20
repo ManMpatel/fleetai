@@ -5,6 +5,7 @@ import axios from 'axios'
 import RenterDetailPayments from './RenterDetailPayments'
 import RenterDetailVehicle from './RenterDetailVehicle'
 import { jsPDF } from 'jspdf'
+import { useStore } from '../../store/useStore'
 
 function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, onCancel }: {
   title: string; message: string; confirmLabel: string
@@ -279,6 +280,8 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
   onRefresh: () => void
 }) {
   const [tab, setTab] = useState<'details' | 'payments' | 'vehicle'>('details')
+  // The DDR agreement PDF is switched on for named accounts only (server/src/config/featureAccess.ts).
+  const ddrAllowed = useStore(s => !!s.session?.features?.ddr)
 
   // Separate edit states for each card
   const [editing, setEditing] = useState(false)
@@ -533,7 +536,7 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
                 <div className="flex justify-between mb-3">
                   <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">Personal</h3>
                   <div className="flex items-center gap-2">
-                    <button onClick={async () => {
+                    {ddrAllowed && <button onClick={async () => {
                       let renterData: any = renter
                       if (!(renter as any).signatureBase64) {
                         try {
@@ -548,7 +551,7 @@ export default function RenterDetail({ renter, onToast, onRefresh }: {
                     }}
                       className="text-xs bg-accent text-white px-2.5 py-1 rounded-lg font-medium hover:bg-accent/90 transition-colors">
                       ↓ DDR
-                    </button>
+                    </button>}
                     {!editing && <button onClick={() => setEditing(true)} className="text-xs text-accent font-medium">Edit</button>}
                   </div>
                 </div>

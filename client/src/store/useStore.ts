@@ -18,7 +18,7 @@ export interface Session {
   email: string | null
   isSuperAdmin: boolean
   org: OrgSummary | null
-  features?: { rentTracker?: boolean }
+  features?: { rentTracker?: boolean; ddr?: boolean; forms?: boolean }
 }
 
 interface FleetStore {
