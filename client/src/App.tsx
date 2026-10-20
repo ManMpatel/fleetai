@@ -18,6 +18,7 @@ import InvoicePage from './pages/InvoicePage'
 import ServiceHistoryPage from './pages/ServiceHistoryPage'
 import TollBatchPage from './pages/TollBatchPage'
 import RentTrackerPage from './pages/rent-tracker/RentTrackerPage'
+import FormsPage from './pages/forms/FormsPage'
 import PublicInvoicePage from './pages/PublicInvoicePage'
 import { useStore } from './store/useStore'
 
@@ -412,6 +413,7 @@ function DashboardShell() {
             <Route path="/rego-import"    element={<RegoImportPage />} />
             <Route path="/toll-batch"     element={<TollBatchPage />} />
             <Route path="/rent-tracker"   element={<RentTrackerPage />} />
+            <Route path="/forms"          element={<FormsPage />} />
           </Routes>
         </PageErrorBoundary>
       </main>
