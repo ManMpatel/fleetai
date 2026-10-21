@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import axios from 'axios'
-import { buildInvoicePDF, safeInvoiceColor, fmtAmt } from './InvoicePage'
+import { buildInvoicePDF, safeInvoiceColor, fmtAmt, INVOICE_TITLE } from './InvoicePage'
 import type { Template, LineItem } from './InvoicePage'
 
 // PUBLIC page — opened by a customer from the link in an emailed invoice. No login.
@@ -189,7 +189,7 @@ export default function PublicInvoicePage() {
             </div>
           </div>
           <div style={{ textAlign: 'right', marginLeft: 'auto' }}>
-            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 1 }}>INVOICE</div>
+            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 1, whiteSpace: 'nowrap' }}>{INVOICE_TITLE}</div>
             <div style={{ fontSize: 15, fontWeight: 600 }}># {inv.number}</div>
           </div>
         </div>

@@ -42,6 +42,9 @@ interface SavedInvoice {
 
 const EMPTY_LINE = (): LineItem => ({ description: '', days: '', unitPrice: '', amount: 0 })
 
+// The big word in the top right corner of every invoice: used by the PDF, the template preview and the public invoice page.
+export const INVOICE_TITLE = 'TAX INVOICE'
+
 // Sharing a file straight from the browser (WhatsApp and other apps) needs the Web Share API with files.
 const CAN_WEB_SHARE = typeof navigator !== 'undefined' && 'share' in navigator && 'canShare' in navigator
 
@@ -242,12 +245,17 @@ export async function buildInvoicePDF(tmpl: Template, params: {
 
   const BX = LX + LW + 14
 
-  // The business name uses the room left of the INVOICE word and keeps a gap from it. A longer name carries on
-  // in the lines below, and if it is still too long it gets smaller (3 lines at most, then "..."). Returns how
-  // far down the name grew, so the address and phone lines move down with it. A name that fits is drawn as before.
-  const drawName = (s: string, x: number, y: number, size: number, f = fontBold, color = WHITE): number => {
+  // The title word ends exactly at the right margin, in line with the invoice number under it. The text is drawn
+  // without kerning, so its width is measured letter by letter (a kerned width would let the word stick out).
+  const titleW = Array.from(INVOICE_TITLE).reduce((sum, ch) => sum + fontBold.widthOfTextAtSize(ch, 30), 0)
+
+  // The business name and the address use the room left of the title word (TAX INVOICE) and keep a gap from it.
+  // Longer text carries on in the lines below. A name that is still too long gets smaller (3 lines at most, then
+  // "..."); an address is never made smaller and stops at 2 lines (then "..."). Returns how far down the text grew,
+  // so the lines under it move down with it. Text that fits is drawn as before.
+  const drawLeft = (s: string, x: number, y: number, size: number, f = fontBold, color = WHITE, maxLines = 3, maxShrink = 6): number => {
     if (!s?.trim()) return 0
-    const room = W - 16 - fontBold.widthOfTextAtSize('INVOICE', 30) - 18 - x
+    const room = W - 16 - titleW - 18 - x
     // Width as it is drawn: letter by letter, because the text is drawn without kerning.
     const wide = (t: string, sz: number) => Array.from(t).reduce((sum, ch) => sum + f.widthOfTextAtSize(ch, sz), 0)
     if (wide(clean(s), size) <= room) { txt(s, x, y, size, f, color); return 0 }
@@ -269,21 +277,21 @@ export async function buildInvoicePDF(tmpl: Template, params: {
 
     let sz = size
     let lines = wrap(sz)
-    while (lines.length > 3 && sz > size - 6) { sz -= 2; lines = wrap(sz) }
-    if (lines.length > 3) {
-      lines = lines.slice(0, 3)
-      let last = lines[2]
+    while (lines.length > maxLines && sz > size - maxShrink) { sz -= 2; lines = wrap(sz) }
+    if (lines.length > maxLines) {
+      lines = lines.slice(0, maxLines)
+      let last = lines[maxLines - 1]
       while (last && wide(last + '...', sz) > room) last = last.slice(0, -1)
-      lines[2] = last.trimEnd() + '...'
+      lines[maxLines - 1] = last.trimEnd() + '...'
     }
     const lead = Math.round(sz * 1.12)
     lines.forEach((line, i) => txt(line, x, y - i * lead, sz, f, color))
     return (lines.length - 1) * lead
   }
-  const nameDrop = drawName(tmpl.businessName,                    BX, H - 36,  18, fontBold, WHITE)
-  txt(tmpl.address,                         BX, H - 52 - nameDrop,  9,  font,     WHITE)
-  txt(`${tmpl.phone}  |  ${tmpl.email}`,   BX, H - 64 - nameDrop,  9,  font,     WHITE)
-  txtR('INVOICE',        W - 16, H - 44, 30, fontBold, WHITE)
+  const nameDrop = drawLeft(tmpl.businessName,                    BX, H - 36,  18, fontBold, WHITE)
+  const addrDrop = drawLeft(tmpl.address,                         BX, H - 52 - nameDrop,  9,  font,     WHITE, 2, 0)
+  txt(`${tmpl.phone}  |  ${tmpl.email}`,   BX, H - 64 - nameDrop - addrDrop,  9,  font,     WHITE)
+  txt(INVOICE_TITLE,     W - 16 - titleW, H - 44, 30, fontBold, WHITE)
   txtR(`# ${params.number}`, W - 16, H - 66, 13, fontBold, WHITE)
 
   // ── BILL TO ──────────────────────────────────────────────────
@@ -840,7 +848,7 @@ export default function InvoicePage() {
                 <div className="mt-2 h-8 rounded-lg flex items-center justify-between px-3 text-white text-xs font-semibold"
                   style={{ backgroundColor: safeInvoiceColor(tmplForm.color) }}>
                   <span className="truncate">{tmplForm.businessName || 'Your business'}</span>
-                  <span>INVOICE</span>
+                  <span className="shrink-0 whitespace-nowrap">{INVOICE_TITLE}</span>
                 </div>
                 <p className="text-[11px] text-text-muted mt-1">Default is orange. Very light colours are darkened automatically so the text stays readable.</p>
               </div>
