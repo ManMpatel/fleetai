@@ -65,3 +65,17 @@ export interface FormEntryRow {
   completedAt: string | null
   createdAt: string
 }
+
+/** answers[sectionId][fieldId] */
+export type Answers = Record<string, Record<string, any>>
+/** pictures[sectionId][fieldId] = data URLs */
+export type Pictures = Record<string, Record<string, string[]>>
+/** counts[sectionId][fieldId] = how many pictures */
+export type PictureCounts = Record<string, Record<string, number>>
+
+/** One form that came back: the row, what the renter answered, and what the owner has filled in so far. */
+export interface FormEntryDetail extends FormEntryRow {
+  renterData: Answers
+  ownerData: Answers
+  fileCounts: PictureCounts
+}

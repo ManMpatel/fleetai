@@ -5,11 +5,14 @@ import type { EntryStatus, FormEntryRow, FormTemplate, SectionDef } from './type
 import { copyText, formatWhen, formLink } from './util'
 import TemplateModal from './TemplateModal'
 import SendFormModal from './SendFormModal'
+import EntryPanel from './EntryPanel'
+import { downloadEntryPdf } from './entryPdf'
+import { Spinner } from '../../components/BusyBar'
 
 type Tab = 'templates' | 'history'
 type Filter = 'all' | EntryStatus
 
-const VIA: Record<string, string> = { email: 'Email', whatsapp: 'WhatsApp', copy: 'Link copied', link: 'Opened the link' }
+const VIA: Record<string, string> = { email: 'Email', whatsapp: 'WhatsApp', copy: 'Link copied', link: 'Came in through the link' }
 const STATUS: Record<EntryStatus, { label: string; cls: string }> = {
   sent: { label: 'Sent', cls: 'bg-amber-bg text-amber' },
   submitted: { label: 'Submitted', cls: 'bg-accent-bg text-accent' },
@@ -32,6 +35,8 @@ export default function FormsPage() {
   const [sending, setSending] = useState<{ template: FormTemplate; entry?: FormEntryRow } | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
+  const [openId, setOpenId] = useState<string | null>(null)   // the form open in the side panel
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null) // the row whose PDF is being made
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -108,6 +113,17 @@ export default function FormsPage() {
     const t = templateById.get(e.templateId)
     if (!t) { setError('This template was deleted, so its link no longer works.'); return }
     setNotice((await copyText(formLink(t.code))) ? 'Link copied.' : 'Could not copy. Open the Templates tab and copy it from there.')
+  }
+
+  async function downloadPdf(e: FormEntryRow) {
+    setPdfBusy(e.id)
+    try {
+      await downloadEntryPdf(e.id)
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Could not make the PDF. Try again.')
+    } finally {
+      setPdfBusy(null)
+    }
   }
 
   function sendAgain(e: FormEntryRow) {
@@ -226,7 +242,11 @@ export default function FormsPage() {
                     {shown.map(e => (
                       <tr key={e.id} className="border-b border-border last:border-0 align-top">
                         <td className="px-4 py-3">
-                          <p className="font-medium text-text-primary">{e.renterName || 'Unknown renter'}</p>
+                          {e.status === 'sent' ? (
+                            <p className="font-medium text-text-primary">{e.renterName || 'Unknown renter'}</p>
+                          ) : (
+                            <button onClick={() => setOpenId(e.id)} className="font-medium text-text-primary hover:text-accent hover:underline text-left">{e.renterName || 'Unknown renter'}</button>
+                          )}
                           <p className="text-xs text-text-muted">{e.renterPhone || e.renterEmail}</p>
                         </td>
                         <td className="px-4 py-3 text-text-secondary">{e.templateName}</td>
@@ -240,6 +260,12 @@ export default function FormsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap justify-end gap-2">
+                            {e.status !== 'sent' && <button onClick={() => setOpenId(e.id)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent text-white hover:opacity-90">{e.status === 'submitted' ? 'Open & finish' : 'Open'}</button>}
+                            {e.status !== 'sent' && (
+                              <button onClick={() => downloadPdf(e)} disabled={pdfBusy !== null} className={`${smallBtn} disabled:opacity-50`}>
+                                {pdfBusy === e.id ? <span className="inline-flex items-center gap-1.5"><Spinner className="w-3 h-3" /> PDF...</span> : 'PDF'}
+                              </button>
+                            )}
                             {e.status === 'sent' && <button onClick={() => sendAgain(e)} className={smallBtn}>Send again</button>}
                             <button onClick={() => copyEntryLink(e)} className={smallBtn}>Copy link</button>
                             <button onClick={() => removeEntry(e)} className="px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-red hover:border-red">Delete</button>
@@ -265,6 +291,15 @@ export default function FormsPage() {
             setNotice(editor.template ? `"${t.name}" saved.` : `"${t.name}" is ready. Press Send on it to send the link to a renter.`)
             load(true)
           }}
+        />
+      )}
+
+      {openId && (
+        <EntryPanel
+          entryId={openId}
+          onClose={() => setOpenId(null)}
+          onChanged={() => load(true)}
+          onNotice={setNotice}
         />
       )}
 

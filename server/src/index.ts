@@ -24,6 +24,7 @@ import emailRoutes from './routes/email'
 import rentTrackerRoutes from './routes/rentTracker'
 import formsRoutes from './routes/forms'
 import publicInvoiceRoutes from './routes/publicInvoice'
+import publicFormRoutes from './routes/publicForms'
 import ClockRecord from './models/ClockRecord'
 import Renter from './models/Renter'
 
@@ -80,6 +81,14 @@ app.use('/api/whatsapp', express.raw({ type: 'application/x-www-form-urlencoded'
   }
   next()
 })
+// The public form takes photos, but a whole form is never more than about 16 MB. Refuse a bigger
+// body before it is read (the general limit below is for the dashboard's own big uploads).
+app.use('/api/public/forms', (req, res, next) => {
+  if (Number(req.headers['content-length'] || 0) > 20_000_000) {
+    return res.status(413).json({ error: 'That is too large to send. Remove some photos and try again.' })
+  }
+  next()
+})
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 
@@ -130,8 +139,31 @@ const publicInvoiceLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
 })
 
+// Renters open a form link and send the form back with no login: by IP, a person opening the page
+// gets plenty of room, but sending a form (with photos) is limited much harder.
+const publicFormLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  message: { error: 'Too many requests, please try again later' },
+})
+const publicFormSubmitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 12,
+  message: { error: 'Too many forms sent from here, please try again later' },
+})
+// ...and one keyed on the link itself, like the onboarding one above: however many addresses a
+// leaked link is used from, it can only store so many forms an hour.
+const publicFormPerLinkLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  keyGenerator: (req) => `form:${req.params.code || 'unknown'}`,
+  message: { error: 'This form has had a lot of submissions in the last hour. Please try again later.' },
+})
+
 // ── Public routes (no login) ────────────────────────────────
 app.get('/api/auth/resolve/:slug', resolveSlug)
+app.post('/api/public/forms/:code/submit', publicFormSubmitLimiter, publicFormPerLinkLimiter)
+app.use('/api/public/forms', publicFormLimiter, publicFormRoutes)
 app.use('/api/public', publicInvoiceLimiter, publicInvoiceRoutes)
 app.use('/api/whatsapp', whatsappRouter)
 app.post('/api/tablet/verify-pin', pinLimiter)

@@ -20,6 +20,7 @@ import TollBatchPage from './pages/TollBatchPage'
 import RentTrackerPage from './pages/rent-tracker/RentTrackerPage'
 import FormsPage from './pages/forms/FormsPage'
 import PublicInvoicePage from './pages/PublicInvoicePage'
+import PublicFormPage from './pages/forms/PublicFormPage'
 import { useStore } from './store/useStore'
 
 function LoginPage() {
@@ -259,10 +260,12 @@ export default function App() {
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
 
   // '/view-invoice/' (with the slash) is the public link in emailed invoices — it must not
-  // be confused with the dashboard's own '/invoices' page.
+  // be confused with the dashboard's own '/invoices' page. Likewise '/form/<code>' (a renter's
+  // form link) is not the dashboard's '/forms' page.
   const isPublicPath = window.location.pathname.startsWith('/onboard') ||
                        window.location.pathname.startsWith('/tablet') ||
-                       window.location.pathname.startsWith('/view-invoice/')
+                       window.location.pathname.startsWith('/view-invoice/') ||
+                       window.location.pathname.startsWith('/form/')
 
   // The verified Auth0 token is the only thing that identifies the tenant. There is no
   // longer an x-owner-email header — the server derives the organisation from this token.
@@ -359,6 +362,7 @@ export default function App() {
           <Route path="/onboard" element={<OnboardPage />} />
           <Route path="/tablet" element={<TabletPage />} />
           <Route path="/view-invoice/:token" element={<PublicInvoicePage />} />
+          <Route path="/form/:code" element={<PublicFormPage />} />
         </Routes>
       </BrowserRouter>
     )

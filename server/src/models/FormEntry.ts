@@ -10,7 +10,8 @@ export type FormEntryVia = 'email' | 'whatsapp' | 'copy' | 'link'
 //
 // Answers are stored as data[sectionId][fieldId]. Pictures (licence, photos, signature) live in
 // `files` as data URLs, kept apart so the list never has to load them; `fileCounts` says how many
-// pictures each box has ("section.field") so the owner's screen knows without loading them.
+// pictures each box has (fileCounts[sectionId][fieldId], nested like the answers because a MongoDB
+// key cannot hold a dot) so the owner's screen knows without loading them.
 export interface IFormEntry extends Document {
   orgId: mongoose.Types.ObjectId
   templateId: mongoose.Types.ObjectId
@@ -29,7 +30,7 @@ export interface IFormEntry extends Document {
   renterData: Record<string, any>
   ownerData: Record<string, any>
   files: Record<string, any>
-  fileCounts: Record<string, number>
+  fileCounts: Record<string, Record<string, number>>
   createdAt: Date
   updatedAt: Date
 }

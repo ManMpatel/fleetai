@@ -337,8 +337,8 @@ export const FORM_SECTIONS: SectionDef[] = [
     blurb: 'The renter attaches the driver licence (front and back) and photos of the accident and damage.',
     rows: [
       [
-        { id: 'licenceFront', label: 'Driver licence: front', type: 'photo', span: 6, required: true },
-        { id: 'licenceBack', label: 'Driver licence: back', type: 'photo', span: 6, required: true },
+        { id: 'licenceFront', label: 'Driver licence: front', type: 'photo', span: 6, required: true, hint: 'Lay the licence flat in good light so every word can be read.' },
+        { id: 'licenceBack', label: 'Driver licence: back', type: 'photo', span: 6, required: true, hint: 'Now the back of the same licence.' },
       ],
       [
         {
@@ -374,7 +374,7 @@ export const FORM_SECTIONS: SectionDef[] = [
     rows: [
       [
         {
-          id: 'items', label: 'Claim checklist', type: 'checks',
+          id: 'items', label: 'Tick each one that applies', type: 'checks',
           options: [
             { value: 'over21', label: 'Driver over the age of 21' },
             { value: 'signed', label: 'Claim form signed and dated by driver' },

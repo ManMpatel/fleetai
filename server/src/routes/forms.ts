@@ -4,6 +4,8 @@ import FormTemplate from '../models/FormTemplate'
 import FormEntry from '../models/FormEntry'
 import { featureAllowed } from '../config/featureAccess'
 import { FORM_SECTIONS, sectionById, sectionsFor, normalizePhone } from '../config/claimForm'
+import { cleanAnswers } from '../config/claimFormData'
+import { ownerDefaults } from '../services/formPrefill'
 import { sendResendEmail } from '../services/resendEmail'
 
 // OWNER side of Forms: build templates, send the template link to renters, and see the history.
@@ -261,6 +263,12 @@ router.post('/templates/:id/send', async (req: Request, res: Response) => {
   }
 })
 
+// What the owner's screen needs to show a form that came back: the answers, how many pictures each
+// box has, and the owner-part suggestions. The pictures themselves are fetched separately.
+function entryDetailJson(e: any) {
+  return { ...entryJson(e), renterData: e.renterData || {}, ownerData: e.ownerData || {}, fileCounts: e.fileCounts || {} }
+}
+
 // GET /api/forms/entries - the history, newest first, without answers or pictures.
 router.get('/entries', async (req: Request, res: Response) => {
   try {
@@ -307,6 +315,64 @@ router.post('/entries/:id/resend', async (req: Request, res: Response) => {
     })
     await entry.save()
     res.json({ entry: entryJson(entry), code: template.code })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/forms/entries/:id - one form: the answers, the sections it has, and suggestions for the owner's part.
+router.get('/entries/:id', async (req: Request, res: Response) => {
+  try {
+    if (!OBJECT_ID.test(req.params.id)) return res.status(404).json({ error: 'Not found' })
+    const entry = await FormEntry.findOne({ _id: req.params.id, orgId: req.orgId }).select('-files').lean()
+    if (!entry) return res.status(404).json({ error: 'Not found' })
+    const sections = sectionsFor(entry.sectionIds || [])
+    const defaults = entry.status === 'sent' ? {} : await ownerDefaults(req.orgId!, entry, sections)
+    res.json({ entry: entryDetailJson(entry), sections, ownerDefaults: defaults })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/forms/entries/:id/files - the pictures (licence, photos, signature) as data URLs.
+router.get('/entries/:id/files', async (req: Request, res: Response) => {
+  try {
+    if (!OBJECT_ID.test(req.params.id)) return res.status(404).json({ error: 'Not found' })
+    const entry = await FormEntry.findOne({ _id: req.params.id, orgId: req.orgId }).select('files').lean()
+    if (!entry) return res.status(404).json({ error: 'Not found' })
+    res.json({ files: entry.files || {} })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PUT /api/forms/entries/:id/owner   { data, status?: 'submitted' | 'completed' }
+// Saves the owner's part of a form the renter has sent back. status completed marks it finished.
+router.put('/entries/:id/owner', async (req: Request, res: Response) => {
+  try {
+    if (!OBJECT_ID.test(req.params.id)) return res.status(404).json({ error: 'Not found' })
+    const entry = await FormEntry.findOne({ _id: req.params.id, orgId: req.orgId })
+    if (!entry) return res.status(404).json({ error: 'Not found' })
+    if (entry.status === 'sent') return res.status(409).json({ error: 'The renter has not sent this form back yet' })
+
+    const status = req.body?.status
+    if (status !== undefined && status !== 'submitted' && status !== 'completed') return res.status(400).json({ error: 'Unknown status' })
+
+    const mine = sectionsFor(entry.sectionIds || []).filter(s => s.filler === 'owner')
+    const cleaned = cleanAnswers(mine, req.body?.data)
+    if (cleaned.errors.length > 0) return res.status(400).json({ error: cleaned.errors[0], problems: cleaned.errors })
+
+    entry.ownerData = cleaned.data
+    entry.markModified('ownerData')
+    if (status === 'completed') {
+      entry.status = 'completed'
+      entry.completedAt = entry.completedAt || new Date()
+    } else if (status === 'submitted') {
+      entry.status = 'submitted'
+      entry.completedAt = undefined
+    }
+    await entry.save()
+    res.json({ entry: entryDetailJson(entry) })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
