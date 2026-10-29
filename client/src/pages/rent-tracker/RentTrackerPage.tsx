@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import { useStore } from '../../store/useStore'
 import CarPicker from './CarPicker'
+import DeleteRowDialog from './DeleteRowDialog'
+import RecycleBin from './RecycleBin'
+import type { Bin, BinRow } from './RecycleBin'
 import RentTable from './RentTable'
 import RenterPicker from './RenterPicker'
 import { addMonths, money } from './format'
@@ -13,6 +16,11 @@ function withEntry(entries: Record<string, CellValue>, week: string, next: CellV
   else delete copy[week]
   return copy
 }
+
+// A cell with these days: money and ND stay as they are. A week with no money, no ND and 7 days has
+// nothing to remember, so it has no cell value at all.
+const withDays = (cur: CellValue | undefined, days: number): CellValue | null =>
+  cur && (cur.amount != null || cur.nd) ? { ...cur, days } : days === 7 ? null : { amount: null, nd: false, days }
 
 const patchRow = (id: string, patch: (r: GridRow) => GridRow) => (g: Grid): Grid => ({
   ...g,
@@ -34,6 +42,16 @@ const fromEarlier = (earlier: number) => (earlier > 0 ? `Includes ${money(earlie
 
 const pill = 'px-3 py-2 rounded-lg text-sm font-medium border border-border bg-surface text-text-secondary hover:border-accent'
 
+const binIcon = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="1" y="4" width="14" height="1.5" rx=".75" fill="currentColor" />
+    <path d="M3.5 5.5l.75 8.25A1 1 0 005.25 15h5.5a1 1 0 001-.75L12.5 5.5H3.5z" stroke="currentColor" strokeWidth="1.3" fill="none" />
+    <path d="M6 5V3.5A.5.5 0 016.5 3h3a.5.5 0 01.5.5V5" stroke="currentColor" strokeWidth="1.3" />
+    <line x1="6.5" y1="8" x2="6.5" y2="12.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    <line x1="9.5" y1="8" x2="9.5" y2="12.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>
+)
+
 export default function RentTrackerPage() {
   const allowed = useStore(s => !!s.session?.features?.rentTracker)
   const [grid, setGrid] = useState<Grid | null>(null)
@@ -45,9 +63,13 @@ export default function RentTrackerPage() {
   const [query, setQuery] = useState('')
   const [picking, setPicking] = useState<GridRow | null>(null)
   const [adding, setAdding] = useState(false)
+  const [deleting, setDeleting] = useState<GridRow | null>(null)
+  const [binOpen, setBinOpen] = useState(false)
+  const [bin, setBin] = useState<Bin | null>(null)
   const view = useRef({ end, months })
   view.current = { end, months }
   const latest = useRef(0)
+  const latestBin = useRef(0)
   const busy = useRef(0)
 
   const load = useCallback(async (quiet = false) => {
@@ -63,7 +85,16 @@ export default function RentTrackerPage() {
     }
   }, [])
 
+  const loadBin = useCallback(async () => {
+    const mine = ++latestBin.current
+    try {
+      const { data } = await axios.get<Bin>('/api/rent-tracker/bin')
+      if (mine === latestBin.current) setBin(data)
+    } catch { /* bin is non-critical */ }
+  }, [])
+
   useEffect(() => { if (allowed) load() }, [allowed, end, months, load])
+  useEffect(() => { if (allowed) loadBin() }, [allowed, loadBin])
 
   // Every change is shown at once, sent to the server, and the table is reloaded when the last
   // pending save is done (so the totals always come from the server).
@@ -81,10 +112,16 @@ export default function RentTrackerPage() {
     }
   }
 
+  // Sends only the amount/ND fields; the days field is preserved on the server.
   const onCell = (row: GridRow, week: string, next: CellValue | null) =>
     save(
       () => axios.put('/api/rent-tracker/entry', { vehicleId: row.vehicleId, weekStart: week, amount: next ? next.amount : null, nd: next?.nd ? true : undefined, renterId: row.renter?._id }),
       patchRow(row.vehicleId, r => ({ ...r, entries: withEntry(r.entries, week, next) })),
+    )
+  const onDays = (row: GridRow, week: string, days: number) =>
+    save(
+      () => axios.put('/api/rent-tracker/entry', { vehicleId: row.vehicleId, weekStart: week, days, renterId: row.renter?._id }),
+      patchRow(row.vehicleId, r => ({ ...r, entries: withEntry(r.entries, week, withDays(r.entries[week], days)) })),
     )
   const onRent = (row: GridRow, value: number) =>
     save(() => axios.put(`/api/rent-tracker/row/${row.vehicleId}`, { weeklyRent: value }), patchRow(row.vehicleId, r => ({ ...r, weeklyRent: value })))
@@ -101,10 +138,21 @@ export default function RentTrackerPage() {
     if (!window.confirm(`Mark ${row.plate} as returned? The car becomes Available in Fleet and the Owing for ${row.renter?.name} stops counting. ${row.renter?.name}'s money stays in History.`)) return
     await save(() => axios.post(`/api/fleet/${encodeURIComponent(row.plate)}/unassign`))
   }
-  // Taking a car off the table does not touch the car: it stays in Fleet and Rego Import.
+  // Taking a car off the table sends it to the Recycle bin (stays there 30 days).
   async function removeCar(row: GridRow) {
-    if (!window.confirm(`Take ${row.plate} off the Rent Tracker? The car stays in Fleet and Rego Import. The money you typed for it is kept and comes back if you add the plate again.`)) return
+    setDeleting(null)
     await save(() => axios.delete(`/api/rent-tracker/cars/${row.vehicleId}`), g => ({ ...g, rows: g.rows.filter(r => r.vehicleId !== row.vehicleId) }))
+    loadBin()
+  }
+  async function restoreRow(binRow: BinRow): Promise<string> {
+    try {
+      await axios.post(`/api/rent-tracker/bin/${binRow.vehicleId}/restore`)
+      load(true)
+      loadBin()
+      return ''
+    } catch (err: any) {
+      return err.response?.data?.error || 'Could not restore - please try again'
+    }
   }
 
   if (!allowed) {
@@ -130,7 +178,7 @@ export default function RentTrackerPage() {
     <div className="flex-1 flex flex-col min-h-screen bg-bg">
       <div className="px-6 py-5 border-b border-border bg-surface">
         <h1 className="text-xl font-bold text-text-primary">Rent Tracker</h1>
-        <p className="text-text-muted text-sm mt-0.5">Type the rent you receive each week. Empty = not paid, 0 = no reminder this week, ND = no rent due.</p>
+        <p className="text-text-muted text-sm mt-0.5">Type the rent you receive each week. Empty = not paid, 0 = no reminder this week, ND = no rent due. Click the arrow to set days and see the running balance.</p>
       </div>
 
       <div className="px-6 py-5 space-y-4">
@@ -151,6 +199,7 @@ export default function RentTrackerPage() {
             className="w-72 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           />
           <button onClick={() => setAdding(true)} className="px-3 py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:opacity-90">+ Add number plate</button>
+          <button onClick={() => { setBinOpen(true); loadBin() }} className={`${pill} flex items-center gap-1.5`} aria-label="Open recycle bin">{binIcon} Recycle bin{bin && bin.rows.length > 0 ? ` (${bin.rows.length})` : ''}</button>
           <div className="flex items-center gap-1 ml-auto">
             <button aria-label="Previous month" disabled={!shownEnd} onClick={() => shownEnd && setEnd(addMonths(shownEnd, -1))} className={pill}>&lt;</button>
             <span className="min-w-[230px] px-2 text-center text-sm font-semibold text-text-primary">
@@ -178,7 +227,7 @@ export default function RentTrackerPage() {
         )}
         {grid && rows.length > 0 && (
           <div className={loading ? 'opacity-60' : ''}>
-            <RentTable grid={grid} rows={rows} onCell={onCell} onRent={onRent} onStart={onStart} onPickRenter={setPicking} onReturned={returned} onRemove={removeCar} />
+            <RentTable grid={grid} rows={rows} onCell={onCell} onRent={onRent} onStart={onStart} onPickRenter={setPicking} onReturned={returned} onRemove={setDeleting} onDays={onDays} />
           </div>
         )}
       </div>
@@ -191,6 +240,24 @@ export default function RentTrackerPage() {
           currentRenterId={picking.renter?._id ?? null}
           onPick={hit => assign(picking, hit)}
           onClose={() => setPicking(null)}
+        />
+      )}
+
+      {deleting && (
+        <DeleteRowDialog
+          plate={deleting.plate}
+          renterName={deleting.renter?.name ?? null}
+          days={bin ? bin.days : null}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => removeCar(deleting)}
+        />
+      )}
+
+      {binOpen && bin && (
+        <RecycleBin
+          bin={bin}
+          onRestore={restoreRow}
+          onClose={() => setBinOpen(false)}
         />
       )}
     </div>
