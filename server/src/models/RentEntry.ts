@@ -10,6 +10,9 @@ import { tenantScope } from './plugins/tenantScope'
 //   amount 0           = "no reminder this week"
 //   amount > 0         = money received
 //   amount null, nd    = "ND", no rent due that week
+// days is the days of rent in that week, 1 to 7 (7 = the whole week, and what an older document
+// without days means). A renter who takes the car on a Thursday has 4 days in the first week.
+// A document with no money, no ND and under 7 days only remembers the days.
 const RentEntrySchema = new Schema(
   {
     orgId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
@@ -18,6 +21,7 @@ const RentEntrySchema = new Schema(
     renterId: { type: Schema.Types.ObjectId, ref: 'Renter', default: null },
     amount: { type: Number, default: null, min: 0 },
     nd: { type: Boolean, default: false },
+    days: { type: Number, default: 7, min: 1, max: 7 },
   },
   { timestamps: true }
 )

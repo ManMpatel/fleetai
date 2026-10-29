@@ -4,10 +4,10 @@ import RentEntry from '../models/RentEntry'
 import RentRow from '../models/RentRow'
 import { scopedPopulate } from '../models/plugins/tenantScope'
 import { TRACKER_START } from '../config/rentTracker'
-import { addMonths, dateInTz, mondayOf, mondaysInMonth, monthLabel, shadowWeekOf, weeksBetween } from './rentWeeks'
+import { NO_MATHS, OwnWeek, WeekCalc, dayCount, rowMaths, toCents, weekDueC } from './rentCalc'
+import { addMonths, dateInTz, mondayOf, mondaysInMonth, monthLabel, shadowWeekOf } from './rentWeeks'
 
-// Money is added up in whole cents so that 0.1 + 0.2 style rounding never shows on screen.
-const toCents = (n: number) => Math.round(n * 100)
+// Money is added up in whole cents (see rentCalc.ts) so that 0.1 + 0.2 style rounding never shows on screen.
 const timeOf = (d: unknown) => (d ? new Date(d as string).getTime() : 0)
 
 // earlier = the part of received that came from earlier renters of the car (it is already inside
@@ -20,7 +20,9 @@ interface Group { month: string; label: string; shadow: string | null; weeks: st
 // owes. Money belongs to the renter who had the car when it was typed: a row shows and counts the
 // money of the renter who has the car now, and the money of earlier renters stays in History.
 // The week, month and overall "received" totals count everybody's money; Expected and Owing are
-// for the renters who have a car now.
+// for the renters who have a car now. Expected counts the rent of a week by its days (a renter
+// who takes the car on a Thursday owes 4 days of that week) and Owing is the rent due so far minus
+// all the money typed for the renter (rentCalc.ts).
 // endMonth 'YYYY-MM' (default: this month) is the last month shown; months is 1 or 6.
 export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: string | undefined, months: 1 | 6, now = new Date()) {
   const today = dateInTz(now, tz)
@@ -46,7 +48,7 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
   const ids = vehicles.map(v => v._id)
   const entries: any[] = ids.length === 0
     ? []
-    : await RentEntry.find({ orgId, vehicleId: { $in: ids } }).select('vehicleId renterId weekStart amount nd').lean()
+    : await RentEntry.find({ orgId, vehicleId: { $in: ids } }).select('vehicleId renterId weekStart amount nd days').lean()
 
   const settingsBy = new Map<string, any>(settings.map((s: any) => [String(s.vehicleId), s]))
   const entriesBy = new Map<string, any[]>()
@@ -78,36 +80,30 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
     }
 
     // The money of this car, split into the renter who has it now (own) and everybody before.
+    // A week with no money, no ND and the whole 7 days has nothing to show (an old empty document).
     const cur = renter ? String(renter._id) : null
-    const own = new Map<string, { amount: number | null; nd: boolean }>()
-    const nd = new Set<string>()
+    const own = new Map<string, OwnWeek>()
     const earlierByWeek = new Map<string, number>()
-    let receivedC = 0
     let earlierC = 0
     for (const e of entriesBy.get(id) ?? []) {
       if (cur && e.renterId && String(e.renterId) === cur) {
-        own.set(e.weekStart, { amount: e.amount ?? null, nd: !!e.nd })
-        if (e.nd) nd.add(e.weekStart)
-        if (e.amount != null) receivedC += toCents(e.amount)
+        const days = dayCount(e.days)
+        if (e.amount != null || e.nd || days !== 7) own.set(e.weekStart, { amount: e.amount ?? null, nd: !!e.nd, days })
       } else if (e.amount != null) {
         earlierC += toCents(e.amount)
         earlierByWeek.set(e.weekStart, (earlierByWeek.get(e.weekStart) ?? 0) + toCents(e.amount))
       }
     }
 
-    let weeksDue = 0
-    if (renter && startWeek <= currentWeek) {
-      weeksDue = weeksBetween(startWeek, currentWeek) + 1
-      for (const w of nd) if (w >= startWeek && w <= currentWeek) weeksDue--
-    }
-    const expectedC = rentC * weeksDue
-    const owingC = renter ? Math.max(0, expectedC - receivedC) : 0
-    overall.received += receivedC + earlierC
+    // Rent due so far, all the money typed for the renter, and the small letters of every week.
+    const maths = renter ? rowMaths(rentC, startWeek, currentWeek, own) : NO_MATHS
+    overall.received += maths.paidC + earlierC
     overall.earlier += earlierC
-    overall.expected += expectedC
-    overall.owing += owingC
+    overall.expected += maths.dueC
+    overall.owing += maths.owingC
 
-    const entriesOut: Record<string, { amount: number | null; nd: boolean }> = {}
+    const entriesOut: Record<string, OwnWeek> = {}
+    const calcOut: Record<string, WeekCalc> = {}
     const monthTotals: Record<string, number> = {}
     for (const g of groups) {
       for (const w of g.shadow ? [g.shadow, ...g.weeks] : g.weeks) if (own.has(w)) entriesOut[w] = own.get(w)!
@@ -119,7 +115,8 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
         const before = earlierByWeek.get(w) ?? 0
         sum.received += before
         sum.earlier += before
-        if (renter && w >= startWeek && !nd.has(w)) sum.expected += rentC
+        if (renter && w >= startWeek) sum.expected += weekDueC(rentC, own.get(w))
+        if (maths.calc[w]) calcOut[w] = maths.calc[w]
       }
       monthTotals[g.month] = monthC / 100
     }
@@ -128,7 +125,7 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
     const nowBefore = earlierByWeek.get(currentWeek) ?? 0
     thisWeek.received += (nowAmount != null ? toCents(nowAmount) : 0) + nowBefore
     thisWeek.earlier += nowBefore
-    if (renter && currentWeek >= startWeek && !nd.has(currentWeek)) thisWeek.expected += rentC
+    if (renter && currentWeek >= startWeek) thisWeek.expected += weekDueC(rentC, own.get(currentWeek))
 
     return {
       vehicleId: id,
@@ -140,10 +137,12 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
       startWeek,
       startIsCustom,
       entries: entriesOut,
+      calc: calcOut,
       monthTotals,
-      expected: expectedC / 100,
-      received: receivedC / 100,
-      owing: owingC / 100,
+      expected: maths.dueC / 100,
+      received: maths.paidC / 100,
+      owing: maths.owingC / 100,
+      ahead: maths.aheadC / 100,
       earlier: earlierC / 100,
     }
   })

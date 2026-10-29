@@ -31,6 +31,7 @@ import Renter from './models/Renter'
 import { checkExpiringDates, checkPaymentStatus } from './services/rag'
 import { runMongoBackup } from './services/backup'
 import { purgeExpiredTollBatches } from './services/tollPurge'
+import { purgeRentBin } from './services/rentBin'
 import { tollS3SelfTest, tollStorageStatus } from './services/tollS3'
 import { checkGmailForFines } from './services/gmail'
 import { requireAuth, requireAdmin } from './middleware/auth'
@@ -306,6 +307,16 @@ mongoose
       try {
         await purgeExpiredTollBatches()
       } catch (err) { console.error('TollBatch purge error:', err) }
+    })
+
+    // Rent Tracker Recycle bin - a row taken off the table with "Delete row" waits 30 days in the bin
+    // and is then deleted for good, daily at 3:45am. Only the row goes; the money typed stays saved.
+    // The work itself is in services/rentBin.ts.
+    cron.schedule('45 3 * * *', async () => {
+      try {
+        const n = await purgeRentBin()
+        if (n > 0) console.log(`Rent Tracker Recycle bin - deleted ${n} row(s) that had been in the bin for 30 days`)
+      } catch (err) { console.error('Rent Tracker Recycle bin purge error:', err) }
     })
 
     // Payment status check — daily at 9am Sydney time (UTC 23:00)

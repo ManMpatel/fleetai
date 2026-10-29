@@ -24,6 +24,8 @@ export async function buildHistory(orgId: Types.ObjectId, vehicle: { _id: Types.
   const byRenter = new Map<string, { weeks: Week[]; totalC: number; touched: number }>()
   let totalC = 0
   for (const e of entries) {
+    // A week that only remembers its days (no money, not ND) is not part of the money story.
+    if (e.amount == null && !e.nd) continue
     const key = e.renterId ? String(e.renterId) : 'none'
     if (!byRenter.has(key)) byRenter.set(key, { weeks: [], totalC: 0, touched: 0 })
     const group = byRenter.get(key)!

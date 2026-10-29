@@ -6,8 +6,9 @@ import RentRow from '../models/RentRow'
 import { rentTrackerAllowed } from '../config/rentTracker'
 import { buildGrid } from '../services/rentGrid'
 import { buildHistory } from '../services/rentHistory'
+import { BIN_DAYS, binDaysLeft } from '../services/rentBin'
 import { rentTrackerReady } from '../services/rentStartup'
-import { isMonday, isMonthKey } from '../services/rentWeeks'
+import { dateInTz, isMonday, isMonthKey } from '../services/rentWeeks'
 
 const router = Router()
 
@@ -68,20 +69,28 @@ router.get('/grid', async (req: Request, res: Response) => {
   }
 })
 
-// PUT /api/rent-tracker/entry  { vehicleId, weekStart, amount | null, nd?, renterId? }
-// amount null (and no nd) clears the cell; nd true marks the week as "no rent due".
+// PUT /api/rent-tracker/entry  { vehicleId, weekStart, amount?, nd?, days?, renterId? }
+// Each of amount, nd and days is changed only when it is sent (a day change leaves the money alone):
+//   amount a number   the money received (it also takes away ND)
+//   amount null       clears the money (and ND)
+//   nd true           the week is "no rent due" (the money is cleared)
+//   days 1 to 7       the days of rent in that week (7 = the whole week)
+// A week with no money, no ND and 7 days has nothing to remember, so its document is deleted.
 // The money always goes to the renter who has the car right now. renterId is the renter the
 // table was showing; when it is not the renter of the car any more the save is refused (409)
 // so that nothing lands on the wrong renter.
 router.put('/entry', async (req: Request, res: Response) => {
   try {
-    const { vehicleId, weekStart, amount, nd, renterId } = (req.body ?? {}) as Record<string, unknown>
+    const { vehicleId, weekStart, amount, nd, days, renterId } = (req.body ?? {}) as Record<string, unknown>
     if (typeof vehicleId !== 'string' || !OBJECT_ID.test(vehicleId)) return res.status(400).json({ error: 'vehicleId is required' })
     if (typeof weekStart !== 'string' || !isMonday(weekStart)) return res.status(400).json({ error: 'weekStart must be a Monday, like 2026-10-12' })
     if (nd !== undefined && typeof nd !== 'boolean') return res.status(400).json({ error: 'nd must be true or false' })
+    if (days !== undefined && (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 7)) return res.status(400).json({ error: 'days must be a whole number from 1 to 7' })
     if (renterId !== undefined && renterId !== null && (typeof renterId !== 'string' || !OBJECT_ID.test(renterId))) return res.status(400).json({ error: 'renterId is not valid' })
-    const clear = amount === null || amount === undefined
-    if (nd === true && !clear) return res.status(400).json({ error: 'Send either nd or an amount, not both' })
+    if (amount === undefined && nd === undefined && days === undefined) return res.status(400).json({ error: 'Nothing to save' })
+    if (nd === true && amount !== undefined && amount !== null) return res.status(400).json({ error: 'Send either nd or an amount, not both' })
+    const value = amount === undefined || amount === null ? null : parseAmount(amount)
+    if (amount !== undefined && amount !== null && value === null) return res.status(400).json({ error: 'The amount must be from 0 to 1,000,000 with at most 2 decimals' })
 
     const vehicle: any = await Vehicle.findOne({ _id: vehicleId, orgId: req.orgId }).select('_id currentRenter')
     if (!vehicle) return res.status(404).json({ error: 'Car not found' })
@@ -93,18 +102,23 @@ router.put('/entry', async (req: Request, res: Response) => {
     }
     const where = { orgId: req.orgId, vehicleId: vehicle._id, weekStart, renterId: vehicle.currentRenter }
 
-    if (nd === true) {
-      await upsert(RentEntry, where, { amount: null, nd: true })
-      return res.json({ ok: true, entry: { amount: null, nd: true } })
-    }
-    if (clear) {
-      await RentEntry.deleteOne(where)
-      return res.json({ ok: true, entry: null })
-    }
-    const value = parseAmount(amount)
-    if (value === null) return res.status(400).json({ error: 'The amount must be from 0 to 1,000,000 with at most 2 decimals' })
-    await upsert(RentEntry, where, { amount: value, nd: false })
-    res.json({ ok: true, entry: { amount: value, nd: false } })
+    // Only what was sent is written, so two quick saves of the same cell (the money, then the days)
+    // can never wipe each other out.
+    const set: Record<string, unknown> = {}
+    if (nd === true) Object.assign(set, { amount: null, nd: true })
+    else if (amount !== undefined) Object.assign(set, { amount: value, nd: false })
+    else if (nd === false) set.nd = false
+    if (days !== undefined) set.days = days
+
+    // A document is only created when there is something to remember; clearing or setting 7 days
+    // on a week that has no document changes nothing.
+    const keeps = set.nd === true || typeof set.amount === 'number' || (typeof set.days === 'number' && set.days !== 7)
+    if (keeps) await upsert(RentEntry, where, set)
+    else await RentEntry.updateOne(where, { $set: set })
+    await RentEntry.deleteOne({ ...where, amount: null, nd: false, days: { $in: [7, null] } })
+
+    const saved: any = await RentEntry.findOne(where).select('amount nd days').lean()
+    res.json({ ok: true, entry: saved ? { amount: saved.amount ?? null, nd: !!saved.nd, days: saved.days ?? 7 } : null })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -200,7 +214,8 @@ router.get('/cars', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/rent-tracker/cars  { vehicleId }  - put a car on the table (also after it was taken off)
+// POST /api/rent-tracker/cars  { vehicleId }  - put a car on the table (also a car that is in the
+// Recycle bin: it comes back with its weekly rent, start week and money)
 router.post('/cars', async (req: Request, res: Response) => {
   try {
     const { vehicleId } = (req.body ?? {}) as Record<string, unknown>
@@ -210,21 +225,77 @@ router.post('/cars', async (req: Request, res: Response) => {
     if (vehicle.regoStatus === 'stolen' || vehicle.regoStatus === 'sold') {
       return res.status(400).json({ error: 'This car is marked stolen or sold, so it cannot be added' })
     }
-    await upsert(RentRow, { orgId: req.orgId, vehicleId: vehicle._id }, { removed: false })
+    await upsert(RentRow, { orgId: req.orgId, vehicleId: vehicle._id }, { removed: false, removedAt: null })
     res.json({ ok: true })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// DELETE /api/rent-tracker/cars/:vehicleId  - take a car off the table. The car stays in Fleet and
-// Rego Import, and the money typed for it is kept (it is back when the car is added again).
+// DELETE /api/rent-tracker/cars/:vehicleId  - "Delete row": the row goes to the Recycle bin for 30
+// days (see rentBin.ts). The car stays in Fleet and Rego Import, and the money typed for it is kept.
+// A second click on a row that is already in the bin changes nothing (its 30 days keep counting).
 router.delete('/cars/:vehicleId', async (req: Request, res: Response) => {
   try {
     const { vehicleId } = req.params
     if (!OBJECT_ID.test(vehicleId)) return res.status(400).json({ error: 'vehicleId is not valid' })
-    const done = await RentRow.updateOne({ orgId: req.orgId, vehicleId }, { $set: { removed: true } })
-    if (done.matchedCount === 0) return res.status(404).json({ error: NOT_ON_TABLE })
+    const done = await RentRow.updateOne({ orgId: req.orgId, vehicleId, removed: { $ne: true } }, { $set: { removed: true, removedAt: new Date() } })
+    if (done.matchedCount === 0) {
+      const inBin = await RentRow.findOne({ orgId: req.orgId, vehicleId, removed: true }).select('_id').lean()
+      if (!inBin) return res.status(404).json({ error: NOT_ON_TABLE })
+    }
+    res.json({ ok: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/rent-tracker/bin  - the Recycle bin, the newest deleted row first:
+// { days: 30, rows: [{ vehicleId, plate, model, weeklyRent, removedOn: 'YYYY-MM-DD' | null, daysLeft }] }
+router.get('/bin', async (req: Request, res: Response) => {
+  try {
+    const rows: any[] = await RentRow.find({ orgId: req.orgId, removed: true }).select('vehicleId weeklyRent removedAt').lean()
+    const cars: any[] = rows.length === 0
+      ? []
+      : await Vehicle.find({ orgId: req.orgId, _id: { $in: rows.map(r => r.vehicleId) } }).select('plate model').lean()
+    const car = new Map<string, any>(cars.map(c => [String(c._id), c]))
+    const tz = req.org?.timezone || 'Australia/Sydney'
+    const now = new Date()
+    const list = rows
+      .filter(r => car.has(String(r.vehicleId)))
+      .map(r => ({
+        vehicleId: String(r.vehicleId),
+        plate: car.get(String(r.vehicleId)).plate as string,
+        model: (car.get(String(r.vehicleId)).model as string) || '',
+        weeklyRent: (r.weeklyRent as number) || 0,
+        removedOn: r.removedAt ? dateInTz(new Date(r.removedAt), tz) : null,
+        daysLeft: binDaysLeft(r.removedAt, now),
+        at: r.removedAt ? new Date(r.removedAt).getTime() : 0,
+      }))
+      .sort((a, b) => b.at - a.at || a.plate.localeCompare(b.plate))
+      .map(({ at: _at, ...item }) => item)
+    res.json({ days: BIN_DAYS, rows: list })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/rent-tracker/bin/:vehicleId/restore  - put a row from the Recycle bin back on the table,
+// exactly as it was (weekly rent, start week, money). A row that is already back is fine too.
+router.post('/bin/:vehicleId/restore', async (req: Request, res: Response) => {
+  try {
+    const { vehicleId } = req.params
+    if (!OBJECT_ID.test(vehicleId)) return res.status(400).json({ error: 'vehicleId is not valid' })
+    const vehicle: any = await Vehicle.findOne({ _id: vehicleId, orgId: req.orgId }).select('_id regoStatus')
+    if (!vehicle) return res.status(404).json({ error: 'Car not found' })
+    if (vehicle.regoStatus === 'stolen' || vehicle.regoStatus === 'sold') {
+      return res.status(400).json({ error: 'This car is marked stolen or sold, so it cannot be put back' })
+    }
+    const done = await RentRow.updateOne({ orgId: req.orgId, vehicleId: vehicle._id, removed: true }, { $set: { removed: false, removedAt: null } })
+    if (done.matchedCount === 0) {
+      const back = await RentRow.findOne({ orgId: req.orgId, vehicleId: vehicle._id, removed: { $ne: true } }).select('_id').lean()
+      if (!back) return res.status(404).json({ error: 'This row is not in the Recycle bin (it may have been deleted for good)' })
+    }
     res.json({ ok: true })
   } catch (err: any) {
     res.status(500).json({ error: err.message })

@@ -1,6 +1,7 @@
 import RentEntry from '../models/RentEntry'
 import RentRow from '../models/RentRow'
 import Vehicle from '../models/Vehicle'
+import { stampLegacyBinRows } from './rentBin'
 
 // A one-time job that runs the first time a Rent Tracker route is used after the server starts.
 // It is safe to run again and again (the second run finds nothing to do).
@@ -12,6 +13,8 @@ import Vehicle from '../models/Vehicle'
 //   2. Money typed before this change stays with whoever has the car now (nobody = no renter).
 //   3. Every car that already has money in the tracker stays on the table. From now on a car is
 //      on the table only when the owner has added its number plate.
+//   4. A row that was taken off the table before the Recycle bin existed has no removal date. It
+//      gets today's date, so its 30 days in the Recycle bin start now (see rentBin.ts).
 const OLD_INDEX = 'orgId_1_vehicleId_1_weekStart_1'
 
 let started: Promise<void> | null = null
@@ -49,4 +52,7 @@ async function prepare(): Promise<void> {
       await RentRow.updateOne({ orgId: key.orgId, vehicleId: key.vehicleId }, { $setOnInsert: { weeklyRent: 0, removed: false } }, { upsert: true })
     }
   }
+
+  const stamped = await stampLegacyBinRows()
+  if (stamped > 0) console.log(`Rent Tracker: ${stamped} row(s) taken off the table earlier are now in the Recycle bin (30 days from today)`)
 }
