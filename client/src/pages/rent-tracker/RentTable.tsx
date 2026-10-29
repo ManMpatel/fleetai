@@ -146,7 +146,7 @@ export default function RentTable({ grid, rows, onCell, onRent, onStart, onPickR
                     <RentCell
                       coord={`${r}:rent`}
                       label={`Weekly rent ${row.plate}`}
-                      value={row.weeklyRent > 0 ? { amount: row.weeklyRent, nd: false } : undefined}
+                      value={row.weeklyRent > 0 ? { amount: row.weeklyRent, nd: false, days: 7 } : undefined}
                       placeholder="set"
                       noNd
                       tone="normal"

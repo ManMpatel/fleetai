@@ -5,10 +5,24 @@ export interface RenterRef {
   email: string
 }
 
-// One cell of the table. No value at all means "not paid yet".
+// One cell of the table. No value at all means "not paid yet". days = the days of rent in that
+// week, 1 to 7 (7 = the whole week). A cell with no money, no ND and under 7 days only holds the days.
 export interface CellValue {
   amount: number | null
   nd: boolean
+  days: number
+}
+
+// The small letters under a week box, in dollars (worked out on the server, see rentCalc.ts):
+// carry = money (+) or rent (-) brought in from the weeks before, total = carry + the money typed
+// in this week, days = days of rent in this week, due = the rent for this week, bal = total - due
+// (above 0 = left over, below 0 = behind).
+export interface WeekCalc {
+  carry: number
+  total: number
+  days: number
+  due: number
+  bal: number
 }
 
 export interface GridGroup {
@@ -35,10 +49,12 @@ export interface GridRow {
   startWeek: string
   startIsCustom: boolean
   entries: Record<string, CellValue>
+  calc: Record<string, WeekCalc>
   monthTotals: Record<string, number>
   expected: number
   received: number
   owing: number
+  ahead: number
   earlier: number
 }
 

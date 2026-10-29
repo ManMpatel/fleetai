@@ -75,7 +75,28 @@ export function cellText(v: CellValue | undefined): string {
   return v.amount == null ? '' : String(v.amount)
 }
 
+// A cell with no money and no ND is empty, even when it still remembers its days.
+export const isBlank = (v: CellValue | null | undefined): boolean => !v || (v.amount == null && !v.nd)
+
+// Same money (the days are saved on their own).
 export function sameCell(a: CellValue | null | undefined, b: CellValue | null | undefined): boolean {
-  if (!a || !b) return !a && !b
-  return a.nd === b.nd && a.amount === b.amount
+  if (isBlank(a) || isBlank(b)) return isBlank(a) && isBlank(b)
+  return a!.nd === b!.nd && a!.amount === b!.amount
+}
+
+// 328.5 -> '328.50', 1250 -> '1,250.00' (two decimals, no $: the small letters under the boxes)
+export function plain(n: number): string {
+  return Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+// 328.57 -> '+328.57', -300 -> a real minus sign (U+2212) and '300.00'
+export function signed(n: number): string {
+  return (n < 0 ? '\u2212' : '+') + plain(n)
+}
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+// The tooltip of a day number: counting from the day the car was taken, Monday = 7 ... Sunday = 1.
+export function daysTip(days: number): string {
+  return days === 7 ? '7 days - the whole week' : `${days} ${days === 1 ? 'day' : 'days'} - from ${WEEKDAYS[7 - days]}`
 }
