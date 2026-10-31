@@ -108,6 +108,30 @@ export interface HistoryRenter {
   weeks: HistoryWeek[]
 }
 
+// The overdue-rent emails (GET /api/rent-tracker/overdue): one entry for every car that has a renter.
+//   ok           can be emailed now
+//   no-rent      the weekly rent is not set
+//   not-owing    owes less than $1
+//   no-reminder  a 0 is typed for this week
+//   no-email     the renter has no email saved
+//   bad-email    the saved email does not look right
+export type MailReason = 'ok' | 'no-renter' | 'no-rent' | 'not-owing' | 'no-reminder' | 'no-email' | 'bad-email'
+
+export interface MailRow {
+  vehicleId: string
+  owing: number
+  canSend: boolean
+  reason: MailReason
+  emailedAt: string | null   // when this renter was emailed today; null = not emailed today
+}
+
+export interface Mail {
+  business: string   // the name the emails go out under
+  replyTo: string    // replies come to this email
+  sunday: string
+  rows: MailRow[]
+}
+
 // Who paid what on one number plate (History).
 export interface History {
   vehicleId: string

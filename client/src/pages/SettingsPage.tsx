@@ -6,6 +6,7 @@ import { SkeletonBar, SkeletonCard } from '../components/Skeleton'
 interface Settings {
   displayName: string
   logoUrl: string | null
+  phone: string
   slug: string | null
   timezone: string
   currency: string
@@ -44,6 +45,7 @@ export default function SettingsPage() {
   // Branding
   const [displayName, setDisplayName] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
+  const [phone, setPhone] = useState('')
   const [fleetSummary, setFleetSummary] = useState('')
 
   // Credentials — always blank on load; the server never returns stored secrets.
@@ -72,6 +74,7 @@ export default function SettingsPage() {
         const normalized: Settings = {
           displayName: data.displayName || '',
           logoUrl: data.logoUrl || null,
+          phone: data.phone || '',
           slug: data.slug || null,
           timezone: data.timezone,
           currency: data.currency,
@@ -86,6 +89,7 @@ export default function SettingsPage() {
         applySettings(normalized)
         setDisplayName(normalized.displayName)
         setLogoUrl(normalized.logoUrl || '')
+        setPhone(normalized.phone)
         setFleetSummary(normalized.fleetSummary)
         setPwMerchantId(normalized.payway.merchantId || '')
         setWaPhoneId(normalized.whatsapp.phoneId || '')
@@ -207,13 +211,18 @@ export default function SettingsPage() {
           </div>
         </div>
         <div className="mb-4">
+          <label className={label}>Business phone</label>
+          <input className={input} value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" placeholder="+61 400 000 000" />
+          <p className="text-xs text-text-secondary mt-1.5">Your display name and this phone number appear in the emails you send to renters. Leave it empty to leave the phone out.</p>
+        </div>
+        <div className="mb-4">
           <label className={label}>Fleet description</label>
           <input className={input} value={fleetSummary} onChange={e => setFleetSummary(e.target.value)}
                  placeholder="e.g. 100 Honda Duo scooters and 5 cars in Sydney" />
           <p className="text-xs text-text-secondary mt-1.5">Used by the AI assistant to describe your fleet.</p>
         </div>
         <button className={btn} disabled={saving === 'org'}
-                onClick={() => save('org', '/api/settings', { displayName, logoUrl, fleetSummary })}>
+                onClick={() => save('org', '/api/settings', { displayName, logoUrl, phone, fleetSummary })}>
           {saving === 'org' ? 'Saving...' : 'Save'}
         </button>
       </div>

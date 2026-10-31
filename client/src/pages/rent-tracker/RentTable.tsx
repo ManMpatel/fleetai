@@ -1,9 +1,21 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import HistoryPanel from './HistoryPanel'
 import RentCell from './RentCell'
 import WeekDetail from './WeekDetail'
 import { addDays, isBlank, mondayOf, money, plain, shortDate, weekSpan } from './format'
-import type { CellValue, Grid, GridRow, MoneyPair } from './types'
+import type { CellValue, Grid, GridRow, MailReason, MailRow, MoneyPair } from './types'
+
+// The tick boxes for the overdue-rent emails. Left out (undefined) when the server has no emails yet.
+export interface MailProps {
+  info: Record<string, MailRow>     // by vehicleId
+  selected: Set<string>
+  sendingId: string | null          // the row being emailed right now
+  busy: boolean                     // emails are going out: the boxes are locked
+  failed: Record<string, string>    // why a row's email did not go out
+  tz: string
+  scrollTop: number                 // counts up each time rows were moved to the top
+  onToggle: (row: GridRow) => void
+}
 
 interface Props {
   grid: Grid
@@ -15,6 +27,7 @@ interface Props {
   onPickRenter: (row: GridRow) => void
   onReturned: (row: GridRow) => void
   onRemove: (row: GridRow) => void
+  mail?: MailProps
 }
 
 type Col =
@@ -27,9 +40,30 @@ type Col =
 // last-month week at the start is only shown, so it is narrow. The last column holds the arrow
 // that rolls a row down.
 const W = { car: 96, renter: 156, rent: 72, starts: 120, week: 100, shadow: 72, month: 88, owing: 88, actions: 64 }
+// With the email tick box next to the arrow the last column is wider (the Owing column sticks to its left).
+const ACTIONS_MAIL = 96
 
-const STICKY_CAR = 'sticky left-0 z-10 bg-surface'
-const STICKY_RENTER = 'sticky md:left-[96px] z-10 bg-surface border-r'
+const STICKY_CAR = 'sticky left-0 z-10'
+const STICKY_RENTER = 'sticky md:left-[96px] z-10 border-r'
+
+const MAIL_WHY: Record<MailReason, string> = {
+  ok: 'Tick to send this renter an overdue-rent email',
+  'no-renter': 'Nobody has this car',
+  'no-rent': 'The weekly rent is not set',
+  'not-owing': 'Nothing is overdue',
+  'no-reminder': 'A 0 is typed for this week (no reminder)',
+  'no-email': 'No email saved for this renter',
+  'bad-email': 'The saved email does not look right',
+}
+
+// '2026-10-28T22:05:00.000Z' -> '9:05 am' in the business timezone
+function clockTime(iso: string, tz: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).format(new Date(iso)).replace(/[\u202f\u00a0]/g, ' ').toLowerCase()
+  } catch {
+    return ''
+  }
+}
 
 const icon = 'w-4 h-4'
 const clock = (
@@ -55,7 +89,7 @@ const BAND_BTN = 'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 te
 // month. A row is short: the week boxes, the month totals and Owing. The arrow at the end of a row
 // rolls down a band under it with the days row and the small calculation of every week, and the
 // History and Delete row buttons. History opens the money of the earlier renters of that car.
-export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart, onPickRenter, onReturned, onRemove }: Props) {
+export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart, onPickRenter, onReturned, onRemove, mail }: Props) {
   const boxRef = useRef<HTMLDivElement>(null)
   const [viewW, setViewW] = useState(0)
   const [open, setOpen] = useState<Set<string>>(() => new Set())
@@ -73,6 +107,13 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
     return () => watcher.disconnect()
   }, [])
 
+  // Rows that were just moved to the top (Select overdue) must be in view.
+  const moved = mail?.scrollTop ?? 0
+  useEffect(() => {
+    const el = boxRef.current
+    if (el && moved > 0) el.scrollTop = 0
+  }, [moved])
+
   // A table that is wider than its box opens at the right end, where the newest weeks, the month
   // total and Owing are. It does not jump back while you type: only another month (or the 6 month
   // view) does.
@@ -80,6 +121,16 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
     const el = boxRef.current
     if (el) el.scrollLeft = el.scrollWidth
   }, [grid.window.end, grid.window.months])
+
+  // The email boxes arrive a moment after the table and make the last column wider. A table that was
+  // at its right end stays there, so the Month total is not left half hidden under the Owing column.
+  const mailOn = !!mail
+  useLayoutEffect(() => {
+    const el = boxRef.current
+    if (!el || !mailOn) return
+    const grew = ACTIONS_MAIL - W.actions
+    if (el.scrollLeft >= el.scrollWidth - el.clientWidth - grew - 2) el.scrollLeft = el.scrollWidth
+  }, [mailOn])
 
   const toggle = (id: string) => setOpen(prev => {
     const next = new Set(prev)
@@ -128,7 +179,9 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
   const colKey = (c: Col) => (c.kind === 'month' ? 'm' + c.month : c.week + (c.shadow ? 's' : ''))
   const total = 4 + cols.length + 2
   const colWidth = (c: Col) => (c.kind === 'month' ? W.month : c.shadow ? W.shadow : W.week)
-  const minWidth = W.car + W.renter + W.rent + W.starts + W.owing + W.actions + cols.reduce((n, c) => n + colWidth(c), 0)
+  const actionsW = mail ? ACTIONS_MAIL : W.actions
+  const owingRight = mail ? 'md:right-[96px]' : 'md:right-[64px]'
+  const minWidth = W.car + W.renter + W.rent + W.starts + W.owing + actionsW + cols.reduce((n, c) => n + colWidth(c), 0)
 
   const th = 'sticky z-20 bg-surface2 border-b border-border px-2 py-2 text-xs font-medium text-text-secondary'
 
@@ -142,7 +195,7 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
           <col style={{ width: W.starts }} />
           {cols.map(c => (c.kind === 'month' ? <col key={colKey(c)} style={{ width: W.month }} /> : c.shadow ? <col key={colKey(c)} style={{ width: W.shadow }} /> : <col key={colKey(c)} />))}
           <col style={{ width: W.owing }} />
-          <col style={{ width: W.actions }} />
+          <col style={{ width: actionsW }} />
         </colgroup>
         <thead>
           <tr>
@@ -151,8 +204,10 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
             <th rowSpan={2} className={`${th} top-0 text-right`}>Rent/week</th>
             <th rowSpan={2} className={`${th} top-0 text-left`}>Rent starts</th>
             {spans.map(s => <th key={s.label} colSpan={s.span} className={`${th} top-0 text-center border-l`}>{s.label}</th>)}
-            <th rowSpan={2} className={`${th} top-0 right-0 md:right-[64px] z-30 text-right border-l`}>Owing</th>
-            <th rowSpan={2} className={`${th} top-0 md:right-0 z-30 border-l`}><span className="sr-only">Details</span></th>
+            <th rowSpan={2} className={`${th} top-0 right-0 ${owingRight} z-30 text-right border-l`}>Owing</th>
+            <th rowSpan={2} className={`${th} top-0 md:right-0 z-30 border-l`}>
+              {mail ? <span className="text-[11px]">Email<span className="sr-only"> and details</span></span> : <span className="sr-only">Details</span>}
+            </th>
           </tr>
           <tr>
             {cols.map(c => c.kind === 'month' ? (
@@ -177,14 +232,27 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
             const hasDays = !!row.calc && Object.keys(row.calc).length > 0
             // a rolled-down row has no line between it and its band
             const bb = isRolled ? 'border-b border-transparent' : 'border-b border-border'
+            // a ticked row (overdue-rent email) has a light colour, also in the columns that stick
+            const sel = !!mail && mail.selected.has(row.vehicleId)
+            const stick = sel ? 'bg-accent-bg' : 'bg-surface'
+            const info = mail?.info[row.vehicleId]
+            const canTick = !!info && info.canSend
+            let note: { text: string; tone: string; title?: string } | null = null
+            if (mail && row.renter) {
+              if (mail.sendingId === row.vehicleId) note = { text: 'Sending...', tone: 'text-accent' }
+              else if (mail.failed[row.vehicleId]) note = { text: 'Not sent: ' + mail.failed[row.vehicleId], tone: 'text-red', title: mail.failed[row.vehicleId] }
+              else if (info?.emailedAt) note = { text: 'Emailed today ' + clockTime(info.emailedAt, mail.tz), tone: 'text-amber' }
+              else if (info?.reason === 'no-email') note = { text: 'No email saved', tone: 'text-red' }
+              else if (info?.reason === 'bad-email') note = { text: 'Email looks wrong', tone: 'text-red' }
+            }
             return (
               <Fragment key={row.vehicleId}>
-                <tr>
-                  <td className={`${STICKY_CAR} ${bb} px-3 py-1.5 align-top`}>
+                <tr className={sel ? 'bg-accent-bg' : undefined}>
+                  <td className={`${STICKY_CAR} ${stick} ${bb} px-3 py-1.5 align-top`}>
                     <div className="font-mono font-semibold text-text-primary">{row.plate}</div>
                     <div className="text-[11px] text-text-muted truncate">{row.model}</div>
                   </td>
-                  <td className={`${STICKY_RENTER} ${bb} px-1.5 py-1 align-top`}>
+                  <td className={`${STICKY_RENTER} ${stick} ${bb} px-1.5 py-1 align-top`}>
                     {row.renter ? (
                       <div className="flex items-center gap-1">
                         <button onClick={() => onPickRenter(row)} title="Change renter" className="min-w-0 flex-1 text-left rounded-md px-1.5 py-1 hover:bg-surface2">
@@ -203,6 +271,7 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
                         + Add renter
                       </button>
                     )}
+                    {note && <div title={note.title} className={`truncate px-1.5 pb-0.5 text-[11px] font-semibold ${note.tone}`}>{note.text}</div>}
                   </td>
                   <td className={`${bb} px-0.5 pt-1.5 pb-0.5 align-top`}>
                     <RentCell
@@ -267,7 +336,7 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
                   })}
                   <td
                     title={row.renter && row.ahead > 0 ? `Paid ahead by ${money(row.ahead)}` : undefined}
-                    className={`sticky right-0 md:right-[64px] z-10 bg-surface ${bb} border-l px-2 pt-3.5 align-top text-right whitespace-nowrap`}
+                    className={`sticky right-0 ${owingRight} z-10 ${stick} ${bb} border-l px-2 pt-3.5 align-top text-right whitespace-nowrap`}
                   >
                     {row.renter ? (
                       <>
@@ -280,14 +349,26 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
                       </>
                     ) : <span className="text-text-muted">-</span>}
                   </td>
-                  <td className={`md:sticky md:right-0 z-10 bg-surface ${bb} border-l px-1 pt-[9px] align-top text-center`}>
+                  <td className={`md:sticky md:right-0 z-10 ${stick} ${bb} border-l px-1 pt-[9px] align-top text-center`}>
+                    {mail && (
+                      <span title={info ? MAIL_WHY[info.reason] : MAIL_WHY['no-renter']} className="mr-2 inline-flex h-[30px] items-center align-middle">
+                        <input
+                          type="checkbox"
+                          checked={sel}
+                          disabled={!canTick || mail.busy}
+                          onChange={() => mail.onToggle(row)}
+                          aria-label={`Send an overdue-rent email for ${row.plate}`}
+                          className="h-[18px] w-[18px] cursor-pointer accent-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </span>
+                    )}
                     <button
                       onClick={() => roll(row.vehicleId)}
                       aria-label={`${isRolled ? 'Hide' : 'Show'} details for ${row.plate}`}
                       aria-expanded={isRolled}
                       aria-controls={`rt-detail-${row.vehicleId}`}
                       title={isRolled ? 'Close' : 'Days of rent, History and Delete row'}
-                      className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg border ${
+                      className={`inline-flex h-[30px] w-[30px] items-center justify-center align-middle rounded-lg border ${
                         isRolled
                           ? 'border-[color-mix(in_srgb,var(--accent)_40%,transparent)] bg-accent-bg text-accent'
                           : 'border-border bg-surface text-text-muted hover:bg-surface2 hover:text-text-primary'
@@ -351,7 +432,7 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
                       }
                       return <td key={colKey(c)} className={`bg-surface2 border-b border-border ${c.kind === 'month' ? 'border-l' : ''}`} />
                     })}
-                    <td className="sticky right-0 md:right-[64px] z-10 bg-surface2 border-b border-border border-l" />
+                    <td className={`sticky right-0 ${owingRight} z-10 bg-surface2 border-b border-border border-l`} />
                     <td className="md:sticky md:right-0 z-10 bg-surface2 border-b border-border border-l" />
                   </tr>
                 )}
@@ -394,7 +475,7 @@ export default function RentTable({ grid, rows, onCell, onDays, onRent, onStart,
                     </td>
                   )
                 })}
-                <td className={`sticky right-0 md:right-[64px] ${bottom} z-20 bg-surface border-t border-border border-l px-2 text-right text-xs font-semibold text-red`}>
+                <td className={`sticky right-0 ${owingRight} ${bottom} z-20 bg-surface border-t border-border border-l px-2 text-right text-xs font-semibold text-red`}>
                   {kind === 'received' ? money(grid.totals.overall.owing) : ''}
                 </td>
                 <td className={`sticky md:right-0 ${bottom} z-20 bg-surface border-t border-border border-l`} />
