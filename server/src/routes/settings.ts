@@ -14,6 +14,7 @@ function publicSettings(org: any) {
   return {
     displayName: org.displayName || org.name || org.email,
     logoUrl: org.logoUrl || null,
+    phone: org.phone || '',
     slug: org.slug || null,
     timezone: org.timezone,
     currency: org.currency,
@@ -70,10 +71,15 @@ router.get('/', async (req: Request, res: Response) => {
 // PUT /api/settings — branding and locale
 router.put('/', async (req: Request, res: Response) => {
   try {
-    const { displayName, logoUrl, timezone, currency, fleetSummary } = req.body
+    const { displayName, logoUrl, phone, timezone, currency, fleetSummary } = req.body
     const updates: Record<string, unknown> = {}
     if (displayName !== undefined) updates.displayName = displayName
     if (logoUrl !== undefined) updates.logoUrl = logoUrl
+    if (phone !== undefined) {
+      const text = String(phone).trim()
+      if (!/^[0-9+()\-.\s]{0,30}$/.test(text)) return res.status(400).json({ error: 'Business phone can only have numbers, spaces and + ( ) - .' })
+      updates.phone = text
+    }
     if (timezone !== undefined) updates.timezone = timezone
     if (currency !== undefined) updates.currency = currency
     if (fleetSummary !== undefined) updates.fleetSummary = fleetSummary

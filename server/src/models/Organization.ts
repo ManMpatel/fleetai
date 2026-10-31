@@ -20,6 +20,7 @@ export interface IOrganization extends Document {
   // ── Branding / locale ──
   displayName?: string
   logoUrl?: string
+  phone?: string
   timezone: string
   currency: string
   fleetSummary?: string
@@ -93,6 +94,8 @@ const organizationSchema = new Schema<IOrganization>({
 
   displayName:  { type: String },
   logoUrl:      { type: String },
+  // The business phone: shown in the emails sent to renters ("send the receipt on ...").
+  phone:        { type: String },
   timezone:     { type: String, default: 'Australia/Sydney' },
   currency:     { type: String, default: 'AUD' },
   // Free-text description of the fleet, injected into the AI chat system prompt.

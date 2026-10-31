@@ -144,6 +144,9 @@ export async function buildGrid(orgId: Types.ObjectId, tz: string, endMonth: str
       owing: maths.owingC / 100,
       ahead: maths.aheadC / 100,
       earlier: earlierC / 100,
+      // The days of rent counted inside "expected" (every week from the start week to this week that
+      // is not ND). The overdue email writes them as "2 weeks + 5 days".
+      dueDays: Object.values(maths.calc).reduce((n, c) => n + c.days, 0),
     }
   })
 

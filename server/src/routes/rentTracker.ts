@@ -9,6 +9,9 @@ import { buildHistory } from '../services/rentHistory'
 import { BIN_DAYS, binDaysLeft } from '../services/rentBin'
 import { rentTrackerReady } from '../services/rentStartup'
 import { dateInTz, isMonday, isMonthKey } from '../services/rentWeeks'
+import { sendResendEmail } from '../services/resendEmail'
+import { buildOverdueEmail, businessName } from '../services/rentEmail'
+import { REASON_TEXT, emailedJustNow, emailedToday, overdueRows, writeEmailLog } from '../services/rentOverdue'
 
 const router = Router()
 
@@ -314,5 +317,101 @@ router.get('/history/:vehicleId', async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// ---- Overdue-rent emails (rentOverdue.ts decides who, rentEmail.ts writes the email) ----
+
+// GET /api/rent-tracker/overdue
+// For every car that has a renter: can this renter be emailed now, if not why not, and when they
+// were last emailed today. Also the name the emails go out under and where replies come to.
+router.get('/overdue', async (req: Request, res: Response) => {
+  try {
+    const org = req.org!
+    const tz = org.timezone || 'Australia/Sydney'
+    const now = new Date()
+    const { grid, sunday, rows } = await overdueRows(req.orgId!, tz, now)
+    const withRenter = rows.filter(r => r.row.renter)
+    const sent = await emailedToday(req.orgId!, withRenter.map(r => r.row.vehicleId), grid.today, tz, now)
+    res.json({
+      business: businessName(org),
+      replyTo: org.email,
+      sunday,
+      rows: withRenter.map(({ row, reason }) => {
+        const at = sent.get(`${row.vehicleId}:${row.renter!._id}`)
+        return { vehicleId: row.vehicleId, owing: row.owing, canSend: reason === 'ok', reason, emailedAt: at ? at.toISOString() : null }
+      }),
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Emails being sent right now, so a double click or a second open page cannot send one twice at once.
+const sending = new Set<string>()
+
+// The email service allows only a few requests a second for all accounts together; when it says
+// "too many requests" wait a moment and try once more.
+async function sendWithRetry(...args: Parameters<typeof sendResendEmail>): Promise<void> {
+  try {
+    await sendResendEmail(...args)
+  } catch (err: any) {
+    if (!/too many requests|rate limit/i.test(String(err?.message))) throw err
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    await sendResendEmail(...args)
+  }
+}
+
+// One overdue email for one car. test = true sends the copy to the owner's own login email, marked
+// TEST, and the renter is not emailed. The numbers are worked out again here from the saved money,
+// so the email always shows the same Owing as the table.
+async function sendOverdue(req: Request, res: Response, test: boolean) {
+  const vehicleId = req.body?.vehicleId
+  if (typeof vehicleId !== 'string' || !OBJECT_ID.test(vehicleId)) return res.status(400).json({ error: 'vehicleId is not valid' })
+  const key = `${req.orgId}:${vehicleId}:${test ? 'test' : 'mail'}`
+  if (sending.has(key)) return res.status(409).json({ error: 'This email is being sent right now', reason: 'busy' })
+  sending.add(key)
+  try {
+    const org = req.org!
+    const now = new Date()
+    const { sunday, rows } = await overdueRows(req.orgId!, org.timezone || 'Australia/Sydney', now)
+    const found = rows.find(r => r.row.vehicleId === vehicleId)
+    if (!found) return res.status(404).json({ error: NOT_ON_TABLE, reason: 'missing' })
+    const { row, reason } = found
+    // A test goes to the owner, so a missing or wrong renter email does not matter for it.
+    if (reason !== 'ok' && !(test && (reason === 'no-email' || reason === 'bad-email'))) {
+      return res.status(409).json({ error: REASON_TEXT[reason], reason })
+    }
+    const renter = row.renter!
+    const to = test ? org.email : renter.email.trim()
+    if (!test) {
+      const recent = await emailedJustNow(req.orgId!, vehicleId, renter._id, now)
+      if (recent) return res.status(409).json({ error: 'This renter was emailed a moment ago', reason: 'recent', emailedAt: recent.toISOString() })
+    }
+    const mail = buildOverdueEmail({
+      business: businessName(org), loginEmail: org.email, phone: org.phone || '', renterName: renter.name, plate: row.plate,
+      weeklyRent: row.weeklyRent, dueDays: row.dueDays, due: row.expected, paid: row.received, owing: row.owing, sunday, test,
+    })
+    const line = {
+      orgId: req.orgId!, kind: test ? ('test' as const) : ('rent-overdue' as const), vehicleId, renterId: renter._id,
+      to, subject: mail.subject, owingC: Math.round(row.owing * 100),
+    }
+    try {
+      await sendWithRetry(org, to, mail.subject, mail.html, undefined, { replyTo: org.email, text: mail.text })
+    } catch (err: any) {
+      await writeEmailLog({ ...line, ok: false, error: String(err?.message || err) })
+      return res.status(502).json({ error: `The email was not sent: ${err?.message || 'unknown error'}`, reason: 'failed' })
+    }
+    await writeEmailLog({ ...line, ok: true })
+    res.json({ ok: true, to, owing: row.owing, emailedAt: new Date().toISOString() })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  } finally {
+    sending.delete(key)
+  }
+}
+
+// POST /api/rent-tracker/email/send  { vehicleId }   email the renter of this car
+router.post('/email/send', (req: Request, res: Response) => sendOverdue(req, res, false))
+// POST /api/rent-tracker/email/test  { vehicleId }   the same email to the owner's own login email
+router.post('/email/test', (req: Request, res: Response) => sendOverdue(req, res, true))
 
 export default router
