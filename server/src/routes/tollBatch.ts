@@ -845,7 +845,7 @@ router.get('/:batchId/folders/:folderId/pages', async (req: Request, res: Respon
     const legacyPages = onlyConflict ? [] : (folder.pages ?? []).map(p => ({ pageNumber: p.pageNumber, imageBase64: p.imageBase64 }))
     const newPages = await TollPage.find({
       folderId: folder._id, orgId: req.orgId, ...(onlyConflict ? { readStatus: 'conflict' } : {}),
-    }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
+    }).sort({ pageNumber: 1 }).lean()
 
     type PageLike = { pageNumber: number; imageBase64?: string | null; imageKey?: string | null; readStatus?: string; plateCopies?: string[] }
     const all = ([...legacyPages, ...newPages] as PageLike[]).sort((a, b) => a.pageNumber - b.pageNumber)

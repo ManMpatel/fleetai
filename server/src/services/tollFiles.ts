@@ -191,7 +191,8 @@ async function findOrBuildFolderPdf(folderId: string, orgId: string): Promise<Fo
 
 async function mergeFolderFromPictures(folderId: string, orgId: string): Promise<Buffer> {
   const withPages = await TollFolder.findOne({ _id: folderId, orgId }).select('pages').lean()
-  const docs = await TollPage.find({ folderId, orgId }).sort({ pageNumber: 1 }).allowDiskUse(true).lean()
+  // No allowDiskUse here: the { folderId, pageNumber } index already returns the pages in order, and Atlas Flex does not allow it.
+  const docs = await TollPage.find({ folderId, orgId }).sort({ pageNumber: 1 }).lean()
   const all = [...(withPages?.pages ?? []), ...docs].sort((a, b) => a.pageNumber - b.pageNumber)
   const images: string[] = []
   for (const p of all) {

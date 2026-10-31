@@ -446,7 +446,7 @@ router.get('/explain-tollpage-index', async (_req: Request, res: Response) => {
       { $group: { _id: '$folderId', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 1 },
-    ]).allowDiskUse(true)
+    ])
 
     if (!top) return res.json({ message: 'No TollPage documents found' })
 
