@@ -7,8 +7,9 @@ import RecycleBin from './RecycleBin'
 import type { Bin, BinRow } from './RecycleBin'
 import RentTable from './RentTable'
 import RenterPicker from './RenterPicker'
+import SendEmailsDialog from './SendEmailsDialog'
 import { addMonths, money } from './format'
-import type { CellValue, Grid, GridRow, MoneyPair, RenterHit } from './types'
+import type { CellValue, Grid, GridRow, Mail, MailRow, MoneyPair, RenterHit } from './types'
 
 function withEntry(entries: Record<string, CellValue>, week: string, next: CellValue | null) {
   const copy = { ...entries }
@@ -41,6 +42,10 @@ function Card({ title, main, sub, note }: { title: string; main: string; sub: st
 const fromEarlier = (earlier: number) => (earlier > 0 ? `Includes ${money(earlier)} from earlier renters` : undefined)
 
 const pill = 'px-3 py-2 rounded-lg text-sm font-medium border border-border bg-surface text-text-secondary hover:border-accent'
+const barBtn = 'h-[34px] rounded-lg border border-[color-mix(in_srgb,var(--accent)_35%,transparent)] bg-surface px-3 text-[13px] font-semibold text-accent hover:bg-surface2 disabled:cursor-not-allowed disabled:opacity-50'
+
+// Emails go out one by one with a small pause (the email service allows only a few requests a second).
+const MAIL_PAUSE_MS = 700
 
 const binIcon = (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -66,24 +71,48 @@ export default function RentTrackerPage() {
   const [deleting, setDeleting] = useState<GridRow | null>(null)
   const [binOpen, setBinOpen] = useState(false)
   const [bin, setBin] = useState<Bin | null>(null)
+  // Overdue-rent emails: who can be emailed (from the server), the ticked rows, the rows that Select
+  // overdue moved to the top, and the emails going out.
+  const [mail, setMail] = useState<Mail | null>(null)
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const [pinned, setPinned] = useState<string[]>([])
+  const [moves, setMoves] = useState(0)
+  const [confirming, setConfirming] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [run, setRun] = useState<{ done: number; total: number; id: string | null } | null>(null)
+  const [failed, setFailed] = useState<Record<string, string>>({})
+  const [mailMsg, setMailMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const view = useRef({ end, months })
   view.current = { end, months }
   const latest = useRef(0)
   const latestBin = useRef(0)
+  const latestMail = useRef(0)
+  const leaving = useRef(false)
   const busy = useRef(0)
+
+  // An older server has no /overdue yet: then there are no tick boxes and the table looks as before.
+  const loadMail = useCallback(async () => {
+    const mine = ++latestMail.current
+    try {
+      const { data } = await axios.get<Mail>('/api/rent-tracker/overdue')
+      if (mine === latestMail.current) setMail(data)
+    } catch {
+      if (mine === latestMail.current) setMail(null)
+    }
+  }, [])
 
   const load = useCallback(async (quiet = false) => {
     const mine = ++latest.current
     if (!quiet) setLoading(true)
     try {
       const { data } = await axios.get<Grid>('/api/rent-tracker/grid', { params: { month: view.current.end, months: view.current.months } })
-      if (mine === latest.current) { setGrid(data); setError('') }
+      if (mine === latest.current) { setGrid(data); setError(''); loadMail() }
     } catch (err: any) {
       if (mine === latest.current) setError(err.response?.data?.error || 'Could not load the Rent Tracker')
     } finally {
       if (mine === latest.current) setLoading(false)
     }
-  }, [])
+  }, [loadMail])
 
   const loadBin = useCallback(async () => {
     const mine = ++latestBin.current
@@ -95,6 +124,26 @@ export default function RentTrackerPage() {
 
   useEffect(() => { if (allowed) load() }, [allowed, end, months, load])
   useEffect(() => { if (allowed) loadBin() }, [allowed, loadBin])
+
+  // Leaving the page stops emails that have not gone out yet.
+  useEffect(() => {
+    leaving.current = false
+    return () => { leaving.current = true }
+  }, [])
+
+  // A ticked row that can no longer be emailed (the renter paid, the email was removed ...) is unticked.
+  useEffect(() => {
+    if (!mail) return
+    const ok = new Set(mail.rows.filter(r => r.canSend).map(r => r.vehicleId))
+    setPicked(prev => {
+      const keep = Array.from(prev).filter(id => ok.has(id))
+      return keep.length === prev.size ? prev : new Set(keep)
+    })
+    setPinned(prev => {
+      const keep = prev.filter(id => ok.has(id))
+      return keep.length === prev.length ? prev : keep
+    })
+  }, [mail])
 
   // Every change is shown at once, sent to the server, and the table is reloaded when the last
   // pending save is done (so the totals always come from the server).
@@ -167,6 +216,99 @@ export default function RentTrackerPage() {
     (!!r.renter && (r.renter.name.toLowerCase().includes(q) || r.renter.email.toLowerCase().includes(q) ||
       (compact !== '' && r.renter.phone.replace(/[\s()-]/g, '').includes(compact)))))
 
+  // ---- overdue-rent emails ----
+  // overdueIds = renters who can be emailed and were not emailed today (what Select overdue ticks).
+  // The rows Select overdue moved to the top stay there until Clear or until their email is sent.
+  const mailBy: Record<string, MailRow> = {}
+  if (mail) for (const r of mail.rows) mailBy[r.vehicleId] = r
+  const overdueIds = mail ? mail.rows.filter(r => r.canSend && !r.emailedAt).map(r => r.vehicleId) : []
+  const pinSet = new Set(pinned)
+  const pinFirst = (list: GridRow[]) => (pinSet.size === 0 ? list : [...list.filter(r => pinSet.has(r.vehicleId)), ...list.filter(r => !pinSet.has(r.vehicleId))])
+  const shown = pinFirst(rows)
+  const pickedRows = pinFirst(grid ? grid.rows : []).filter(r => picked.has(r.vehicleId))
+
+  const toggleMail = (row: GridRow) => {
+    setMailMsg(null)
+    setPicked(prev => {
+      const next = new Set(prev)
+      if (!next.delete(row.vehicleId)) next.add(row.vehicleId)
+      return next
+    })
+    setFailed(f => {
+      if (!(row.vehicleId in f)) return f
+      const rest = { ...f }
+      delete rest[row.vehicleId]
+      return rest
+    })
+  }
+  function selectOverdue() {
+    setMailMsg(null)
+    setFailed({})
+    setPicked(prev => new Set(Array.from(prev).concat(overdueIds)))
+    setPinned(overdueIds)
+    setMoves(n => n + 1)
+  }
+  function clearPicked() {
+    setPicked(new Set())
+    setPinned([])
+    setFailed({})
+    setMailMsg(null)
+  }
+
+  // One test email, for the first ticked row, to the owner's own login email. The renter is not emailed.
+  async function sendTest() {
+    const first = pickedRows[0]
+    if (!first || testing || run) return
+    setTesting(true)
+    setMailMsg(null)
+    try {
+      const { data } = await axios.post<{ to: string }>('/api/rent-tracker/email/test', { vehicleId: first.vehicleId })
+      setMailMsg({ kind: 'ok', text: `Test email for ${first.plate} sent to ${data.to}. Look in that inbox (and Spam).` })
+    } catch (err: any) {
+      setMailMsg({ kind: 'err', text: err.response?.data?.error || 'Could not send the test email' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  // The real emails: one request per renter, one after the other. A row that went out is unticked; a row that
+  // did not stays ticked with the reason under the renter's name.
+  async function sendAll() {
+    setConfirming(false)
+    const ids = pickedRows.map(r => r.vehicleId)
+    if (ids.length === 0 || run) return
+    setMailMsg(null)
+    setFailed({})
+    let sentCount = 0
+    let failCount = 0
+    for (let i = 0; i < ids.length; i++) {
+      if (leaving.current) return
+      const id = ids[i]
+      setRun({ done: i, total: ids.length, id })
+      try {
+        const { data } = await axios.post<{ emailedAt: string }>('/api/rent-tracker/email/send', { vehicleId: id })
+        sentCount++
+        setMail(m => (m ? { ...m, rows: m.rows.map(r => (r.vehicleId === id ? { ...r, emailedAt: data.emailedAt } : r)) } : m))
+        setPicked(prev => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        setPinned(prev => prev.filter(x => x !== id))
+      } catch (err: any) {
+        failCount++
+        const why = err.response?.data?.error || 'Could not send - please try again'
+        setFailed(f => ({ ...f, [id]: why }))
+      }
+      if (i + 1 < ids.length) await new Promise(resolve => setTimeout(resolve, MAIL_PAUSE_MS))
+    }
+    setRun(null)
+    setMailMsg(failCount === 0
+      ? { kind: 'ok', text: `Sent ${sentCount} email${sentCount === 1 ? '' : 's'}.` }
+      : { kind: 'err', text: `Sent ${sentCount}, not sent ${failCount}. The rows that did not go out are still ticked and say why.` })
+    loadMail()
+  }
+
   // Arrows move from the month asked for last, so quick clicks add up while the table is still loading.
   const shownEnd = end ?? grid?.window.end
   const first = grid?.groups[0]
@@ -200,6 +342,16 @@ export default function RentTrackerPage() {
           />
           <button onClick={() => setAdding(true)} className="px-3 py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:opacity-90">+ Add number plate</button>
           <button onClick={() => { setBinOpen(true); loadBin() }} className={`${pill} flex items-center gap-1.5`} aria-label="Open recycle bin">{binIcon} Recycle bin{bin && bin.rows.length > 0 ? ` (${bin.rows.length})` : ''}</button>
+          {mail && (
+            <button
+              onClick={selectOverdue}
+              disabled={overdueIds.length === 0 || !!run}
+              title={overdueIds.length === 0 ? 'Nobody to email: no one is overdue with an email saved, or they were all emailed today' : 'Tick every overdue renter who has an email, and move them to the top'}
+              className={`${pill} disabled:cursor-not-allowed disabled:opacity-50 ${overdueIds.length > 0 && !run ? '!border-accent !bg-accent-bg !font-semibold !text-accent' : ''}`}
+            >
+              Select overdue ({overdueIds.length})
+            </button>
+          )}
           <div className="flex items-center gap-1 ml-auto">
             <button aria-label="Previous month" disabled={!shownEnd} onClick={() => shownEnd && setEnd(addMonths(shownEnd, -1))} className={pill}>&lt;</button>
             <span className="min-w-[230px] px-2 text-center text-sm font-semibold text-text-primary">
@@ -220,6 +372,37 @@ export default function RentTrackerPage() {
           </p>
         )}
 
+        {mail && (picked.size > 0 || !!run || !!mailMsg) && (
+          <div role="region" aria-label="Overdue-rent emails" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-accent-bg px-4 py-2.5">
+            {run ? (
+              <span role="status" className="text-sm font-semibold text-accent">Sending email {Math.min(run.done + 1, run.total)} of {run.total}... Please stay on this page.</span>
+            ) : picked.size > 0 ? (
+              <span className="text-sm font-semibold text-accent">
+                {picked.size} selected{pinned.length > 0 && <span className="ml-1.5 font-normal text-text-secondary">(the overdue renters are at the top)</span>}
+              </span>
+            ) : null}
+            {mailMsg && <span role="status" className={`text-sm ${mailMsg.kind === 'ok' ? 'text-green' : 'text-red'}`}>{mailMsg.text}</span>}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <button onClick={clearPicked} disabled={!!run} className={barBtn}>Clear</button>
+              <button
+                onClick={sendTest}
+                disabled={!!run || testing || picked.size === 0}
+                title={`Sends one test email for the first ticked row to ${mail.replyTo}. The renter is not emailed.`}
+                className={barBtn}
+              >
+                {testing ? 'Sending test...' : 'Send me a test'}
+              </button>
+              <button
+                onClick={() => setConfirming(true)}
+                disabled={!!run || testing || picked.size === 0}
+                className="h-[34px] rounded-lg border border-accent bg-accent px-3.5 text-[13px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Send emails ({picked.size})
+              </button>
+            </div>
+          </div>
+        )}
+
         {!grid && loading && <p className="text-sm text-text-muted">Loading...</p>}
         {grid && grid.rows.length === 0 && <p className="text-sm text-text-muted">No cars yet. Click Add number plate to choose the cars you want to track.</p>}
         {grid && grid.rows.length > 0 && rows.length === 0 && (
@@ -227,7 +410,18 @@ export default function RentTrackerPage() {
         )}
         {grid && rows.length > 0 && (
           <div className={loading ? 'opacity-60' : ''}>
-            <RentTable grid={grid} rows={rows} onCell={onCell} onRent={onRent} onStart={onStart} onPickRenter={setPicking} onReturned={returned} onRemove={setDeleting} onDays={onDays} />
+            <RentTable
+              grid={grid}
+              rows={shown}
+              onCell={onCell}
+              onRent={onRent}
+              onStart={onStart}
+              onPickRenter={setPicking}
+              onReturned={returned}
+              onRemove={setDeleting}
+              onDays={onDays}
+              mail={mail ? { info: mailBy, selected: picked, sendingId: run?.id ?? null, busy: !!run || testing, failed, tz: grid.tz, scrollTop: moves, onToggle: toggleMail } : undefined}
+            />
           </div>
         )}
       </div>
@@ -250,6 +444,16 @@ export default function RentTrackerPage() {
           days={bin ? bin.days : null}
           onCancel={() => setDeleting(null)}
           onConfirm={() => removeCar(deleting)}
+        />
+      )}
+
+      {confirming && mail && (
+        <SendEmailsDialog
+          items={pickedRows.map(r => ({ vehicleId: r.vehicleId, plate: r.plate, name: r.renter?.name ?? '', owing: mailBy[r.vehicleId]?.owing ?? r.owing, emailedToday: !!mailBy[r.vehicleId]?.emailedAt }))}
+          business={mail.business}
+          replyTo={mail.replyTo}
+          onCancel={() => setConfirming(false)}
+          onConfirm={sendAll}
         />
       )}
 
